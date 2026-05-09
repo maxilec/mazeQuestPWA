@@ -143,10 +143,6 @@
       countdownText = '';
       return;
     }
-
-    // Pause/reprise
-    if (paused) { resumeGame(); return; }
-    if (G.phase === 'play') { pauseGame(); }
   }
 
   // ── Recommencer le niveau ────────────────────────────────────────────────
@@ -206,11 +202,11 @@
     countdownText = '';
   }
 
-  // ── Canvas — ratio paysage conservé quel que soit l'orientation ───────────
+  // ── Canvas adaptatif — portrait (10×6) ou paysage (6×10), cellules carrées ─
   function fitCanvas(R, C) {
     if (!canvas) return;
-    // Cellules carrées : cw = w/C = h/R → w = h*(C/R)
-    // Avec grille 6×10, C/R = 1.67 → canvas toujours plus large que haut
+    // Cellules carrées : cw = w/C = h/R → canvas ratio = C/R
+    // Portrait (R>C) : h > w ; Paysage (C>R) : w > h
     const isLandscape = window.innerWidth > window.innerHeight;
     let w, h;
     if (isLandscape) {
@@ -219,9 +215,9 @@
       const maxW = window.innerWidth * 0.64;
       if (w > maxW) { w = maxW; h = w * (R / C); }
     } else {
-      w = Math.min(window.innerWidth * 0.90, 520);
+      w = Math.min(window.innerWidth * 0.90, 460);
       h = w * (R / C);
-      const maxH = window.innerHeight * 0.52;
+      const maxH = window.innerHeight * 0.62;
       if (h > maxH) { h = maxH; w = h * (C / R); }
     }
     canvas.width  = w | 0;
@@ -411,6 +407,8 @@
 
   // ── Cycle de vie ──────────────────────────────────────────────────────────
   onMount(() => {
+    // Grille adaptée à l'orientation initiale
+    if (window.innerHeight > window.innerWidth) { rowsInUse = 10; colsInUse = 6; }
     fitCanvas(rowsInUse, colsInUse);
     setTimeout(() => initLevel(1, null, rowsInUse, colsInUse), 60);
 
@@ -536,7 +534,12 @@
     };
 
     const onRotate = () => setTimeout(() => {
-      onResize();
+      // Adapter la grille à la nouvelle orientation (portrait ↔ paysage)
+      const portrait = window.innerWidth < window.innerHeight;
+      rowsInUse = portrait ? 10 : 6;
+      colsInUse = portrait ? 6 : 10;
+      fitCanvas(rowsInUse, colsInUse);
+      initLevel(G ? G.lvl : 1, null, rowsInUse, colsInUse);
       if (gyroOk) gyroOffset = { ...lastOrient };
     }, 150);
 
