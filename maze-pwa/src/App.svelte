@@ -20,8 +20,8 @@
   let chrono               = '0:00';
   let hint                 = 'mouse';
   let iosBtn               = false;
-  let rows                 = 8;
-  let cols                 = 6;
+  let rows                 = 6;
+  let cols                 = 10;
   let showCfg              = false;
   let paused               = false;
   let countdownText        = '';
@@ -35,11 +35,16 @@
   let gyroOk               = false;
   let pendingGyroActivation = false; // iOS: permission déjà accordée → activer au 1er tap
   let held                 = { l: 0, r: 0, u: 0, d: 0 };
-  let rowsInUse            = 8;
-  let colsInUse            = 6;
+  let rowsInUse            = 6;
+  let colsInUse            = 10;
   let keyInt               = null;
   let gyroOffset           = { beta: 0, gamma: 0 };
   let lastOrient           = { beta: 0, gamma: 0 };
+  let controlMode          = 'gyro';  // 'gyro' | 'joystick'
+  let joyActive            = false;
+  let joyCx = 0, joyCy    = 0;  // centre joystick (canvas px)
+  let joyDx = 0, joyDy    = 0;  // déplacement courant
+  const JOY_RADIUS         = 70; // rayon max (canvas px)
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function wallThickness(cw, ch) {
@@ -72,6 +77,50 @@
 
   function recenterPosition() {
     gyroOffset = { ...lastOrient };
+  }
+
+  function toggleControlMode() {
+    controlMode = controlMode === 'gyro' ? 'joystick' : 'gyro';
+    joyActive = false; joyDx = 0; joyDy = 0;
+    tilt = { x: 0, y: 0 };
+    hint = controlMode === 'joystick' ? 'joystick' : (gyroOk ? 'gyro' : hint);
+  }
+
+  // ── Joystick touch handlers ────────────────────────────────────────────────
+  function onTouchStart(e) {
+    if (controlMode !== 'joystick') return;
+    const t = e.changedTouches[0];
+    const r = canvas.getBoundingClientRect();
+    const sx = canvas.width / r.width, sy = canvas.height / r.height;
+    joyCx = (t.clientX - r.left) * sx;
+    joyCy = (t.clientY - r.top)  * sy;
+    joyDx = 0; joyDy = 0; joyActive = true;
+  }
+
+  function onTouchMove(e) {
+    e.preventDefault();
+    if (!joyActive || controlMode !== 'joystick') return;
+    const t = e.changedTouches[0];
+    const r = canvas.getBoundingClientRect();
+    const sx = canvas.width / r.width, sy = canvas.height / r.height;
+    const dx = (t.clientX - r.left) * sx - joyCx;
+    const dy = (t.clientY - r.top)  * sy - joyCy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const c = Math.min(dist, JOY_RADIUS);
+    joyDx = dist > 0 ? (dx / dist) * c : 0;
+    joyDy = dist > 0 ? (dy / dist) * c : 0;
+    tilt = {
+      x: Math.max(-1, Math.min(1, joyDx / JOY_RADIUS)),
+      y: Math.max(-1, Math.min(1, joyDy / JOY_RADIUS)),
+    };
+  }
+
+  function onTouchEnd(e) {
+    if (controlMode !== 'joystick') { handleCanvasTap(); return; }
+    const scale = canvas.width / canvas.getBoundingClientRect().width;
+    if (Math.hypot(joyDx, joyDy) < 8 * scale) handleCanvasTap();
+    joyActive = false; joyDx = 0; joyDy = 0;
+    tilt = { x: 0, y: 0 };
   }
 
   // ── Tap sur le canvas ─────────────────────────────────────────────────────
@@ -157,24 +206,23 @@
     countdownText = '';
   }
 
-  // ── Canvas — ratio portrait conservé quel que soit l'orientation ──────────
+  // ── Canvas — ratio paysage conservé quel que soit l'orientation ───────────
   function fitCanvas(R, C) {
     if (!canvas) return;
-    const ratio = R / C; // ex. 8/6 = 1.33 → canvas toujours plus haut que large
+    // Cellules carrées : cw = w/C = h/R → w = h*(C/R)
+    // Avec grille 6×10, C/R = 1.67 → canvas toujours plus large que haut
     const isLandscape = window.innerWidth > window.innerHeight;
     let w, h;
     if (isLandscape) {
-      // Hauteur = facteur limitant (le maze garde son ratio portrait)
       h = window.innerHeight * 0.88;
-      w = h / ratio;
-      // Ne pas déborder sur la zone UI droite
-      const maxW = window.innerWidth * 0.56;
-      if (w > maxW) { w = maxW; h = w * ratio; }
+      w = h * (C / R);
+      const maxW = window.innerWidth * 0.64;
+      if (w > maxW) { w = maxW; h = w * (R / C); }
     } else {
-      const maxW = Math.min(window.innerWidth * 0.90, 460);
-      const maxH = window.innerHeight * 0.60;
-      w = maxW; h = w * ratio;
-      if (h > maxH) { h = maxH; w = h / ratio; }
+      w = Math.min(window.innerWidth * 0.90, 520);
+      h = w * (R / C);
+      const maxH = window.innerHeight * 0.52;
+      if (h > maxH) { h = maxH; w = h * (C / R); }
     }
     canvas.width  = w | 0;
     canvas.height = h | 0;
@@ -340,6 +388,25 @@
     }
 
     ctx.globalAlpha = 1;
+
+    // ── Overlay joystick ──────────────────────────────────────────────────────
+    if (controlMode === 'joystick' && joyActive && g.phase === 'play') {
+      const ratio = Math.min(Math.hypot(joyDx, joyDy) / JOY_RADIUS, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.22 + ratio * 0.18;
+      ctx.strokeStyle = '#00c8ff'; ctx.lineWidth = 2.5;
+      ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 14;
+      ctx.beginPath(); ctx.arc(joyCx, joyCy, JOY_RADIUS, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 0.05 + ratio * 0.07;
+      ctx.fillStyle = '#00c8ff';
+      ctx.beginPath(); ctx.arc(joyCx, joyCy, JOY_RADIUS, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.65 + ratio * 0.35;
+      ctx.shadowBlur = 20; ctx.fillStyle = '#00c8ff';
+      ctx.beginPath(); ctx.arc(joyCx + joyDx, joyCy + joyDy, 18, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.40; ctx.fillStyle = '#fff'; ctx.shadowBlur = 0;
+      ctx.beginPath(); ctx.arc(joyCx + joyDx - 5, joyCy + joyDy - 5, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
   }
 
   // ── Cycle de vie ──────────────────────────────────────────────────────────
@@ -419,6 +486,7 @@
         gyroOffset = { ...lastOrient };
         gyroOk = true; hint = 'gyro';
       }
+      if (controlMode !== 'gyro') return;
       const angle = getOrientationAngle();
       const dB = (e.beta  || 0) - gyroOffset.beta;
       const dG = (e.gamma || 0) - gyroOffset.gamma;
@@ -430,7 +498,7 @@
     };
 
     const onMouse = (e) => {
-      if (gyroOk) return;
+      if (gyroOk || controlMode === 'joystick') return;
       hint = 'mouse';
       const r = canvas.getBoundingClientRect();
       tilt = {
@@ -454,7 +522,7 @@
       if (e.key === 'ArrowDown')  held.d = 0;
     };
     keyInt = setInterval(() => {
-      if (!gyroOk) tilt = { x: (held.r - held.l) * 0.9, y: (held.d - held.u) * 0.9 };
+      if (!gyroOk && controlMode !== 'joystick') tilt = { x: (held.r - held.l) * 0.9, y: (held.d - held.u) * 0.9 };
     }, 16);
 
     const onResize = () => {
@@ -472,6 +540,11 @@
       if (gyroOk) gyroOffset = { ...lastOrient };
     }, 150);
 
+    // Touch listeners non-passifs (preventDefault dans touchmove pour bloquer le scroll)
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
+    canvas.addEventListener('touchend',   onTouchEnd);
+
     window.addEventListener('deviceorientation', onOrient);
     window.addEventListener('mousemove',         onMouse);
     window.addEventListener('keydown',           onKD);
@@ -482,6 +555,9 @@
     return () => {
       cancelAnimationFrame(raf);
       clearInterval(keyInt);
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove',  onTouchMove);
+      canvas.removeEventListener('touchend',   onTouchEnd);
       window.removeEventListener('deviceorientation', onOrient);
       window.removeEventListener('mousemove',         onMouse);
       window.removeEventListener('keydown',           onKD);
@@ -509,9 +585,10 @@
   }
 
   const hints = {
-    gyro:  "📱 Inclinez l'appareil",
-    mouse: '🖱 Déplacez la souris',
-    keys:  '⌨ Touches fléchées',
+    gyro:     "📱 Inclinez l'appareil",
+    mouse:    '🖱 Déplacez la souris',
+    keys:     '⌨ Touches fléchées',
+    joystick: '🕹 Glissez pour diriger',
   };
 </script>
 
@@ -520,7 +597,7 @@
   Zones safe-area :
     Portrait  → zone-b en HAUT,   canvas au centre, zone-a en BAS
     Paysage   → zone-a à GAUCHE,  canvas au centre, zone-b à DROITE
-  Le canvas conserve toujours son ratio portrait (maze non pivoté).
+  Le canvas conserve toujours son ratio paysage (maze non pivoté).
 -->
 <div class="container">
 
@@ -562,7 +639,7 @@
   <!-- Zone A : bas (portrait) → gauche (paysage) = hint / iOS -->
   <div class="zone-a">
     <p class="hint">{hints[hint]}</p>
-    {#if iosBtn}
+    {#if iosBtn && controlMode === 'gyro'}
       <button class="gyro-btn" on:click={requestGyroIOS}>
         Activer le gyroscope
       </button>
@@ -579,6 +656,9 @@
       <div class="pause-info">Niveau {lvl} · {chrono}</div>
       <button class="neon-btn" on:click={resumeGame}>▶&nbsp; REPRENDRE</button>
       <button class="neon-btn neon-btn--green" on:click={restartLevel}>↺&nbsp; RECOMMENCER</button>
+      <button class="neon-btn neon-btn--amber" on:click={toggleControlMode}>
+        {controlMode === 'gyro' ? '🕹 MODE JOYSTICK' : '📡 MODE GYROSCOPE'}
+      </button>
       <button class="neon-btn neon-btn--purple" on:click={recenterPosition}>⊕&nbsp; RECENTRER</button>
     </div>
   </div>
@@ -817,4 +897,11 @@
     text-shadow: 0 0 8px #aa44ff; box-shadow: 0 0 10px rgba(170,68,255,0.20);
   }
   .neon-btn--purple:active { background: rgba(170,68,255,0.13); }
+
+  .neon-btn--amber {
+    border-color: #ffb300; color: #ffcc44;
+    text-shadow: 0 0 8px #ffb300;
+    box-shadow: 0 0 10px rgba(255,179,0,0.20);
+  }
+  .neon-btn--amber:active { background: rgba(255,179,0,0.13); }
 </style>

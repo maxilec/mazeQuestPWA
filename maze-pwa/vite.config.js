@@ -12,9 +12,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
-        name: 'Labyrinthe — Bille de métal',
+        name: 'MazeBall',
         short_name: 'MazeBall',
-        description: 'Guidez la bille dans le labyrinthe grâce au gyroscope.',
+        description: 'Guidez la bille dans le labyrinthe — gyroscope ou joystick virtuel.',
         theme_color: '#130902',
         background_color: '#130902',
         display: 'standalone',
