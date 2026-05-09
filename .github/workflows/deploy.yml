@@ -3,7 +3,8 @@ name: Build & Deploy — GitHub Pages
 on:
   push:
     branches:
-      - main          # déclenché à chaque push sur main
+      - main                                 # production
+      - 'claude/gyroscope-marble-maze-s2CPy' # branche de développement actuelle
 
 permissions:
   contents: read
