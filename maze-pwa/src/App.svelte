@@ -25,6 +25,7 @@
   let showCfg              = false;
   let paused               = false;
   let countdownText        = '';
+  let isPortrait           = false;
 
   // ── Refs non-réactifs ─────────────────────────────────────────────────────
   let canvas;
@@ -35,7 +36,7 @@
   let gyroOk               = false;
   let pendingGyroActivation = false; // iOS: permission déjà accordée → activer au 1er tap
   let held                 = { l: 0, r: 0, u: 0, d: 0 };
-  let rowsInUse            = 6;
+  let rowsInUse            = 6;   // toujours paysage
   let colsInUse            = 10;
   let keyInt               = null;
   let gyroOffset           = { beta: 0, gamma: 0 };
@@ -407,8 +408,9 @@
 
   // ── Cycle de vie ──────────────────────────────────────────────────────────
   onMount(() => {
-    // Grille adaptée à l'orientation initiale
-    if (window.innerHeight > window.innerWidth) { rowsInUse = 10; colsInUse = 6; }
+    isPortrait = window.innerHeight > window.innerWidth;
+    // Essayer de verrouiller l'orientation paysage (Android PWA installée)
+    try { screen.orientation.lock('landscape').catch(() => {}); } catch {}
     fitCanvas(rowsInUse, colsInUse);
     setTimeout(() => initLevel(1, null, rowsInUse, colsInUse), 60);
 
@@ -534,13 +536,12 @@
     };
 
     const onRotate = () => setTimeout(() => {
-      // Adapter la grille à la nouvelle orientation (portrait ↔ paysage)
-      const portrait = window.innerWidth < window.innerHeight;
-      rowsInUse = portrait ? 10 : 6;
-      colsInUse = portrait ? 6 : 10;
-      fitCanvas(rowsInUse, colsInUse);
-      initLevel(G ? G.lvl : 1, null, rowsInUse, colsInUse);
-      if (gyroOk) gyroOffset = { ...lastOrient };
+      isPortrait = window.innerWidth < window.innerHeight;
+      if (!isPortrait) {
+        // Retour en paysage : redimensionner et recalibrer
+        onResize();
+        if (gyroOk) gyroOffset = { ...lastOrient };
+      }
     }, 150);
 
     // Touch listeners non-passifs (preventDefault dans touchmove pour bloquer le scroll)
@@ -650,6 +651,15 @@
   </div>
 
 </div>
+
+<!-- ── Overlay portrait : demander de tourner l'appareil ─────────────────── -->
+{#if isPortrait}
+  <div class="rotate-overlay">
+    <div class="rotate-icon">⟳</div>
+    <div class="rotate-msg">Tournez votre appareil</div>
+    <div class="rotate-sub">MazeBall se joue en mode paysage</div>
+  </div>
+{/if}
 
 <!-- ── Menu Pause (fixed) ────────────────────────────────────────────────── -->
 {#if paused}
@@ -907,4 +917,29 @@
     box-shadow: 0 0 10px rgba(255,179,0,0.20);
   }
   .neon-btn--amber:active { background: rgba(255,179,0,0.13); }
+
+  /* ── Overlay portrait ── */
+  .rotate-overlay {
+    position: fixed; inset: 0; z-index: 500;
+    background: #06001a;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 16px;
+  }
+  .rotate-icon {
+    font-size: 72px;
+    animation: spin90 1.8s ease-in-out infinite;
+    display: inline-block;
+  }
+  @keyframes spin90 {
+    0%, 40%  { transform: rotate(0deg);   opacity: 1; }
+    60%, 100%{ transform: rotate(90deg);  opacity: 0.5; }
+  }
+  .rotate-msg {
+    color: #00c8ff; font-size: 20px; letter-spacing: 3px;
+    text-shadow: 0 0 20px #00c8ff;
+  }
+  .rotate-sub {
+    color: rgba(0,200,255,0.45); font-size: 12px; letter-spacing: 1px;
+  }
 </style>
