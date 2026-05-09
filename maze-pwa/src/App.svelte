@@ -18,7 +18,8 @@
 
   // ── Refs non-réactifs (jeu + canvas) ─────────────────────────────────────
   let canvas;
-  let G          = null;   // état jeu complet
+  let boardWrap;
+  let G          = null;
   let raf        = null;
   let tilt       = { x: 0, y: 0 };
   let gyroOk     = false;
@@ -38,7 +39,6 @@
     const maze = makeMaze(R, C);
     const sc = spawnCell || { r: 0, c: 0 };
 
-    // Trou : cherche la cellule la plus éloignée du spawn
     let hr = -1, hc = -1, best = -1;
     for (let i = 0; i < 30; i++) {
       const tr = (Math.random() * R) | 0;
@@ -71,7 +71,7 @@
     canvas.height = h | 0;
   }
 
-  // ── Collision : mur horizontal (segment à y=wy, de x0 à x1) ─────────────
+  // ── Collision : mur horizontal ────────────────────────────────────────────
   function hw(ball, wy, x0, x1, br) {
     if (ball.x < x0 || ball.x > x1) return;
     const d = ball.y - wy;
@@ -82,7 +82,7 @@
     }
   }
 
-  // ── Collision : mur vertical (segment à x=wx, de y0 à y1) ───────────────
+  // ── Collision : mur vertical ──────────────────────────────────────────────
   function vw(ball, wx, y0, y1, br) {
     if (ball.y < y0 || ball.y > y1) return;
     const d = ball.x - wx;
@@ -101,7 +101,6 @@
     ball.x += ball.vx * dt;
     ball.y += ball.vy * dt;
 
-    // Vérification des murs dans une fenêtre 3×3 autour de la cellule courante
     const col = Math.max(0, Math.min(C - 1, (ball.x / cw) | 0));
     const row = Math.max(0, Math.min(R - 1, (ball.y / ch) | 0));
     for (let r = Math.max(0, row - 1); r <= Math.min(R - 1, row + 1); r++)
@@ -114,7 +113,6 @@
         if (ce.R) vw(ball, x1, y0, y1, br);
       }
 
-    // Bords du plateau
     if (ball.x < br)     { ball.x = br;     if (ball.vx < 0) ball.vx *= -BOUNCE; }
     if (ball.x > W - br) { ball.x = W - br; if (ball.vx > 0) ball.vx *= -BOUNCE; }
     if (ball.y < br)     { ball.y = br;     if (ball.vy < 0) ball.vy *= -BOUNCE; }
@@ -124,117 +122,245 @@
   // ── Rendu Canvas ──────────────────────────────────────────────────────────
   function draw(ctx, g, ts) {
     const { W, H, maze, cw, ch, br, ball, hole, phase, fallT, introT, R, C } = g;
-    const ia = Math.min(1, (ts - introT) / 300); // fondu d'entrée
+    const ia = Math.min(1, (ts - introT) / 300);
+
+    // Décalage parallaxe basé sur l'inclinaison (effet lumière/ombre directionnelle)
+    const sdx = tilt.x * 5;
+    const sdy = tilt.y * 5;
+    // Épaisseur des murs (proportion de la cellule)
+    const wt = Math.max(3.5, Math.min(9, Math.min(cw, ch) * 0.15));
 
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#1e0e04';
+    ctx.fillStyle = '#1a0c04';
     ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = ia;
 
-    // Cases damier bois
+    // ── Cases damier bois ──
     for (let r = 0; r < R; r++)
       for (let c = 0; c < C; c++) {
-        ctx.fillStyle = (r + c) % 2 ? '#311807' : '#3a1e09';
-        ctx.fillRect(c * cw + 1.5, r * ch + 1.5, cw - 3, ch - 3);
+        ctx.fillStyle = (r + c) % 2 ? '#2e1606' : '#371b09';
+        ctx.fillRect(c * cw + 1, r * ch + 1, cw - 2, ch - 2);
       }
 
-    // Murs
-    ctx.lineCap = 'square';
-    for (let r = 0; r < R; r++)
+    // ── Grille de veinage bois (micro-texture) ──
+    ctx.strokeStyle = 'rgba(255,200,120,0.04)';
+    ctx.lineWidth = 1;
+    for (let r = 0; r <= R; r++) {
+      ctx.beginPath(); ctx.moveTo(0, r * ch); ctx.lineTo(W, r * ch); ctx.stroke();
+    }
+    for (let c = 0; c <= C; c++) {
+      ctx.beginPath(); ctx.moveTo(c * cw, 0); ctx.lineTo(c * cw, H); ctx.stroke();
+    }
+
+    // ── Trou ──
+    const hx = hole.c * cw + cw / 2, hy = hole.r * ch + ch / 2, hR = br * 1.3;
+    // Halo d'ombre au sol
+    const sg = ctx.createRadialGradient(hx + sdx * 0.3, hy + sdy * 0.3, hR * .3, hx, hy, hR * 3.5);
+    sg.addColorStop(0, 'rgba(0,0,0,.95)'); sg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath(); ctx.arc(hx, hy, hR * 3.5, 0, Math.PI * 2); ctx.fillStyle = sg; ctx.fill();
+    // Corps du trou
+    ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.fillStyle = '#030000'; ctx.fill();
+    // Bord chanfreiné 3D avec offset parallaxe
+    const rim = ctx.createRadialGradient(
+      hx - hR * .35 + sdx * 0.4, hy - hR * .35 + sdy * 0.4, hR * .15,
+      hx, hy, hR
+    );
+    rim.addColorStop(0,   'rgba(180,120,60,0.1)');
+    rim.addColorStop(.6,  'rgba(80,40,10,.45)');
+    rim.addColorStop(1,   'rgba(0,0,0,.95)');
+    ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.fillStyle = rim; ctx.fill();
+    // Reflet intérieur du trou (effet profondeur)
+    ctx.beginPath(); ctx.arc(hx - hR * .3, hy - hR * .3, hR * .18, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(60,30,10,0.15)'; ctx.fill();
+
+    // ── Murs en 3D (rectangles épais avec faces biseautées) ──
+    for (let r = 0; r < R; r++) {
       for (let c = 0; c < C; c++) {
         const ce = maze[r][c];
         const x0 = c * cw, x1 = x0 + cw, y0 = r * ch, y1 = y0 + ch;
 
-        // Ombre
-        ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 5;
-        ctx.beginPath();
-        if (ce.T) { ctx.moveTo(x0,   y0 + 1); ctx.lineTo(x1,   y0 + 1); }
-        if (ce.B) { ctx.moveTo(x0,   y1 + 1); ctx.lineTo(x1,   y1 + 1); }
-        if (ce.L) { ctx.moveTo(x0 + 1, y0  ); ctx.lineTo(x0 + 1, y1  ); }
-        if (ce.R) { ctx.moveTo(x1 + 1, y0  ); ctx.lineTo(x1 + 1, y1  ); }
-        ctx.stroke();
+        // Mur HAUT (segment horizontal en y0)
+        if (ce.T) {
+          const yw = y0;
+          // Ombre portée au sol (déplacée selon inclinaison → parallaxe)
+          ctx.fillStyle = 'rgba(0,0,0,0.50)';
+          ctx.fillRect(x0 + sdx * .6, yw - wt / 2 + sdy * .8 + wt, x1 - x0, wt * .7);
+          // Face avant (visible quand on penche vers soi, tilt.y > 0)
+          if (sdy > 0) {
+            ctx.fillStyle = '#5a2a08';
+            ctx.fillRect(x0, yw + wt / 2, x1 - x0, Math.min(sdy * .7, wt));
+          }
+          // Corps principal avec dégradé bois 3D
+          const gH = ctx.createLinearGradient(0, yw - wt, 0, yw + wt);
+          gH.addColorStop(0,    '#d4aa72');
+          gH.addColorStop(0.3,  '#9B6840');
+          gH.addColorStop(0.75, '#7a5030');
+          gH.addColorStop(1,    '#5a2a08');
+          ctx.fillStyle = gH;
+          ctx.fillRect(x0 - .5, yw - wt, x1 - x0 + 1, wt * 2);
+          // Arête supérieure lumineuse
+          ctx.fillStyle = 'rgba(220,175,110,0.55)';
+          ctx.fillRect(x0, yw - wt, x1 - x0, wt * .28);
+        }
 
-        // Mur bois
-        ctx.strokeStyle = '#9B6840'; ctx.lineWidth = 3.5;
-        ctx.beginPath();
-        if (ce.T) { ctx.moveTo(x0, y0); ctx.lineTo(x1, y0); }
-        if (ce.B) { ctx.moveTo(x0, y1); ctx.lineTo(x1, y1); }
-        if (ce.L) { ctx.moveTo(x0, y0); ctx.lineTo(x0, y1); }
-        if (ce.R) { ctx.moveTo(x1, y0); ctx.lineTo(x1, y1); }
-        ctx.stroke();
+        // Mur BAS (segment horizontal en y1)
+        if (ce.B) {
+          const yw = y1;
+          ctx.fillStyle = 'rgba(0,0,0,0.50)';
+          ctx.fillRect(x0 + sdx * .6, yw - wt / 2 + sdy * .8 + wt, x1 - x0, wt * .7);
+          if (sdy > 0) {
+            ctx.fillStyle = '#5a2a08';
+            ctx.fillRect(x0, yw + wt / 2, x1 - x0, Math.min(sdy * .7, wt));
+          }
+          const gH = ctx.createLinearGradient(0, yw - wt, 0, yw + wt);
+          gH.addColorStop(0,    '#d4aa72');
+          gH.addColorStop(0.3,  '#9B6840');
+          gH.addColorStop(0.75, '#7a5030');
+          gH.addColorStop(1,    '#5a2a08');
+          ctx.fillStyle = gH;
+          ctx.fillRect(x0 - .5, yw - wt, x1 - x0 + 1, wt * 2);
+          ctx.fillStyle = 'rgba(220,175,110,0.55)';
+          ctx.fillRect(x0, yw - wt, x1 - x0, wt * .28);
+        }
 
-        // Reflet clair
-        ctx.strokeStyle = 'rgba(210,160,100,.22)'; ctx.lineWidth = 1;
-        ctx.beginPath();
-        if (ce.T) { ctx.moveTo(x0, y0 - 1); ctx.lineTo(x1, y0 - 1); }
-        if (ce.B) { ctx.moveTo(x0, y1 - 1); ctx.lineTo(x1, y1 - 1); }
-        if (ce.L) { ctx.moveTo(x0 - 1, y0); ctx.lineTo(x0 - 1, y1); }
-        if (ce.R) { ctx.moveTo(x1 - 1, y0); ctx.lineTo(x1 - 1, y1); }
-        ctx.stroke();
+        // Mur GAUCHE (segment vertical en x0)
+        if (ce.L) {
+          const xw = x0;
+          ctx.fillStyle = 'rgba(0,0,0,0.50)';
+          ctx.fillRect(xw - wt / 2 + sdx * .8 + wt, y0 + sdy * .6, wt * .7, y1 - y0);
+          if (sdx > 0) {
+            ctx.fillStyle = '#5a2a08';
+            ctx.fillRect(xw + wt / 2, y0, Math.min(sdx * .7, wt), y1 - y0);
+          }
+          const gV = ctx.createLinearGradient(xw - wt, 0, xw + wt, 0);
+          gV.addColorStop(0,    '#d4aa72');
+          gV.addColorStop(0.3,  '#9B6840');
+          gV.addColorStop(0.75, '#7a5030');
+          gV.addColorStop(1,    '#5a2a08');
+          ctx.fillStyle = gV;
+          ctx.fillRect(xw - wt, y0 - .5, wt * 2, y1 - y0 + 1);
+          ctx.fillStyle = 'rgba(220,175,110,0.55)';
+          ctx.fillRect(xw - wt, y0, wt * .28, y1 - y0);
+        }
+
+        // Mur DROITE (segment vertical en x1)
+        if (ce.R) {
+          const xw = x1;
+          ctx.fillStyle = 'rgba(0,0,0,0.50)';
+          ctx.fillRect(xw - wt / 2 + sdx * .8 + wt, y0 + sdy * .6, wt * .7, y1 - y0);
+          if (sdx > 0) {
+            ctx.fillStyle = '#5a2a08';
+            ctx.fillRect(xw + wt / 2, y0, Math.min(sdx * .7, wt), y1 - y0);
+          }
+          const gV = ctx.createLinearGradient(xw - wt, 0, xw + wt, 0);
+          gV.addColorStop(0,    '#d4aa72');
+          gV.addColorStop(0.3,  '#9B6840');
+          gV.addColorStop(0.75, '#7a5030');
+          gV.addColorStop(1,    '#5a2a08');
+          ctx.fillStyle = gV;
+          ctx.fillRect(xw - wt, y0 - .5, wt * 2, y1 - y0 + 1);
+          ctx.fillStyle = 'rgba(220,175,110,0.55)';
+          ctx.fillRect(xw - wt, y0, wt * .28, y1 - y0);
+        }
       }
+    }
 
-    // Bordure extérieure
-    ctx.strokeStyle = '#6B2E10'; ctx.lineWidth = 5;
-    ctx.strokeRect(2, 2, W - 4, H - 4);
+    // ── Bordure extérieure 3D ──
+    const bw = 5;
+    const frameGrad = ctx.createLinearGradient(0, 0, bw * 2, bw * 2);
+    frameGrad.addColorStop(0, '#c49a6c');
+    frameGrad.addColorStop(1, '#4a1e06');
+    ctx.strokeStyle = '#7a3a10';
+    ctx.lineWidth = bw;
+    ctx.strokeRect(bw / 2, bw / 2, W - bw, H - bw);
+    // Reflet haut-gauche du cadre
+    ctx.strokeStyle = 'rgba(210,160,90,0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(1, H - 1); ctx.lineTo(1, 1); ctx.lineTo(W - 1, 1);
+    ctx.stroke();
+    // Ombre bas-droite du cadre
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(1, H - 1); ctx.lineTo(W - 1, H - 1); ctx.lineTo(W - 1, 1);
+    ctx.stroke();
 
-    // ── Trou ──
-    const hx = hole.c * cw + cw / 2, hy = hole.r * ch + ch / 2, hR = br * 1.3;
-    const sg = ctx.createRadialGradient(hx, hy, hR * .4, hx, hy, hR * 3);
-    sg.addColorStop(0, 'rgba(0,0,0,.92)'); sg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.beginPath(); ctx.arc(hx, hy, hR * 3, 0, Math.PI * 2); ctx.fillStyle = sg; ctx.fill();
-    ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.fillStyle = '#050101'; ctx.fill();
-    const rim = ctx.createRadialGradient(hx - hR * .3, hy - hR * .3, hR * .2, hx, hy, hR);
-    rim.addColorStop(0, 'rgba(140,90,50,0)');
-    rim.addColorStop(.75, 'rgba(80,40,10,.4)');
-    rim.addColorStop(1, 'rgba(0,0,0,.9)');
-    ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.fillStyle = rim; ctx.fill();
+    // ── Ombre de la bille au sol (parallaxe de hauteur) ──
+    const el  = phase === 'falling' ? ts - fallT : 0;
+    const sc2 = phase === 'falling' ? Math.max(0, 1 - el / 480) : 1;
+    const rbr = br * sc2;
+    const shadowOffX = tilt.x * br * 0.55;
+    const shadowOffY = tilt.y * br * 0.55 + br * 0.45;
+    ctx.save();
+    ctx.globalAlpha = 0.38 * ia * sc2;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(
+      ball.x + shadowOffX, ball.y + shadowOffY,
+      br * 0.82, br * 0.22, 0, 0, Math.PI * 2
+    );
+    ctx.fill();
+    ctx.restore();
 
-    // ── Bille ──
-    const el   = phase === 'falling' ? ts - fallT : 0;
-    const sc2  = phase === 'falling' ? Math.max(0, 1 - el / 480) : 1;
-    const rbr  = br * sc2;
+    // ── Bille métallique ──
     if (rbr > 1.5) {
       ctx.save();
-      ctx.shadowColor   = 'rgba(0,0,0,.65)';
-      ctx.shadowBlur    = rbr * 2.5;
-      ctx.shadowOffsetX = rbr * .18;
-      ctx.shadowOffsetY = rbr * .25;
+      ctx.shadowColor   = 'rgba(0,0,0,.70)';
+      ctx.shadowBlur    = rbr * 2.8;
+      ctx.shadowOffsetX = rbr * .20;
+      ctx.shadowOffsetY = rbr * .28;
+      // Dégradé sphérique
       const bg = ctx.createRadialGradient(
-        ball.x - rbr * .32, ball.y - rbr * .38, rbr * .04,
-        ball.x, ball.y, rbr
+        ball.x - rbr * .34, ball.y - rbr * .40, rbr * .04,
+        ball.x + rbr * .08, ball.y + rbr * .08, rbr
       );
-      bg.addColorStop(0,    '#fff');
-      bg.addColorStop(.25,  '#e8e8e8');
-      bg.addColorStop(.55,  '#b0b0b0');
-      bg.addColorStop(.82,  '#888');
-      bg.addColorStop(1,    '#444');
+      bg.addColorStop(0,    '#ffffff');
+      bg.addColorStop(.18,  '#eeeeee');
+      bg.addColorStop(.42,  '#c0c0c0');
+      bg.addColorStop(.68,  '#909090');
+      bg.addColorStop(.88,  '#666666');
+      bg.addColorStop(1,    '#3a3a3a');
       ctx.beginPath(); ctx.arc(ball.x, ball.y, rbr, 0, Math.PI * 2);
       ctx.fillStyle = bg; ctx.fill();
       ctx.restore();
 
-      // Reflet spéculaire
+      // Reflet spéculaire primaire
       ctx.save();
-      ctx.globalAlpha = .42 * ia;
+      ctx.globalAlpha = .50 * ia;
       const sp = ctx.createRadialGradient(
-        ball.x - rbr * .36, ball.y - rbr * .40, 0,
-        ball.x - rbr * .36, ball.y - rbr * .40, rbr * .36
+        ball.x - rbr * .36, ball.y - rbr * .42, 0,
+        ball.x - rbr * .36, ball.y - rbr * .42, rbr * .38
       );
-      sp.addColorStop(0, 'rgba(255,255,255,.9)');
+      sp.addColorStop(0, 'rgba(255,255,255,.95)');
+      sp.addColorStop(.6, 'rgba(255,255,255,.2)');
       sp.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.beginPath(); ctx.arc(ball.x - rbr * .36, ball.y - rbr * .40, rbr * .36, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(ball.x - rbr * .36, ball.y - rbr * .42, rbr * .38, 0, Math.PI * 2);
       ctx.fillStyle = sp; ctx.fill();
       ctx.restore();
+
+      // Reflet secondaire (bas-droit, réflexion du plateau)
+      ctx.save();
+      ctx.globalAlpha = .15 * ia;
+      const sp2 = ctx.createRadialGradient(
+        ball.x + rbr * .30, ball.y + rbr * .35, 0,
+        ball.x + rbr * .30, ball.y + rbr * .35, rbr * .25
+      );
+      sp2.addColorStop(0, 'rgba(180,120,60,.7)');
+      sp2.addColorStop(1, 'rgba(180,120,60,0)');
+      ctx.beginPath(); ctx.arc(ball.x + rbr * .30, ball.y + rbr * .35, rbr * .25, 0, Math.PI * 2);
+      ctx.fillStyle = sp2; ctx.fill();
+      ctx.restore();
     }
+
     ctx.globalAlpha = 1;
   }
 
   // ── Cycle de vie Svelte ───────────────────────────────────────────────────
   onMount(() => {
-    // Taille initiale
     fitCanvas(rowsInUse, colsInUse);
     setTimeout(() => initLevel(1, null, rowsInUse, colsInUse), 60);
 
-    // Détection iOS gyroscope
     if (
       typeof DeviceOrientationEvent !== 'undefined' &&
       typeof DeviceOrientationEvent.requestPermission === 'function'
@@ -249,7 +375,20 @@
       const dt = Math.min((ts - last) / 16.67, 3);
       last = ts;
 
-      // Sync dimensions si canvas redimensionné
+      // Effet 3D/parallaxe : inclinaison perspective CSS du plateau
+      const tx = tilt.x * 11;
+      const ty = tilt.y * 11;
+      canvas.style.transform = `perspective(700px) rotateX(${-ty}deg) rotateY(${tx}deg)`;
+
+      // Ombre du cadre en fonction de l'inclinaison
+      if (boardWrap) {
+        const sx = tilt.x * 18;
+        const sy = tilt.y * 18;
+        boardWrap.style.boxShadow =
+          `${sx}px ${sy + 8}px 50px rgba(0,0,0,0.92), ` +
+          `${sx * .3}px ${sy * .3 + 2}px 10px rgba(0,0,0,0.55)`;
+      }
+
       if (G.W !== canvas.width || G.H !== canvas.height) {
         G.W  = canvas.width;  G.H  = canvas.height;
         G.cw = G.W / G.C;    G.ch = G.H / G.R;
@@ -289,7 +428,7 @@
       };
     };
 
-    // ── Souris (simulation inclinaison desktop) ──
+    // ── Souris ──
     const onMouse = (e) => {
       if (gyroOk) return;
       hint = 'mouse';
@@ -334,7 +473,6 @@
     window.addEventListener('keyup',             onKU);
     window.addEventListener('resize',            onResize);
 
-    // Cleanup Svelte
     return () => {
       cancelAnimationFrame(raf);
       clearInterval(keyInt);
@@ -389,7 +527,7 @@
     </div>
   {/if}
 
-  <div class="board-wrap">
+  <div class="board-wrap" bind:this={boardWrap}>
     <canvas bind:this={canvas}></canvas>
     {#if msg}
       <div class="overlay">{msg}</div>
@@ -426,7 +564,6 @@
     justify-content: center;
     font-family: Georgia, 'Times New Roman', serif;
     gap: 10px;
-    /* Safe area (notch iPhone) */
     padding: env(safe-area-inset-top) env(safe-area-inset-right)
              env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
@@ -496,14 +633,18 @@
 
   .board-wrap {
     position: relative;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.9), 0 2px 8px rgba(0,0,0,0.5);
     border-radius: 4px;
+    /* La box-shadow est mise à jour dynamiquement via JS (effet 3D) */
+    box-shadow: 0 8px 40px rgba(0,0,0,0.9), 0 2px 8px rgba(0,0,0,0.5);
   }
 
   canvas {
     display: block;
     border-radius: 3px;
     border: 4px solid #5C2E10;
+    /* Transition douce pour l'effet de perspective gyroscope */
+    transition: transform 0.08s ease-out;
+    will-change: transform;
   }
 
   .overlay {
