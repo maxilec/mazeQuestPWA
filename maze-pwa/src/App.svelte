@@ -11,9 +11,9 @@
   const GYRO_KEY = 'mazeGyroGranted';
 
   // ── Physique ──────────────────────────────────────────────────────────────
-  const FRICTION = 0.93;
-  const GRAVITY  = 0.40;
-  const BOUNCE   = 0.22;
+  const FRICTION = 0.96;   // plus d'inertie — la bille glisse ~2.5× plus loin
+  const GRAVITY  = 0.45;   // accélération légèrement plus forte
+  const BOUNCE   = 0.18;   // rebond plus amorti
 
   // ── État réactif ──────────────────────────────────────────────────────────
   let lvl                  = 1;
@@ -46,6 +46,8 @@
   let joyCx = 0, joyCy    = 0;  // centre joystick (canvas px)
   let joyDx = 0, joyDy    = 0;  // déplacement courant
   const JOY_RADIUS         = 70; // rayon max (canvas px)
+  let boardTiltX           = 0;  // tilt visuel lissé du plateau [-1, 1]
+  let boardTiltY           = 0;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function wallThickness(cw, ch) {
@@ -291,7 +293,7 @@
   }
 
   // ── Rendu Canvas ──────────────────────────────────────────────────────────
-  function draw(ctx, g, ts) {
+  function draw(ctx, g, ts, btx = 0, bty = 0) {
     const { W, H, maze, cw, ch, br, wt, ball, hole, phase, fallT, introT, R, C } = g;
     const ia = Math.min(1, (ts - introT) / 300);
 
@@ -300,17 +302,20 @@
     ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = ia;
 
+    // Fond : léger contre-décalage (fond "plus loin" du spectateur)
+    ctx.save();
+    ctx.translate(btx * -2, bty * -2);
     for (let r = 0; r < R; r++)
       for (let c = 0; c < C; c++) {
         ctx.fillStyle = (r + c) % 2 ? '#090028' : '#070020';
         ctx.fillRect(c * cw, r * ch, cw, ch);
       }
-
     ctx.strokeStyle = 'rgba(0,60,180,0.10)'; ctx.lineWidth = 0.5;
     ctx.beginPath();
     for (let r = 0; r <= R; r++) { ctx.moveTo(0, r * ch); ctx.lineTo(W, r * ch); }
     for (let c = 0; c <= C; c++) { ctx.moveTo(c * cw, 0); ctx.lineTo(c * cw, H); }
     ctx.stroke();
+    ctx.restore();
 
     // Trou neon
     const hx = hole.c * cw + cw / 2, hy = hole.r * ch + ch / 2, hR = br * 1.25;
@@ -326,6 +331,15 @@
     ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.stroke();
     ctx.shadowBlur = 4; ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+
+    // Murs — couche d'ombre 3D (parallaxe dans la direction du tilt)
+    ctx.save();
+    ctx.translate(btx * 7, bty * 7);
+    ctx.globalAlpha = 0.20 * ia;
+    ctx.strokeStyle = 'rgba(0,200,255,0.28)';
+    ctx.lineWidth = wt * 9; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    strokeWalls(ctx, maze, R, C, cw, ch);
     ctx.restore();
 
     // Murs neon
@@ -411,6 +425,17 @@
     isPortrait = window.innerHeight > window.innerWidth;
     // Essayer de verrouiller l'orientation paysage (Android PWA installée)
     try { screen.orientation.lock('landscape').catch(() => {}); } catch {}
+
+    // Wake lock — empêcher la mise en veille pendant le jeu
+    let wakeLock = null;
+    const acquireWakeLock = async () => {
+      try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+    };
+    acquireWakeLock();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') acquireWakeLock();
+    });
+
     fitCanvas(rowsInUse, colsInUse);
     setTimeout(() => initLevel(1, null, rowsInUse, colsInUse), 60);
 
@@ -434,10 +459,15 @@
       const dt = Math.min((ts - last) / 16.67, 3);
       last = ts;
 
+      // Inertie visuelle : boardTilt suit tilt avec lag (~12 frames à 60fps)
+      boardTiltX += (tilt.x - boardTiltX) * 0.08;
+      boardTiltY += (tilt.y - boardTiltY) * 0.08;
       if (boardWrap) {
-        const sx = tilt.x * 18, sy = tilt.y * 18;
+        const MAX_DEG = 8;
+        boardWrap.style.transform =
+          `perspective(900px) rotateX(${-boardTiltY * MAX_DEG}deg) rotateY(${boardTiltX * MAX_DEG}deg)`;
         boardWrap.style.boxShadow =
-          `0 0 45px rgba(0,200,255,0.22), ${sx}px ${sy + 8}px 50px rgba(0,0,0,0.92)`;
+          `0 0 45px rgba(0,200,255,0.22), ${boardTiltX * 22}px ${boardTiltY * 22 + 8}px 50px rgba(0,0,0,0.92)`;
       }
 
       if (G.W !== canvas.width || G.H !== canvas.height) {
@@ -472,7 +502,7 @@
         lvl = nl;
       }
 
-      draw(ctx, G, ts);
+      draw(ctx, G, ts, boardTiltX, boardTiltY);
       raf = requestAnimationFrame(loop);
     }
 
@@ -559,6 +589,7 @@
     return () => {
       cancelAnimationFrame(raf);
       clearInterval(keyInt);
+      wakeLock?.release();
       canvas.removeEventListener('touchstart', onTouchStart);
       canvas.removeEventListener('touchmove',  onTouchMove);
       canvas.removeEventListener('touchend',   onTouchEnd);
@@ -633,9 +664,15 @@
 
     {#if countdownText}
       <div class="countdown-overlay">
-        {#key countdownText}
-          <div class="countdown-text">{countdownText}</div>
-        {/key}
+        {#if iosBtn}
+          <button class="neon-btn ios-start-btn" on:click={requestGyroIOS}>
+            ▶ ACTIVER &amp; JOUER
+          </button>
+        {:else}
+          {#key countdownText}
+            <div class="countdown-text">{countdownText}</div>
+          {/key}
+        {/if}
       </div>
     {/if}
   </div>
@@ -917,6 +954,11 @@
     box-shadow: 0 0 10px rgba(255,179,0,0.20);
   }
   .neon-btn--amber:active { background: rgba(255,179,0,0.13); }
+
+  .ios-start-btn {
+    font-size: 16px; letter-spacing: 4px; padding: 14px 28px;
+    pointer-events: all; width: auto;
+  }
 
   /* ── Overlay portrait ── */
   .rotate-overlay {
