@@ -3,14 +3,17 @@ name: Build & Deploy — GitHub Pages
 on:
   push:
     branches:
-      - main          # déclenché à chaque push sur main
+      - main                                 # build + deploy
+      - 'claude/gyroscope-marble-maze-s2CPy' # build uniquement (validation CI)
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # anticipe la migration Node.js 24
 
 permissions:
   contents: read
-  pages: write        # nécessaire pour déployer sur GitHub Pages
-  id-token: write     # nécessaire pour l'authentification OIDC
+  pages: write
+  id-token: write
 
-# Un seul déploiement à la fois ; les anciens jobs en attente sont annulés
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -32,20 +35,24 @@ jobs:
         run: npm install
         working-directory: maze-pwa
 
-      - name: Build (base = /mazequestpwa/)
+      - name: Build (base = /mazeQuestPWA/)
         run: npm run build
         working-directory: maze-pwa
         env:
-          GITHUB_ACTIONS: true   # active le base URL /mazequestpwa/ dans vite.config.js
+          GITHUB_ACTIONS: true
 
+      # L'artifact n'est uploadé que pour main → seul main peut déployer
       - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: maze-pwa/dist    # dossier produit par Vite
+          path: maze-pwa/dist
 
   deploy:
     name: Deploy to GitHub Pages
     needs: build
+    # Condition explicite : deploy uniquement depuis main
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
