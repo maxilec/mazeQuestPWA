@@ -8,6 +8,7 @@
   const N_HOLE  = '#00ff80';
   const N_FRAME = '#9900ff';
   const BG_MAIN = '#06001a';
+  const GYRO_KEY = 'mazeGyroGranted';
 
   // ── Physique ──────────────────────────────────────────────────────────────
   const FRICTION = 0.93;
@@ -15,30 +16,30 @@
   const BOUNCE   = 0.22;
 
   // ── État réactif ──────────────────────────────────────────────────────────
-  let lvl            = 1;
-  let chrono         = '0:00';
-  let hint           = 'mouse';
-  let iosBtn         = false;
-  let rows           = 8;
-  let cols           = 6;
-  let showCfg        = false;
-  let paused         = false;
-  let msg            = '';
-  let countdownText  = '';
+  let lvl                  = 1;
+  let chrono               = '0:00';
+  let hint                 = 'mouse';
+  let iosBtn               = false;
+  let rows                 = 8;
+  let cols                 = 6;
+  let showCfg              = false;
+  let paused               = false;
+  let countdownText        = '';
 
   // ── Refs non-réactifs ─────────────────────────────────────────────────────
   let canvas;
   let boardWrap;
-  let G           = null;
-  let raf         = null;
-  let tilt        = { x: 0, y: 0 };
-  let gyroOk      = false;
-  let held        = { l: 0, r: 0, u: 0, d: 0 };
-  let rowsInUse   = 8;
-  let colsInUse   = 6;
-  let keyInt      = null;
-  let gyroOffset  = { beta: 0, gamma: 0 };
-  let lastOrient  = { beta: 0, gamma: 0 };
+  let G                    = null;
+  let raf                  = null;
+  let tilt                 = { x: 0, y: 0 };
+  let gyroOk               = false;
+  let pendingGyroActivation = false; // iOS: permission déjà accordée → activer au 1er tap
+  let held                 = { l: 0, r: 0, u: 0, d: 0 };
+  let rowsInUse            = 8;
+  let colsInUse            = 6;
+  let keyInt               = null;
+  let gyroOffset           = { beta: 0, gamma: 0 };
+  let lastOrient           = { beta: 0, gamma: 0 };
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function wallThickness(cw, ch) {
@@ -73,12 +74,33 @@
     gyroOffset = { ...lastOrient };
   }
 
+  // ── Tap sur le canvas ─────────────────────────────────────────────────────
   function handleCanvasTap() {
-    if (paused || !G || G.phase !== 'play') return;
-    pauseGame();
+    if (!G) return;
+
+    // iOS : activer gyro automatiquement si permission déjà accordée avant
+    if (pendingGyroActivation) {
+      pendingGyroActivation = false;
+      DeviceOrientationEvent.requestPermission()
+        .then(res => { if (res === 'granted') { gyroOk = true; hint = 'gyro'; } else iosBtn = true; })
+        .catch(() => { iosBtn = true; });
+      return;
+    }
+
+    // Sauter le compte à rebours
+    if (G.phase === 'intro') {
+      G.phase = 'play';
+      G.levelStart = performance.now();
+      countdownText = '';
+      return;
+    }
+
+    // Pause/reprise
+    if (paused) { resumeGame(); return; }
+    if (G.phase === 'play') { pauseGame(); }
   }
 
-  // ── Recommencer le niveau (même labyrinthe, bille au départ) ──────────────
+  // ── Recommencer le niveau ────────────────────────────────────────────────
   function restartLevel() {
     if (!G) return;
     const now = performance.now();
@@ -91,6 +113,7 @@
     chrono = '0:00';
     countdownText = '';
     paused = false;
+    if (gyroOk) gyroOffset = { ...lastOrient };
   }
 
   // ── Initialisation d'un niveau ───────────────────────────────────────────
@@ -114,6 +137,9 @@
     if (hr < 0) { hr = R - 1 - sc.r; hc = C - 1 - sc.c; }
     if (hr === sc.r && hc === sc.c) hr = (hr + 1) % R;
 
+    // Recalibrer le gyro à chaque nouveau niveau
+    if (gyroOk) gyroOffset = { ...lastOrient };
+
     const now = performance.now();
     G = {
       W, H, cw, ch, br, wt, maze, lvl: levelNum, R, C,
@@ -131,19 +157,21 @@
     countdownText = '';
   }
 
-  // ── Canvas (taille adaptée portrait/paysage) ──────────────────────────────
+  // ── Canvas — ratio portrait conservé quel que soit l'orientation ──────────
   function fitCanvas(R, C) {
     if (!canvas) return;
-    const ratio = R / C;
+    const ratio = R / C; // ex. 8/6 = 1.33 → canvas toujours plus haut que large
     const isLandscape = window.innerWidth > window.innerHeight;
     let w, h;
     if (isLandscape) {
-      const maxH = window.innerHeight * 0.88;
-      const maxW = window.innerWidth  * 0.60;
-      h = maxH; w = h / ratio;
+      // Hauteur = facteur limitant (le maze garde son ratio portrait)
+      h = window.innerHeight * 0.88;
+      w = h / ratio;
+      // Ne pas déborder sur la zone UI droite
+      const maxW = window.innerWidth * 0.56;
       if (w > maxW) { w = maxW; h = w * ratio; }
     } else {
-      const maxW = Math.min(window.innerWidth * 0.92, 460);
+      const maxW = Math.min(window.innerWidth * 0.90, 460);
       const maxH = window.innerHeight * 0.60;
       w = maxW; h = w * ratio;
       if (h > maxH) { h = maxH; w = h / ratio; }
@@ -152,9 +180,7 @@
     canvas.height = h | 0;
   }
 
-  // ── Collision capsule (bille vs segment de mur arrondi) ───────────────────
-  // Résout le glissement sur les angles arrondis en traitant chaque mur
-  // comme une capsule (segment + hémisphères aux extrémités).
+  // ── Collision capsule ─────────────────────────────────────────────────────
   function segCollide(ball, ax, ay, bx, by, br, wt) {
     const thr = br + wt;
     const dx = bx - ax, dy = by - ay;
@@ -198,14 +224,13 @@
         if (ce.R) segCollide(ball, x1, y0, x1, y1, br, wt);
       }
 
-    // Bords du plateau (murs plats, pas de capsule)
     if (ball.x < br + wt)     { ball.x = br + wt;     if (ball.vx < 0) ball.vx *= -BOUNCE; }
     if (ball.x > W - br - wt) { ball.x = W - br - wt; if (ball.vx > 0) ball.vx *= -BOUNCE; }
     if (ball.y < br + wt)     { ball.y = br + wt;     if (ball.vy < 0) ball.vy *= -BOUNCE; }
     if (ball.y > H - br - wt) { ball.y = H - br - wt; if (ball.vy > 0) ball.vy *= -BOUNCE; }
   }
 
-  // ── Dessin des murs ───────────────────────────────────────────────────────
+  // ── Murs ──────────────────────────────────────────────────────────────────
   function strokeWalls(ctx, maze, R, C, cw, ch) {
     ctx.beginPath();
     for (let r = 0; r < R; r++)
@@ -230,16 +255,13 @@
     ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = ia;
 
-    // Damier
     for (let r = 0; r < R; r++)
       for (let c = 0; c < C; c++) {
         ctx.fillStyle = (r + c) % 2 ? '#090028' : '#070020';
         ctx.fillRect(c * cw, r * ch, cw, ch);
       }
 
-    // Grille de fond
-    ctx.strokeStyle = 'rgba(0,60,180,0.10)';
-    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = 'rgba(0,60,180,0.10)'; ctx.lineWidth = 0.5;
     ctx.beginPath();
     for (let r = 0; r <= R; r++) { ctx.moveTo(0, r * ch); ctx.lineTo(W, r * ch); }
     for (let c = 0; c <= C; c++) { ctx.moveTo(c * cw, 0); ctx.lineTo(c * cw, H); }
@@ -261,7 +283,7 @@
     ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
 
-    // Murs neon — 3 passes (halo / corps / cœur)
+    // Murs neon
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.strokeStyle = 'rgba(0,200,255,0.15)'; ctx.lineWidth = wt * 5.5;
     strokeWalls(ctx, maze, R, C, cw, ch);
@@ -270,7 +292,7 @@
     ctx.strokeStyle = '#b8eeff'; ctx.lineWidth = wt * 0.75;
     strokeWalls(ctx, maze, R, C, cw, ch);
 
-    // Bordure neon violet
+    // Bordure
     ctx.save();
     ctx.shadowColor = N_FRAME; ctx.shadowBlur = 16;
     ctx.strokeStyle = N_FRAME; ctx.lineWidth = 3; ctx.lineCap = 'square';
@@ -325,13 +347,21 @@
     fitCanvas(rowsInUse, colsInUse);
     setTimeout(() => initLevel(1, null, rowsInUse, colsInUse), 60);
 
+    // iOS : vérifier si la permission gyroscope a déjà été accordée
     if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') iosBtn = true;
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      if (localStorage.getItem(GYRO_KEY) === '1') {
+        // Permission déjà accordée → activer au premier tap (user gesture requis)
+        pendingGyroActivation = true;
+        iosBtn = false;
+      } else {
+        iosBtn = true;
+      }
+    }
 
     const ctx = canvas.getContext('2d');
     let last  = performance.now();
 
-    // ── Boucle de jeu ──
     function loop(ts) {
       if (!G) { raf = requestAnimationFrame(loop); return; }
       const dt = Math.min((ts - last) / 16.67, 3);
@@ -351,17 +381,15 @@
       }
 
       if (G.phase === 'intro') {
-        // Compte à rebours — bille figée
         const elapsed = ts - G.introT;
-        let step;
-        if      (elapsed < 900)  step = `LVL ${G.lvl}`;
-        else if (elapsed < 1700) step = '3';
-        else if (elapsed < 2500) step = '2';
-        else if (elapsed < 3300) step = '1';
-        else {
+        let step = elapsed < 900 ? `LVL ${G.lvl}`
+                 : elapsed < 1700 ? '3'
+                 : elapsed < 2500 ? '2'
+                 : elapsed < 3300 ? '1'
+                 : '';
+        if (step === '' && countdownText !== '') {
           G.phase = 'play';
           G.levelStart = ts;
-          step = '';
         }
         if (step !== countdownText) countdownText = step;
       } else if (!paused && G.phase === 'play') {
@@ -373,11 +401,8 @@
         }
       } else if (G.phase === 'falling' && ts - G.fallT > 720) {
         const nl = G.lvl + 1;
-        const sp = { r: G.hole.r, c: G.hole.c };
-        initLevel(nl, sp, G.R, G.C);
+        initLevel(nl, { r: G.hole.r, c: G.hole.c }, G.R, G.C);
         lvl = nl;
-        msg = `LVL ${nl}`;
-        setTimeout(() => msg = '', 1600);
       }
 
       draw(ctx, G, ts);
@@ -386,7 +411,7 @@
 
     raf = requestAnimationFrame(loop);
 
-    // ── Gyroscope avec auto-calibration et axes orientation-aware ──
+    // ── Gyroscope — axes orientation-aware + auto-calibration ──
     const onOrient = (e) => {
       if (e.beta == null) return;
       lastOrient = { beta: e.beta || 0, gamma: e.gamma || 0 };
@@ -395,22 +420,12 @@
         gyroOk = true; hint = 'gyro';
       }
       const angle = getOrientationAngle();
-      const dBeta  = (e.beta  || 0) - gyroOffset.beta;
-      const dGamma = (e.gamma || 0) - gyroOffset.gamma;
+      const dB = (e.beta  || 0) - gyroOffset.beta;
+      const dG = (e.gamma || 0) - gyroOffset.gamma;
       let tx, ty;
-      if (angle === 90) {
-        // Paysage droite (USB en bas)
-        tx =  dBeta  / 25;
-        ty = -dGamma / 25;
-      } else if (angle === -90 || angle === 270) {
-        // Paysage gauche (USB en haut)
-        tx = -dBeta  / 25;
-        ty =  dGamma / 25;
-      } else {
-        // Portrait
-        tx = dGamma / 25;
-        ty = dBeta  / 25;
-      }
+      if      (angle === 90)              { tx =  dB / 25; ty = -dG / 25; }
+      else if (angle === -90 || angle === 270) { tx = -dB / 25; ty =  dG / 25; }
+      else                                { tx = dG / 25;  ty =  dB / 25; }
       tilt = { x: Math.max(-1, Math.min(1, tx)), y: Math.max(-1, Math.min(1, ty)) };
     };
 
@@ -452,13 +467,10 @@
       }
     };
 
-    // Recalibre automatiquement le gyro lors d'un changement d'orientation
-    const onRotate = () => {
-      setTimeout(() => {
-        onResize();
-        if (gyroOk) gyroOffset = { ...lastOrient };
-      }, 150);
-    };
+    const onRotate = () => setTimeout(() => {
+      onResize();
+      if (gyroOk) gyroOffset = { ...lastOrient };
+    }, 150);
 
     window.addEventListener('deviceorientation', onOrient);
     window.addEventListener('mousemove',         onMouse);
@@ -479,10 +491,14 @@
     };
   });
 
+  // Permission iOS + mémorisation dans localStorage
   async function requestGyroIOS() {
     try {
       const res = await DeviceOrientationEvent.requestPermission();
-      if (res === 'granted') { gyroOk = true; iosBtn = false; hint = 'gyro'; }
+      if (res === 'granted') {
+        gyroOk = true; iosBtn = false; hint = 'gyro';
+        localStorage.setItem(GYRO_KEY, '1');
+      }
     } catch {}
   }
 
@@ -500,13 +516,18 @@
 </script>
 
 <!-- ── Markup ───────────────────────────────────────────────────────────── -->
+<!--
+  Zones safe-area :
+    Portrait  → zone-b en HAUT,   canvas au centre, zone-a en BAS
+    Paysage   → zone-a à GAUCHE,  canvas au centre, zone-b à DROITE
+  Le canvas conserve toujours son ratio portrait (maze non pivoté).
+-->
 <div class="container">
 
-  <!-- UI latérale (portrait = en haut, paysage = à droite) -->
-  <div class="sidebar">
+  <!-- Zone B : haut (portrait) → droite (paysage) = contrôles principaux -->
+  <div class="zone-b">
     <div class="header">
       <span class="chrono">{chrono}</span>
-      <span class="level-label">LVL&nbsp;{lvl}</span>
       <div class="header-btns">
         <button class="icon-btn" on:click={() => paused ? resumeGame() : pauseGame()}
                 aria-label="Pause">
@@ -516,7 +537,6 @@
                 aria-label="Paramètres">⚙</button>
       </div>
     </div>
-
     {#if showCfg}
       <div class="config">
         <label>Rangs <input type="number" min="3" max="16" bind:value={rows} /></label>
@@ -524,22 +544,12 @@
         <button class="apply-btn" on:click={applyConfig}>OK</button>
       </div>
     {/if}
-
-    <p class="hint">{hints[hint]}</p>
-
-    {#if iosBtn}
-      <button class="gyro-btn" on:click={requestGyroIOS}>
-        Activer le gyroscope (iOS)
-      </button>
-    {/if}
   </div>
 
-  <!-- Plateau de jeu -->
+  <!-- Plateau — toujours en orientation portrait -->
   <div class="board-wrap" bind:this={boardWrap}>
-    <!-- Tap sur le canvas = pause -->
     <canvas bind:this={canvas} on:click={handleCanvasTap}></canvas>
 
-    <!-- Compte à rebours (bille figée) -->
     {#if countdownText}
       <div class="countdown-overlay">
         {#key countdownText}
@@ -547,30 +557,29 @@
         {/key}
       </div>
     {/if}
+  </div>
 
-    <!-- Message passage de niveau -->
-    {#if msg}
-      <div class="lvl-overlay">{msg}</div>
+  <!-- Zone A : bas (portrait) → gauche (paysage) = hint / iOS -->
+  <div class="zone-a">
+    <p class="hint">{hints[hint]}</p>
+    {#if iosBtn}
+      <button class="gyro-btn" on:click={requestGyroIOS}>
+        Activer le gyroscope
+      </button>
     {/if}
   </div>
 
 </div>
 
-<!-- ── Menu Pause (fixed, par-dessus tout) ───────────────────────────────── -->
+<!-- ── Menu Pause (fixed) ────────────────────────────────────────────────── -->
 {#if paused}
   <div class="pause-overlay" on:click|self={resumeGame}>
     <div class="pause-panel">
       <div class="pause-title">PAUSE</div>
       <div class="pause-info">Niveau {lvl} · {chrono}</div>
-      <button class="neon-btn" on:click={resumeGame}>
-        ▶&nbsp; REPRENDRE
-      </button>
-      <button class="neon-btn neon-btn--green" on:click={restartLevel}>
-        ↺&nbsp; RECOMMENCER
-      </button>
-      <button class="neon-btn neon-btn--purple" on:click={recenterPosition}>
-        ⊕&nbsp; RECENTRER LA POSITION
-      </button>
+      <button class="neon-btn" on:click={resumeGame}>▶&nbsp; REPRENDRE</button>
+      <button class="neon-btn neon-btn--green" on:click={restartLevel}>↺&nbsp; RECOMMENCER</button>
+      <button class="neon-btn neon-btn--purple" on:click={recenterPosition}>⊕&nbsp; RECENTRER</button>
     </div>
   </div>
 {/if}
@@ -586,7 +595,7 @@
     user-select: none;
   }
 
-  /* ── Layout principal : portrait = colonne, paysage = ligne ── */
+  /* ── Container : flex-column en portrait, flex-row en paysage ── */
   .container {
     width: 100vw; height: 100vh;
     display: flex;
@@ -594,43 +603,35 @@
     align-items: center;
     justify-content: center;
     font-family: Georgia, 'Times New Roman', serif;
-    gap: 10px;
-    padding: env(safe-area-inset-top)  env(safe-area-inset-right)
-             env(safe-area-inset-bottom) env(safe-area-inset-left);
+    gap: 8px;
+    /* Safe areas portrait (notch haut/bas) */
+    padding-top:    max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    padding-left:   env(safe-area-inset-left);
+    padding-right:  env(safe-area-inset-right);
   }
 
+  /* Portrait : zone-b en haut, canvas au milieu, zone-a en bas */
+  .zone-b    { order: 0; width: 100%; max-width: 460px; }
+  .board-wrap { order: 1; flex-shrink: 0; }
+  .zone-a    { order: 2; width: 100%; max-width: 460px; }
+
+  /* ── Paysage : canvas au centre, zone-a à gauche, zone-b à droite ── */
   @media (orientation: landscape) {
     .container {
       flex-direction: row;
-      justify-content: center;
-      align-items: center;
-      gap: 20px;
-      padding: 8px 16px;
-      padding-left:  max(16px, env(safe-area-inset-left));
-      padding-right: max(16px, env(safe-area-inset-right));
+      gap: 12px;
+      padding-top:    env(safe-area-inset-top,    4px);
+      padding-bottom: env(safe-area-inset-bottom, 4px);
+      /* Safe areas paysage (notch gauche/droite iPhone) */
+      padding-left:  max(12px, env(safe-area-inset-left));
+      padding-right: max(12px, env(safe-area-inset-right));
     }
-  }
 
-  /* ── Sidebar ── */
-  .sidebar {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    max-width: 460px;
-    order: -1; /* au-dessus du plateau en portrait */
-  }
-
-  @media (orientation: landscape) {
-    .sidebar {
-      width: 130px;
-      min-width: 110px;
-      max-width: 150px;
-      align-items: flex-start;
-      order: 1; /* à droite du plateau en paysage */
-      flex-shrink: 0;
-    }
+    /* zone-a à gauche (hint, discret), canvas au centre, zone-b à droite */
+    .zone-a    { order: 0; width: 70px;  min-width: 50px;  max-width: 90px;  }
+    .board-wrap { order: 1; }
+    .zone-b    { order: 2; width: 140px; min-width: 120px; max-width: 160px; }
   }
 
   /* ── Header ── */
@@ -643,33 +644,20 @@
   }
 
   @media (orientation: landscape) {
-    .header {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 10px;
-    }
+    .header { flex-direction: column; align-items: flex-start; gap: 12px; }
   }
 
   .chrono {
+    flex: 1;
     color: #ffe040;
     font-family: 'Courier New', monospace;
-    font-size: 16px;
+    font-size: 17px;
     letter-spacing: 2px;
     text-shadow: 0 0 10px #ffe040, 0 0 4px #ffe040;
-    min-width: 46px;
-  }
-
-  .level-label {
-    flex: 1;
-    text-align: center;
-    color: #ff44dd;
-    font-size: 13px;
-    letter-spacing: 4px;
-    text-shadow: 0 0 12px #ff44dd, 0 0 4px #ff44dd;
   }
 
   @media (orientation: landscape) {
-    .level-label { flex: none; text-align: left; }
+    .chrono { flex: none; font-size: 20px; }
   }
 
   .header-btns { display: flex; gap: 6px; }
@@ -680,8 +668,7 @@
     color: #00c8ff;
     width: 30px; height: 30px;
     border-radius: 5px;
-    font-size: 12px;
-    cursor: pointer;
+    font-size: 12px; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     text-shadow: 0 0 6px #00c8ff;
     box-shadow: 0 0 8px rgba(0,200,255,0.25);
@@ -695,35 +682,28 @@
     border: 1px solid #00c8ff;
     border-radius: 6px;
     padding: 8px 12px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    align-items: center;
-    font-size: 12px;
-    color: #00c8ff;
-    font-family: inherit;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    font-size: 11px; color: #00c8ff; font-family: inherit;
     box-shadow: 0 0 20px rgba(0,200,255,0.18);
+    margin-top: 4px;
   }
   .config label { display: flex; align-items: center; gap: 4px; }
   .config input {
-    width: 38px; background: rgba(0,20,60,0.8); color: #00c8ff;
+    width: 36px; background: rgba(0,20,60,0.8); color: #00c8ff;
     border: 1px solid #00c8ff; border-radius: 3px;
-    padding: 2px 4px; text-align: center; font-family: inherit; font-size: 12px;
+    padding: 2px 4px; text-align: center; font-family: inherit; font-size: 11px;
   }
   .apply-btn {
     background: rgba(0,200,255,0.12); color: #00c8ff;
     border: 1px solid #00c8ff; border-radius: 4px;
-    padding: 4px 10px; font-weight: bold; cursor: pointer;
-    font-family: inherit; letter-spacing: 1px;
+    padding: 3px 10px; cursor: pointer; font-family: inherit;
   }
-  .apply-btn:active { background: rgba(0,200,255,0.25); }
 
   /* ── Plateau ── */
   .board-wrap {
     position: relative;
     border-radius: 4px;
     box-shadow: 0 0 45px rgba(0,200,255,0.22), 0 8px 40px rgba(0,0,0,0.9);
-    flex-shrink: 0;
   }
 
   canvas {
@@ -736,48 +716,43 @@
 
   /* ── Compte à rebours ── */
   .countdown-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(6,0,26,0.55);
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(6,0,26,0.52);
     border-radius: 3px;
-    pointer-events: none;
+    pointer-events: none; /* le tap passe au canvas en-dessous */
   }
 
   .countdown-text {
-    font-size: clamp(36px, 12vw, 72px);
+    font-size: clamp(36px, 14vw, 72px);
     font-weight: bold;
     letter-spacing: 4px;
     color: #00c8ff;
-    text-shadow: 0 0 40px #00c8ff, 0 0 15px #00c8ff, 0 0 5px #fff;
-    animation: cdPulse 0.75s cubic-bezier(.2, .8, .4, 1) both;
+    text-shadow: 0 0 40px #00c8ff, 0 0 14px #00c8ff, 0 0 4px #fff;
+    animation: cdPulse 0.72s cubic-bezier(.2,.8,.4,1) both;
   }
 
   @keyframes cdPulse {
-    from { transform: scale(2); opacity: 0; }
-    to   { transform: scale(1); opacity: 1; }
+    from { transform: scale(2.2); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
   }
 
-  /* ── Overlay passage de niveau ── */
-  .lvl-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(6,0,26,.75);
-    border-radius: 3px;
-    color: #ff44dd;
-    font-size: 28px;
-    font-weight: bold;
-    letter-spacing: 6px;
-    text-shadow: 0 0 30px #ff44dd, 0 0 10px #ff44dd;
-    pointer-events: none;
+  /* ── Zone A (hint, bouton iOS) ── */
+  .zone-a {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
   }
 
-  /* ── Hint ── */
+  @media (orientation: landscape) {
+    .zone-a { align-items: center; justify-content: center; }
+    /* Hint en vertical en paysage */
+    .hint {
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      transform: rotate(180deg);
+      font-size: 9px;
+    }
+  }
+
   .hint {
     color: rgba(0,200,255,0.38);
     font-size: 10px;
@@ -785,28 +760,20 @@
     letter-spacing: .5px;
   }
 
-  /* ── iOS Gyro ── */
   .gyro-btn {
-    padding: 8px 18px;
+    padding: 8px 14px;
     background: rgba(0,200,255,0.08);
-    border: 1.5px solid #00c8ff;
-    color: #00c8ff;
-    border-radius: 5px;
-    font-size: 12px;
-    cursor: pointer;
-    font-family: inherit;
-    text-shadow: 0 0 8px #00c8ff;
+    border: 1.5px solid #00c8ff; color: #00c8ff;
+    border-radius: 5px; font-size: 11px; cursor: pointer;
+    font-family: inherit; text-shadow: 0 0 8px #00c8ff;
   }
   .gyro-btn:active { opacity: .85; }
 
   /* ── Menu Pause ── */
   .pause-overlay {
-    position: fixed;
-    inset: 0;
+    position: fixed; inset: 0;
     background: rgba(6,0,26,0.82);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: flex; align-items: center; justify-content: center;
     z-index: 200;
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
@@ -814,44 +781,28 @@
 
   .pause-panel {
     background: rgba(0,8,38,0.97);
-    border: 1.5px solid #00c8ff;
-    border-radius: 14px;
+    border: 1.5px solid #00c8ff; border-radius: 14px;
     padding: 28px 32px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 14px;
-    min-width: 230px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    min-width: 220px;
     box-shadow: 0 0 50px rgba(0,200,255,0.30), inset 0 0 30px rgba(0,0,80,0.35);
   }
 
   .pause-title {
-    color: #00c8ff;
-    font-size: 24px;
-    letter-spacing: 8px;
+    color: #00c8ff; font-size: 24px; letter-spacing: 8px;
     text-shadow: 0 0 20px #00c8ff, 0 0 8px #00c8ff;
   }
 
   .pause-info {
-    color: rgba(0,200,255,0.55);
-    font-size: 12px;
-    letter-spacing: 2px;
-    margin-top: -4px;
+    color: rgba(0,200,255,0.55); font-size: 12px; letter-spacing: 2px; margin-top: -4px;
   }
 
   .neon-btn {
-    border: 1.5px solid #00c8ff;
-    background: transparent;
-    color: #00c8ff;
-    padding: 10px 18px;
-    border-radius: 7px;
-    font-family: inherit;
-    font-size: 12px;
-    cursor: pointer;
-    letter-spacing: 2px;
-    text-shadow: 0 0 8px #00c8ff;
-    box-shadow: 0 0 10px rgba(0,200,255,0.20);
-    width: 100%;
+    border: 1.5px solid #00c8ff; background: transparent; color: #00c8ff;
+    padding: 10px 16px; border-radius: 7px;
+    font-family: inherit; font-size: 12px; cursor: pointer;
+    letter-spacing: 2px; text-shadow: 0 0 8px #00c8ff;
+    box-shadow: 0 0 10px rgba(0,200,255,0.20); width: 100%;
   }
   .neon-btn:active { background: rgba(0,200,255,0.13); }
 
