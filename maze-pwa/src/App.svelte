@@ -26,6 +26,7 @@
   let paused               = false;
   let countdownText        = '';
   let isPortrait           = false;
+  let attempts             = 0;
 
   // ── Refs non-réactifs ─────────────────────────────────────────────────────
   let canvas;
@@ -159,6 +160,18 @@
     G.pausedMs = 0;
     G.pauseAt  = 0;
     chrono = '0:00';
+    attempts = 0;
+    countdownText = '';
+    paused = false;
+    if (gyroOk) gyroOffset = { ...lastOrient };
+  }
+
+  // ── Redémarrage après chute dans le vide (même niveau, chrono conservé) ──
+  function restartAfterFall() {
+    if (!G) return;
+    attempts += 1;
+    G.ball = { x: G.spawn.c * G.cw + G.cw / 2, y: G.spawn.r * G.ch + G.ch / 2, vx: 0, vy: 0 };
+    G.phase = 'play';
     countdownText = '';
     paused = false;
     if (gyroOk) gyroOffset = { ...lastOrient };
@@ -196,6 +209,7 @@
       hole: { r: hr, c: hc },
       phase: 'intro',
       fallT: 0,
+      fallCause: 'hole',
       introT: now,
       levelStart: now,
       pausedMs: 0,
@@ -227,54 +241,30 @@
     canvas.height = h | 0;
   }
 
-  // ── Collision capsule ─────────────────────────────────────────────────────
-  function segCollide(ball, ax, ay, bx, by, br, wt) {
-    const thr = br + wt;
-    const dx = bx - ax, dy = by - ay;
-    const len2 = dx * dx + dy * dy;
-    const t = len2 > 0
-      ? Math.max(0, Math.min(1, ((ball.x - ax) * dx + (ball.y - ay) * dy) / len2))
-      : 0;
-    const cx = ax + t * dx, cy = ay + t * dy;
-    const ex = ball.x - cx, ey = ball.y - cy;
-    const d2 = ex * ex + ey * ey;
-    if (d2 < thr * thr && d2 > 1e-6) {
-      const d = Math.sqrt(d2);
-      const nx = ex / d, ny = ey / d;
-      ball.x = cx + nx * thr;
-      ball.y = cy + ny * thr;
-      const dot = ball.vx * nx + ball.vy * ny;
-      if (dot < 0) {
-        ball.vx -= (1 + BOUNCE) * dot * nx;
-        ball.vy -= (1 + BOUNCE) * dot * ny;
-      }
-    }
+  // ── Détection de chute dans le vide ──────────────────────────────────────
+  function checkWallFall(ball, g) {
+    const { maze, cw, ch, br, wt, W, H, R, C } = g;
+    // Hors canvas = vide
+    if (ball.x < wt || ball.x > W - wt || ball.y < wt || ball.y > H - wt) return true;
+    const col = Math.max(0, Math.min(C - 1, (ball.x / cw) | 0));
+    const row = Math.max(0, Math.min(R - 1, (ball.y / ch) | 0));
+    const ce = maze[row][col];
+    const x0 = col * cw, x1 = x0 + cw, y0 = row * ch, y1 = y0 + ch;
+    // La bille tombe si son centre franchit le bord de la piste (distance < br)
+    if (ce.T && ball.y - y0 < br) return true;
+    if (ce.B && y1 - ball.y < br) return true;
+    if (ce.L && ball.x - x0 < br) return true;
+    if (ce.R && x1 - ball.x < br) return true;
+    return false;
   }
 
-  // ── Physique ──────────────────────────────────────────────────────────────
+  // ── Physique — gravité + inertie, sans rebond sur murs ───────────────────
   function physics(g, dt) {
-    const { ball, maze, cw, ch, br, wt, W, H, R, C } = g;
+    const { ball } = g;
     ball.vx = (ball.vx + tilt.x * GRAVITY * dt) * FRICTION;
     ball.vy = (ball.vy + tilt.y * GRAVITY * dt) * FRICTION;
     ball.x += ball.vx * dt;
     ball.y += ball.vy * dt;
-
-    const col = Math.max(0, Math.min(C - 1, (ball.x / cw) | 0));
-    const row = Math.max(0, Math.min(R - 1, (ball.y / ch) | 0));
-    for (let r = Math.max(0, row - 1); r <= Math.min(R - 1, row + 1); r++)
-      for (let c = Math.max(0, col - 1); c <= Math.min(C - 1, col + 1); c++) {
-        const ce = maze[r][c];
-        const x0 = c * cw, x1 = x0 + cw, y0 = r * ch, y1 = y0 + ch;
-        if (ce.T) segCollide(ball, x0, y0, x1, y0, br, wt);
-        if (ce.B) segCollide(ball, x0, y1, x1, y1, br, wt);
-        if (ce.L) segCollide(ball, x0, y0, x0, y1, br, wt);
-        if (ce.R) segCollide(ball, x1, y0, x1, y1, br, wt);
-      }
-
-    if (ball.x < br + wt)     { ball.x = br + wt;     if (ball.vx < 0) ball.vx *= -BOUNCE; }
-    if (ball.x > W - br - wt) { ball.x = W - br - wt; if (ball.vx > 0) ball.vx *= -BOUNCE; }
-    if (ball.y < br + wt)     { ball.y = br + wt;     if (ball.vy < 0) ball.vy *= -BOUNCE; }
-    if (ball.y > H - br - wt) { ball.y = H - br - wt; if (ball.vy > 0) ball.vy *= -BOUNCE; }
   }
 
   // ── Murs ──────────────────────────────────────────────────────────────────
@@ -298,23 +288,18 @@
     const ia = Math.min(1, (ts - introT) / 300);
 
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = BG_MAIN;
+    ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = ia;
 
-    // Fond : léger contre-décalage (fond "plus loin" du spectateur)
+    // Sol de la piste — toutes les cellules forment le circuit
     ctx.save();
     ctx.translate(btx * -2, bty * -2);
     for (let r = 0; r < R; r++)
       for (let c = 0; c < C; c++) {
-        ctx.fillStyle = (r + c) % 2 ? '#090028' : '#070020';
+        ctx.fillStyle = '#060016';
         ctx.fillRect(c * cw, r * ch, cw, ch);
       }
-    ctx.strokeStyle = 'rgba(0,60,180,0.10)'; ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    for (let r = 0; r <= R; r++) { ctx.moveTo(0, r * ch); ctx.lineTo(W, r * ch); }
-    for (let c = 0; c <= C; c++) { ctx.moveTo(c * cw, 0); ctx.lineTo(c * cw, H); }
-    ctx.stroke();
     ctx.restore();
 
     // Trou neon
@@ -333,22 +318,22 @@
     ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
 
-    // Murs — couche d'ombre 3D (parallaxe dans la direction du tilt)
+    // Précipice — profondeur 3D (parallaxe vers la direction du tilt)
     ctx.save();
     ctx.translate(btx * 7, bty * 7);
-    ctx.globalAlpha = 0.20 * ia;
-    ctx.strokeStyle = 'rgba(0,200,255,0.28)';
-    ctx.lineWidth = wt * 9; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.globalAlpha = 0.28 * ia;
+    ctx.strokeStyle = 'rgba(60,10,0,0.95)';
+    ctx.lineWidth = wt * 11; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     strokeWalls(ctx, maze, R, C, cw, ch);
     ctx.restore();
 
-    // Murs neon
+    // Précipice — bords lumineux (orange chaud = danger)
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.strokeStyle = 'rgba(0,200,255,0.15)'; ctx.lineWidth = wt * 5.5;
+    ctx.strokeStyle = 'rgba(255,70,0,0.18)'; ctx.lineWidth = wt * 6;
     strokeWalls(ctx, maze, R, C, cw, ch);
-    ctx.strokeStyle = 'rgba(0,200,255,0.65)'; ctx.lineWidth = wt * 2.2;
+    ctx.strokeStyle = 'rgba(255,150,20,0.65)'; ctx.lineWidth = wt * 2.5;
     strokeWalls(ctx, maze, R, C, cw, ch);
-    ctx.strokeStyle = '#b8eeff'; ctx.lineWidth = wt * 0.75;
+    ctx.strokeStyle = 'rgba(255,220,100,0.92)'; ctx.lineWidth = wt * 0.8;
     strokeWalls(ctx, maze, R, C, cw, ch);
 
     // Bordure
@@ -492,14 +477,23 @@
       } else if (!paused && G.phase === 'play') {
         physics(G, dt);
         chrono = formatTime(ts - G.levelStart - G.pausedMs);
+        // Détection : trou de sortie (fin de niveau)
         const hx = G.hole.c * G.cw + G.cw / 2, hy = G.hole.r * G.ch + G.ch / 2;
         if (Math.hypot(G.ball.x - hx, G.ball.y - hy) < G.br * .58) {
-          G.phase = 'falling'; G.fallT = ts;
+          G.phase = 'falling'; G.fallT = ts; G.fallCause = 'hole';
+        // Détection : chute dans le vide (relance la manche)
+        } else if (checkWallFall(G.ball, G)) {
+          G.phase = 'falling'; G.fallT = ts; G.fallCause = 'void';
         }
       } else if (G.phase === 'falling' && ts - G.fallT > 720) {
-        const nl = G.lvl + 1;
-        initLevel(nl, { r: G.hole.r, c: G.hole.c }, G.R, G.C);
-        lvl = nl;
+        if (G.fallCause === 'hole') {
+          const nl = G.lvl + 1;
+          initLevel(nl, { r: G.hole.r, c: G.hole.c }, G.R, G.C);
+          lvl = nl;
+        } else {
+          // Chute vide : relance la manche, chrono conservé
+          restartAfterFall();
+        }
       }
 
       draw(ctx, G, ts, boardTiltX, boardTiltY);
@@ -640,6 +634,9 @@
   <div class="zone-b">
     <div class="header">
       <span class="chrono">{chrono}</span>
+      {#if attempts > 0}
+        <span class="attempts">✗{attempts}</span>
+      {/if}
       <div class="header-btns">
         <button class="icon-btn" on:click={() => paused ? resumeGame() : pauseGame()}
                 aria-label="Pause">
@@ -703,7 +700,7 @@
   <div class="pause-overlay" on:click|self={resumeGame}>
     <div class="pause-panel">
       <div class="pause-title">PAUSE</div>
-      <div class="pause-info">Niveau {lvl} · {chrono}</div>
+      <div class="pause-info">Niveau {lvl} · {chrono} · {attempts} essai{attempts !== 1 ? 's' : ''}</div>
       <button class="neon-btn" on:click={resumeGame}>▶&nbsp; REPRENDRE</button>
       <button class="neon-btn neon-btn--green" on:click={restartLevel}>↺&nbsp; RECOMMENCER</button>
       <button class="neon-btn neon-btn--amber" on:click={toggleControlMode}>
@@ -788,6 +785,18 @@
 
   @media (orientation: landscape) {
     .chrono { flex: none; font-size: 20px; }
+  }
+
+  .attempts {
+    color: #ff6040;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-shadow: 0 0 8px #ff4020, 0 0 3px #ff4020;
+  }
+
+  @media (orientation: landscape) {
+    .attempts { font-size: 15px; }
   }
 
   .header-btns { display: flex; gap: 6px; }
