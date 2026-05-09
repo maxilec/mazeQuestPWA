@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { VitePWA } from 'vite-plugin-pwa';
 
-const base = process.env.GITHUB_ACTIONS ? '/mazequestpwa/' : '/';
+const base = process.env.GITHUB_ACTIONS ? '/mazeQuestPWA/' : '/';
 
 export default defineConfig({
   base,
