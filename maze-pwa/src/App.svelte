@@ -15,15 +15,16 @@
   const BOUNCE   = 0.22;
 
   // ── État réactif ──────────────────────────────────────────────────────────
-  let lvl      = 1;
-  let chrono   = '0:00';
-  let hint     = 'mouse';
-  let iosBtn   = false;
-  let rows     = 8;
-  let cols     = 6;
-  let showCfg  = false;
-  let paused   = false;
-  let msg      = '';
+  let lvl            = 1;
+  let chrono         = '0:00';
+  let hint           = 'mouse';
+  let iosBtn         = false;
+  let rows           = 8;
+  let cols           = 6;
+  let showCfg        = false;
+  let paused         = false;
+  let msg            = '';
+  let countdownText  = '';
 
   // ── Refs non-réactifs ─────────────────────────────────────────────────────
   let canvas;
@@ -46,12 +47,16 @@
 
   function formatTime(ms) {
     const s = Math.max(0, ms) / 1000;
-    const m = Math.floor(s / 60);
-    const ss = Math.floor(s % 60);
-    return `${m}:${ss.toString().padStart(2, '0')}`;
+    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   }
 
-  // ── Pause / Reprise ───────────────────────────────────────────────────────
+  function getOrientationAngle() {
+    return (typeof screen !== 'undefined' && screen.orientation)
+      ? screen.orientation.angle
+      : (window.orientation || 0);
+  }
+
+  // ── Pause ─────────────────────────────────────────────────────────────────
   function pauseGame() {
     if (!G || G.phase !== 'play') return;
     paused = true;
@@ -60,16 +65,32 @@
 
   function resumeGame() {
     if (!G) return;
-    if (G.pauseAt) {
-      G.pausedMs += performance.now() - G.pauseAt;
-      G.pauseAt = 0;
-    }
+    if (G.pauseAt) { G.pausedMs += performance.now() - G.pauseAt; G.pauseAt = 0; }
     paused = false;
   }
 
-  // Utilise la position actuelle du téléphone comme position neutre
   function recenterPosition() {
-    gyroOffset = { beta: lastOrient.beta, gamma: lastOrient.gamma };
+    gyroOffset = { ...lastOrient };
+  }
+
+  function handleCanvasTap() {
+    if (paused || !G || G.phase !== 'play') return;
+    pauseGame();
+  }
+
+  // ── Recommencer le niveau (même labyrinthe, bille au départ) ──────────────
+  function restartLevel() {
+    if (!G) return;
+    const now = performance.now();
+    G.ball     = { x: G.spawn.c * G.cw + G.cw / 2, y: G.spawn.r * G.ch + G.ch / 2, vx: 0, vy: 0 };
+    G.phase    = 'intro';
+    G.introT   = now;
+    G.levelStart = now;
+    G.pausedMs = 0;
+    G.pauseAt  = 0;
+    chrono = '0:00';
+    countdownText = '';
+    paused = false;
   }
 
   // ── Initialisation d'un niveau ───────────────────────────────────────────
@@ -86,9 +107,8 @@
 
     let hr = -1, hc = -1, best = -1;
     for (let i = 0; i < 30; i++) {
-      const tr = (Math.random() * R) | 0;
-      const tc = (Math.random() * C) | 0;
-      const d  = Math.abs(tr - sc.r) + Math.abs(tc - sc.c);
+      const tr = (Math.random() * R) | 0, tc = (Math.random() * C) | 0;
+      const d = Math.abs(tr - sc.r) + Math.abs(tc - sc.c);
       if (d > best && d > 1) { best = d; hr = tr; hc = tc; }
     }
     if (hr < 0) { hr = R - 1 - sc.r; hc = C - 1 - sc.c; }
@@ -97,9 +117,10 @@
     const now = performance.now();
     G = {
       W, H, cw, ch, br, wt, maze, lvl: levelNum, R, C,
+      spawn: { ...sc },
       ball: { x: sc.c * cw + cw / 2, y: sc.r * ch + ch / 2, vx: 0, vy: 0 },
       hole: { r: hr, c: hc },
-      phase: 'play',
+      phase: 'intro',
       fallT: 0,
       introT: now,
       levelStart: now,
@@ -107,41 +128,57 @@
       pauseAt: 0,
     };
     chrono = '0:00';
+    countdownText = '';
   }
 
-  // ── Canvas ────────────────────────────────────────────────────────────────
+  // ── Canvas (taille adaptée portrait/paysage) ──────────────────────────────
   function fitCanvas(R, C) {
     if (!canvas) return;
     const ratio = R / C;
-    const maxW  = Math.min(window.innerWidth * 0.92, 460);
-    const maxH  = window.innerHeight * 0.62;
-    let w = maxW, h = maxW * ratio;
-    if (h > maxH) { h = maxH; w = h / ratio; }
+    const isLandscape = window.innerWidth > window.innerHeight;
+    let w, h;
+    if (isLandscape) {
+      const maxH = window.innerHeight * 0.88;
+      const maxW = window.innerWidth  * 0.60;
+      h = maxH; w = h / ratio;
+      if (w > maxW) { w = maxW; h = w * ratio; }
+    } else {
+      const maxW = Math.min(window.innerWidth * 0.92, 460);
+      const maxH = window.innerHeight * 0.60;
+      w = maxW; h = w * ratio;
+      if (h > maxH) { h = maxH; w = h / ratio; }
+    }
     canvas.width  = w | 0;
     canvas.height = h | 0;
   }
 
-  // ── Collisions ────────────────────────────────────────────────────────────
-  function hw(ball, wy, x0, x1, br, wt) {
-    if (ball.x < x0 || ball.x > x1) return;
-    const d = ball.y - wy, thr = br + wt;
-    if (Math.abs(d) < thr) {
-      ball.y = wy + (d >= 0 ? thr : -thr);
-      if (d >= 0 && ball.vy < 0) ball.vy *= -BOUNCE;
-      if (d  < 0 && ball.vy > 0) ball.vy *= -BOUNCE;
+  // ── Collision capsule (bille vs segment de mur arrondi) ───────────────────
+  // Résout le glissement sur les angles arrondis en traitant chaque mur
+  // comme une capsule (segment + hémisphères aux extrémités).
+  function segCollide(ball, ax, ay, bx, by, br, wt) {
+    const thr = br + wt;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 0
+      ? Math.max(0, Math.min(1, ((ball.x - ax) * dx + (ball.y - ay) * dy) / len2))
+      : 0;
+    const cx = ax + t * dx, cy = ay + t * dy;
+    const ex = ball.x - cx, ey = ball.y - cy;
+    const d2 = ex * ex + ey * ey;
+    if (d2 < thr * thr && d2 > 1e-6) {
+      const d = Math.sqrt(d2);
+      const nx = ex / d, ny = ey / d;
+      ball.x = cx + nx * thr;
+      ball.y = cy + ny * thr;
+      const dot = ball.vx * nx + ball.vy * ny;
+      if (dot < 0) {
+        ball.vx -= (1 + BOUNCE) * dot * nx;
+        ball.vy -= (1 + BOUNCE) * dot * ny;
+      }
     }
   }
 
-  function vw(ball, wx, y0, y1, br, wt) {
-    if (ball.y < y0 || ball.y > y1) return;
-    const d = ball.x - wx, thr = br + wt;
-    if (Math.abs(d) < thr) {
-      ball.x = wx + (d >= 0 ? thr : -thr);
-      if (d >= 0 && ball.vx < 0) ball.vx *= -BOUNCE;
-      if (d  < 0 && ball.vx > 0) ball.vx *= -BOUNCE;
-    }
-  }
-
+  // ── Physique ──────────────────────────────────────────────────────────────
   function physics(g, dt) {
     const { ball, maze, cw, ch, br, wt, W, H, R, C } = g;
     ball.vx = (ball.vx + tilt.x * GRAVITY * dt) * FRICTION;
@@ -155,22 +192,23 @@
       for (let c = Math.max(0, col - 1); c <= Math.min(C - 1, col + 1); c++) {
         const ce = maze[r][c];
         const x0 = c * cw, x1 = x0 + cw, y0 = r * ch, y1 = y0 + ch;
-        if (ce.T) hw(ball, y0, x0, x1, br, wt);
-        if (ce.B) hw(ball, y1, x0, x1, br, wt);
-        if (ce.L) vw(ball, x0, y0, y1, br, wt);
-        if (ce.R) vw(ball, x1, y0, y1, br, wt);
+        if (ce.T) segCollide(ball, x0, y0, x1, y0, br, wt);
+        if (ce.B) segCollide(ball, x0, y1, x1, y1, br, wt);
+        if (ce.L) segCollide(ball, x0, y0, x0, y1, br, wt);
+        if (ce.R) segCollide(ball, x1, y0, x1, y1, br, wt);
       }
 
+    // Bords du plateau (murs plats, pas de capsule)
     if (ball.x < br + wt)     { ball.x = br + wt;     if (ball.vx < 0) ball.vx *= -BOUNCE; }
     if (ball.x > W - br - wt) { ball.x = W - br - wt; if (ball.vx > 0) ball.vx *= -BOUNCE; }
     if (ball.y < br + wt)     { ball.y = br + wt;     if (ball.vy < 0) ball.vy *= -BOUNCE; }
     if (ball.y > H - br - wt) { ball.y = H - br - wt; if (ball.vy > 0) ball.vy *= -BOUNCE; }
   }
 
-  // ── Dessin des segments de murs (réutilisé par plusieurs passes) ──────────
+  // ── Dessin des murs ───────────────────────────────────────────────────────
   function strokeWalls(ctx, maze, R, C, cw, ch) {
     ctx.beginPath();
-    for (let r = 0; r < R; r++) {
+    for (let r = 0; r < R; r++)
       for (let c = 0; c < C; c++) {
         const ce = maze[r][c];
         const x0 = c * cw, x1 = x0 + cw, y0 = r * ch, y1 = y0 + ch;
@@ -179,11 +217,10 @@
         if (ce.L) { ctx.moveTo(x0, y0); ctx.lineTo(x0, y1); }
         if (ce.R) { ctx.moveTo(x1, y0); ctx.lineTo(x1, y1); }
       }
-    }
     ctx.stroke();
   }
 
-  // ── Rendu Canvas Neon ─────────────────────────────────────────────────────
+  // ── Rendu Canvas ──────────────────────────────────────────────────────────
   function draw(ctx, g, ts) {
     const { W, H, maze, cw, ch, br, wt, ball, hole, phase, fallT, introT, R, C } = g;
     const ia = Math.min(1, (ts - introT) / 300);
@@ -193,14 +230,14 @@
     ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = ia;
 
-    // ── Fond : cases damier sombres ──
+    // Damier
     for (let r = 0; r < R; r++)
       for (let c = 0; c < C; c++) {
         ctx.fillStyle = (r + c) % 2 ? '#090028' : '#070020';
         ctx.fillRect(c * cw, r * ch, cw, ch);
       }
 
-    // Grille de fond très subtile
+    // Grille de fond
     ctx.strokeStyle = 'rgba(0,60,180,0.10)';
     ctx.lineWidth = 0.5;
     ctx.beginPath();
@@ -208,108 +245,73 @@
     for (let c = 0; c <= C; c++) { ctx.moveTo(c * cw, 0); ctx.lineTo(c * cw, H); }
     ctx.stroke();
 
-    // ── Trou neon ──
+    // Trou neon
     const hx = hole.c * cw + cw / 2, hy = hole.r * ch + ch / 2, hR = br * 1.25;
-    // Halo d'attraction
     const hGlow = ctx.createRadialGradient(hx, hy, hR * .4, hx, hy, hR * 3.2);
-    hGlow.addColorStop(0, 'rgba(0,255,128,0.22)');
-    hGlow.addColorStop(1, 'rgba(0,255,128,0)');
+    hGlow.addColorStop(0, 'rgba(0,255,128,0.22)'); hGlow.addColorStop(1, 'rgba(0,255,128,0)');
     ctx.fillStyle = hGlow;
     ctx.beginPath(); ctx.arc(hx, hy, hR * 3.2, 0, Math.PI * 2); ctx.fill();
-    // Fond sombre du trou
     ctx.fillStyle = '#000a06';
     ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.fill();
-    // Anneau neon (shadowBlur ok ici car un seul cercle)
     ctx.save();
-    ctx.shadowColor = N_HOLE;
-    ctx.shadowBlur  = 16;
-    ctx.strokeStyle = N_HOLE;
-    ctx.lineWidth   = 2.5;
+    ctx.shadowColor = N_HOLE; ctx.shadowBlur = 16;
+    ctx.strokeStyle = N_HOLE; ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.stroke();
-    // Cœur blanc brillant
-    ctx.shadowBlur  = 4;
-    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
-    ctx.lineWidth   = 1;
+    ctx.shadowBlur = 4; ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
 
-    // ── Murs neon — 3 passes sans shadowBlur (perf mobile) ──
-    // lineCap/Join round = coins et extrémités arrondis (style Pacman)
-    ctx.lineCap  = 'round';
-    ctx.lineJoin = 'round';
-
-    // Passe 1 : halo large transparent
-    ctx.strokeStyle = 'rgba(0,200,255,0.15)';
-    ctx.lineWidth   = wt * 5.5;
+    // Murs neon — 3 passes (halo / corps / cœur)
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0,200,255,0.15)'; ctx.lineWidth = wt * 5.5;
+    strokeWalls(ctx, maze, R, C, cw, ch);
+    ctx.strokeStyle = 'rgba(0,200,255,0.65)'; ctx.lineWidth = wt * 2.2;
+    strokeWalls(ctx, maze, R, C, cw, ch);
+    ctx.strokeStyle = '#b8eeff'; ctx.lineWidth = wt * 0.75;
     strokeWalls(ctx, maze, R, C, cw, ch);
 
-    // Passe 2 : corps lumineux
-    ctx.strokeStyle = 'rgba(0,200,255,0.65)';
-    ctx.lineWidth   = wt * 2.2;
-    strokeWalls(ctx, maze, R, C, cw, ch);
-
-    // Passe 3 : cœur brillant
-    ctx.strokeStyle = '#b8eeff';
-    ctx.lineWidth   = wt * 0.75;
-    strokeWalls(ctx, maze, R, C, cw, ch);
-
-    // ── Bordure extérieure neon violet ──
+    // Bordure neon violet
     ctx.save();
-    ctx.shadowColor = N_FRAME;
-    ctx.shadowBlur  = 16;
-    ctx.strokeStyle = N_FRAME;
-    ctx.lineWidth   = 3;
-    ctx.lineCap     = 'square';
+    ctx.shadowColor = N_FRAME; ctx.shadowBlur = 16;
+    ctx.strokeStyle = N_FRAME; ctx.lineWidth = 3; ctx.lineCap = 'square';
     ctx.strokeRect(1.5, 1.5, W - 3, H - 3);
     ctx.restore();
 
-    // ── Bille ──
+    // Bille
     const el  = phase === 'falling' ? ts - fallT : 0;
     const sc2 = phase === 'falling' ? Math.max(0, 1 - el / 480) : 1;
     const rbr = br * sc2;
 
     if (rbr > 1.5) {
-      // Ombre elliptique au sol (décalée selon inclinaison → illusion de hauteur)
       ctx.save();
       ctx.globalAlpha = 0.45 * ia * sc2;
       ctx.fillStyle = '#000';
       ctx.beginPath();
-      ctx.ellipse(
-        ball.x + tilt.x * br * 0.55,
-        ball.y + tilt.y * br * 0.55 + rbr * 0.45,
-        rbr * 0.85, rbr * 0.22, 0, 0, Math.PI * 2
-      );
+      ctx.ellipse(ball.x + tilt.x * br * .55, ball.y + tilt.y * br * .55 + rbr * .45,
+        rbr * .85, rbr * .22, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
-      // Sphère avec glow neon doré
       ctx.save();
-      ctx.shadowColor = N_BALL;
-      ctx.shadowBlur  = 22 * sc2;
+      ctx.shadowColor = N_BALL; ctx.shadowBlur = 22 * sc2;
       const bg = ctx.createRadialGradient(
         ball.x - rbr * .34, ball.y - rbr * .40, rbr * .04,
-        ball.x + rbr * .06, ball.y + rbr * .06, rbr
-      );
-      bg.addColorStop(0,   '#ffffff');
-      bg.addColorStop(.18, '#ffffc0');
-      bg.addColorStop(.42, '#ffe040');
-      bg.addColorStop(.68, '#ff9900');
-      bg.addColorStop(.88, '#cc5500');
-      bg.addColorStop(1,   '#7a2800');
+        ball.x + rbr * .06, ball.y + rbr * .06, rbr);
+      bg.addColorStop(0, '#ffffff'); bg.addColorStop(.18, '#ffffc0');
+      bg.addColorStop(.42, '#ffe040'); bg.addColorStop(.68, '#ff9900');
+      bg.addColorStop(.88, '#cc5500'); bg.addColorStop(1, '#7a2800');
       ctx.beginPath(); ctx.arc(ball.x, ball.y, rbr, 0, Math.PI * 2);
       ctx.fillStyle = bg; ctx.fill();
       ctx.restore();
 
-      // Reflet spéculaire
       ctx.save();
       ctx.globalAlpha = .55 * ia;
       const sp = ctx.createRadialGradient(
         ball.x - rbr * .36, ball.y - rbr * .42, 0,
-        ball.x - rbr * .36, ball.y - rbr * .42, rbr * .38
-      );
-      sp.addColorStop(0,  'rgba(255,255,255,.92)');
+        ball.x - rbr * .36, ball.y - rbr * .42, rbr * .38);
+      sp.addColorStop(0, 'rgba(255,255,255,.92)');
       sp.addColorStop(.6, 'rgba(255,255,255,.15)');
-      sp.addColorStop(1,  'rgba(255,255,255,0)');
+      sp.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.beginPath(); ctx.arc(ball.x - rbr * .36, ball.y - rbr * .42, rbr * .38, 0, Math.PI * 2);
       ctx.fillStyle = sp; ctx.fill();
       ctx.restore();
@@ -323,42 +325,51 @@
     fitCanvas(rowsInUse, colsInUse);
     setTimeout(() => initLevel(1, null, rowsInUse, colsInUse), 60);
 
-    if (
-      typeof DeviceOrientationEvent !== 'undefined' &&
-      typeof DeviceOrientationEvent.requestPermission === 'function'
-    ) iosBtn = true;
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') iosBtn = true;
 
     const ctx = canvas.getContext('2d');
     let last  = performance.now();
 
+    // ── Boucle de jeu ──
     function loop(ts) {
       if (!G) { raf = requestAnimationFrame(loop); return; }
       const dt = Math.min((ts - last) / 16.67, 3);
       last = ts;
 
-      // Ombre du cadre dynamique (effet 3D sans toucher au canvas)
       if (boardWrap) {
         const sx = tilt.x * 18, sy = tilt.y * 18;
         boardWrap.style.boxShadow =
           `0 0 45px rgba(0,200,255,0.22), ${sx}px ${sy + 8}px 50px rgba(0,0,0,0.92)`;
       }
 
-      // Sync dimensions
       if (G.W !== canvas.width || G.H !== canvas.height) {
         G.W = canvas.width; G.H = canvas.height;
-        G.cw = G.W / G.C;  G.ch = G.H / G.R;
+        G.cw = G.W / G.C; G.ch = G.H / G.R;
         G.br = Math.min(G.cw, G.ch) * .26;
         G.wt = wallThickness(G.cw, G.ch);
       }
 
-      if (!paused && G.phase === 'play') {
+      if (G.phase === 'intro') {
+        // Compte à rebours — bille figée
+        const elapsed = ts - G.introT;
+        let step;
+        if      (elapsed < 900)  step = `LVL ${G.lvl}`;
+        else if (elapsed < 1700) step = '3';
+        else if (elapsed < 2500) step = '2';
+        else if (elapsed < 3300) step = '1';
+        else {
+          G.phase = 'play';
+          G.levelStart = ts;
+          step = '';
+        }
+        if (step !== countdownText) countdownText = step;
+      } else if (!paused && G.phase === 'play') {
         physics(G, dt);
         chrono = formatTime(ts - G.levelStart - G.pausedMs);
-        const hx = G.hole.c * G.cw + G.cw / 2;
-        const hy = G.hole.r * G.ch + G.ch / 2;
+        const hx = G.hole.c * G.cw + G.cw / 2, hy = G.hole.r * G.ch + G.ch / 2;
         if (Math.hypot(G.ball.x - hx, G.ball.y - hy) < G.br * .58) {
-          G.phase = 'falling';
-          G.fallT = ts;
+          G.phase = 'falling'; G.fallT = ts;
         }
       } else if (G.phase === 'falling' && ts - G.fallT > 720) {
         const nl = G.lvl + 1;
@@ -375,20 +386,32 @@
 
     raf = requestAnimationFrame(loop);
 
-    // ── Gyroscope avec auto-calibration au premier événement ──
+    // ── Gyroscope avec auto-calibration et axes orientation-aware ──
     const onOrient = (e) => {
       if (e.beta == null) return;
       lastOrient = { beta: e.beta || 0, gamma: e.gamma || 0 };
       if (!gyroOk) {
-        // Position initiale = position neutre (offset zéro)
         gyroOffset = { ...lastOrient };
-        gyroOk = true;
-        hint = 'gyro';
+        gyroOk = true; hint = 'gyro';
       }
-      tilt = {
-        x: Math.max(-1, Math.min(1, ((e.gamma || 0) - gyroOffset.gamma) / 25)),
-        y: Math.max(-1, Math.min(1, ((e.beta  || 0) - gyroOffset.beta ) / 25)),
-      };
+      const angle = getOrientationAngle();
+      const dBeta  = (e.beta  || 0) - gyroOffset.beta;
+      const dGamma = (e.gamma || 0) - gyroOffset.gamma;
+      let tx, ty;
+      if (angle === 90) {
+        // Paysage droite (USB en bas)
+        tx =  dBeta  / 25;
+        ty = -dGamma / 25;
+      } else if (angle === -90 || angle === 270) {
+        // Paysage gauche (USB en haut)
+        tx = -dBeta  / 25;
+        ty =  dGamma / 25;
+      } else {
+        // Portrait
+        tx = dGamma / 25;
+        ty = dBeta  / 25;
+      }
+      tilt = { x: Math.max(-1, Math.min(1, tx)), y: Math.max(-1, Math.min(1, ty)) };
     };
 
     const onMouse = (e) => {
@@ -423,10 +446,18 @@
       fitCanvas(rowsInUse, colsInUse);
       if (G) {
         G.W = canvas.width; G.H = canvas.height;
-        G.cw = G.W / G.C;  G.ch = G.H / G.R;
+        G.cw = G.W / G.C; G.ch = G.H / G.R;
         G.br = Math.min(G.cw, G.ch) * .26;
         G.wt = wallThickness(G.cw, G.ch);
       }
+    };
+
+    // Recalibre automatiquement le gyro lors d'un changement d'orientation
+    const onRotate = () => {
+      setTimeout(() => {
+        onResize();
+        if (gyroOk) gyroOffset = { ...lastOrient };
+      }, 150);
     };
 
     window.addEventListener('deviceorientation', onOrient);
@@ -434,6 +465,7 @@
     window.addEventListener('keydown',           onKD);
     window.addEventListener('keyup',             onKU);
     window.addEventListener('resize',            onResize);
+    window.addEventListener('orientationchange', onRotate);
 
     return () => {
       cancelAnimationFrame(raf);
@@ -443,6 +475,7 @@
       window.removeEventListener('keydown',           onKD);
       window.removeEventListener('keyup',             onKU);
       window.removeEventListener('resize',            onResize);
+      window.removeEventListener('orientationchange', onRotate);
     };
   });
 
@@ -454,8 +487,7 @@
   }
 
   function applyConfig() {
-    rowsInUse = rows;
-    colsInUse = cols;
+    rowsInUse = rows; colsInUse = cols;
     fitCanvas(rows, cols);
     setTimeout(() => { initLevel(1, null, rows, cols); lvl = 1; showCfg = false; }, 60);
   }
@@ -470,45 +502,61 @@
 <!-- ── Markup ───────────────────────────────────────────────────────────── -->
 <div class="container">
 
-  <div class="header">
-    <span class="chrono">{chrono}</span>
-    <span class="level">LVL&nbsp;{lvl}</span>
-    <div class="header-btns">
-      <button class="icon-btn" on:click={() => paused ? resumeGame() : pauseGame()}
-              aria-label="Pause / Reprendre">
-        {paused ? '▶' : '⏸'}
-      </button>
-      <button class="icon-btn" on:click={() => showCfg = !showCfg}
-              aria-label="Paramètres">⚙</button>
+  <!-- UI latérale (portrait = en haut, paysage = à droite) -->
+  <div class="sidebar">
+    <div class="header">
+      <span class="chrono">{chrono}</span>
+      <span class="level-label">LVL&nbsp;{lvl}</span>
+      <div class="header-btns">
+        <button class="icon-btn" on:click={() => paused ? resumeGame() : pauseGame()}
+                aria-label="Pause">
+          {paused ? '▶' : '⏸'}
+        </button>
+        <button class="icon-btn" on:click={() => showCfg = !showCfg}
+                aria-label="Paramètres">⚙</button>
+      </div>
     </div>
+
+    {#if showCfg}
+      <div class="config">
+        <label>Rangs <input type="number" min="3" max="16" bind:value={rows} /></label>
+        <label>Cols  <input type="number" min="3" max="12" bind:value={cols} /></label>
+        <button class="apply-btn" on:click={applyConfig}>OK</button>
+      </div>
+    {/if}
+
+    <p class="hint">{hints[hint]}</p>
+
+    {#if iosBtn}
+      <button class="gyro-btn" on:click={requestGyroIOS}>
+        Activer le gyroscope (iOS)
+      </button>
+    {/if}
   </div>
 
-  {#if showCfg}
-    <div class="config">
-      <label>Rangs <input type="number" min="3" max="16" bind:value={rows} /></label>
-      <label>Cols  <input type="number" min="3" max="12" bind:value={cols} /></label>
-      <button class="apply-btn" on:click={applyConfig}>OK</button>
-    </div>
-  {/if}
-
+  <!-- Plateau de jeu -->
   <div class="board-wrap" bind:this={boardWrap}>
-    <canvas bind:this={canvas}></canvas>
+    <!-- Tap sur le canvas = pause -->
+    <canvas bind:this={canvas} on:click={handleCanvasTap}></canvas>
+
+    <!-- Compte à rebours (bille figée) -->
+    {#if countdownText}
+      <div class="countdown-overlay">
+        {#key countdownText}
+          <div class="countdown-text">{countdownText}</div>
+        {/key}
+      </div>
+    {/if}
+
+    <!-- Message passage de niveau -->
     {#if msg}
       <div class="lvl-overlay">{msg}</div>
     {/if}
   </div>
 
-  <p class="hint">{hints[hint]}</p>
-
-  {#if iosBtn}
-    <button class="gyro-btn" on:click={requestGyroIOS}>
-      Activer le gyroscope (iOS)
-    </button>
-  {/if}
-
 </div>
 
-<!-- ── Menu Pause ────────────────────────────────────────────────────────── -->
+<!-- ── Menu Pause (fixed, par-dessus tout) ───────────────────────────────── -->
 {#if paused}
   <div class="pause-overlay" on:click|self={resumeGame}>
     <div class="pause-panel">
@@ -516,6 +564,9 @@
       <div class="pause-info">Niveau {lvl} · {chrono}</div>
       <button class="neon-btn" on:click={resumeGame}>
         ▶&nbsp; REPRENDRE
+      </button>
+      <button class="neon-btn neon-btn--green" on:click={restartLevel}>
+        ↺&nbsp; RECOMMENCER
       </button>
       <button class="neon-btn neon-btn--purple" on:click={recenterPosition}>
         ⊕&nbsp; RECENTRER LA POSITION
@@ -535,27 +586,68 @@
     user-select: none;
   }
 
+  /* ── Layout principal : portrait = colonne, paysage = ligne ── */
   .container {
-    width: 100vw;
-    height: 100vh;
+    width: 100vw; height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     font-family: Georgia, 'Times New Roman', serif;
     gap: 10px;
-    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    padding: env(safe-area-inset-top)  env(safe-area-inset-right)
              env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  @media (orientation: landscape) {
+    .container {
+      flex-direction: row;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+      padding: 8px 16px;
+      padding-left:  max(16px, env(safe-area-inset-left));
+      padding-right: max(16px, env(safe-area-inset-right));
+    }
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    max-width: 460px;
+    order: -1; /* au-dessus du plateau en portrait */
+  }
+
+  @media (orientation: landscape) {
+    .sidebar {
+      width: 130px;
+      min-width: 110px;
+      max-width: 150px;
+      align-items: flex-start;
+      order: 1; /* à droite du plateau en paysage */
+      flex-shrink: 0;
+    }
   }
 
   /* ── Header ── */
   .header {
     display: flex;
+    flex-direction: row;
     align-items: center;
     width: 100%;
-    max-width: 460px;
-    padding: 0 6px;
-    gap: 10px;
+    gap: 8px;
+  }
+
+  @media (orientation: landscape) {
+    .header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
   }
 
   .chrono {
@@ -564,10 +656,10 @@
     font-size: 16px;
     letter-spacing: 2px;
     text-shadow: 0 0 10px #ffe040, 0 0 4px #ffe040;
-    min-width: 48px;
+    min-width: 46px;
   }
 
-  .level {
+  .level-label {
     flex: 1;
     text-align: center;
     color: #ff44dd;
@@ -576,23 +668,21 @@
     text-shadow: 0 0 12px #ff44dd, 0 0 4px #ff44dd;
   }
 
-  .header-btns {
-    display: flex;
-    gap: 6px;
+  @media (orientation: landscape) {
+    .level-label { flex: none; text-align: left; }
   }
+
+  .header-btns { display: flex; gap: 6px; }
 
   .icon-btn {
     background: transparent;
     border: 1px solid #00c8ff;
     color: #00c8ff;
-    width: 30px;
-    height: 30px;
+    width: 30px; height: 30px;
     border-radius: 5px;
     font-size: 12px;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: flex; align-items: center; justify-content: center;
     text-shadow: 0 0 6px #00c8ff;
     box-shadow: 0 0 8px rgba(0,200,255,0.25);
     font-family: inherit;
@@ -604,9 +694,10 @@
     background: rgba(0,8,35,0.96);
     border: 1px solid #00c8ff;
     border-radius: 6px;
-    padding: 10px 16px;
+    padding: 8px 12px;
     display: flex;
-    gap: 14px;
+    flex-wrap: wrap;
+    gap: 10px;
     align-items: center;
     font-size: 12px;
     color: #00c8ff;
@@ -615,26 +706,15 @@
   }
   .config label { display: flex; align-items: center; gap: 4px; }
   .config input {
-    width: 40px;
-    background: rgba(0,20,60,0.8);
-    color: #00c8ff;
-    border: 1px solid #00c8ff;
-    border-radius: 3px;
-    padding: 2px 4px;
-    text-align: center;
-    font-family: inherit;
-    font-size: 12px;
+    width: 38px; background: rgba(0,20,60,0.8); color: #00c8ff;
+    border: 1px solid #00c8ff; border-radius: 3px;
+    padding: 2px 4px; text-align: center; font-family: inherit; font-size: 12px;
   }
   .apply-btn {
-    background: rgba(0,200,255,0.12);
-    color: #00c8ff;
-    border: 1px solid #00c8ff;
-    border-radius: 4px;
-    padding: 4px 12px;
-    font-weight: bold;
-    cursor: pointer;
-    font-family: inherit;
-    letter-spacing: 1px;
+    background: rgba(0,200,255,0.12); color: #00c8ff;
+    border: 1px solid #00c8ff; border-radius: 4px;
+    padding: 4px 10px; font-weight: bold; cursor: pointer;
+    font-family: inherit; letter-spacing: 1px;
   }
   .apply-btn:active { background: rgba(0,200,255,0.25); }
 
@@ -643,6 +723,7 @@
     position: relative;
     border-radius: 4px;
     box-shadow: 0 0 45px rgba(0,200,255,0.22), 0 8px 40px rgba(0,0,0,0.9);
+    flex-shrink: 0;
   }
 
   canvas {
@@ -650,6 +731,33 @@
     border-radius: 3px;
     border: 2px solid #9900ff;
     box-shadow: 0 0 20px rgba(153,0,255,0.5), 0 0 60px rgba(0,200,255,0.12);
+    cursor: pointer;
+  }
+
+  /* ── Compte à rebours ── */
+  .countdown-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6,0,26,0.55);
+    border-radius: 3px;
+    pointer-events: none;
+  }
+
+  .countdown-text {
+    font-size: clamp(36px, 12vw, 72px);
+    font-weight: bold;
+    letter-spacing: 4px;
+    color: #00c8ff;
+    text-shadow: 0 0 40px #00c8ff, 0 0 15px #00c8ff, 0 0 5px #fff;
+    animation: cdPulse 0.75s cubic-bezier(.2, .8, .4, 1) both;
+  }
+
+  @keyframes cdPulse {
+    from { transform: scale(2); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
   }
 
   /* ── Overlay passage de niveau ── */
@@ -665,7 +773,6 @@
     font-size: 28px;
     font-weight: bold;
     letter-spacing: 6px;
-    text-transform: uppercase;
     text-shadow: 0 0 30px #ff44dd, 0 0 10px #ff44dd;
     pointer-events: none;
   }
@@ -680,15 +787,14 @@
 
   /* ── iOS Gyro ── */
   .gyro-btn {
-    padding: 10px 22px;
+    padding: 8px 18px;
     background: rgba(0,200,255,0.08);
     border: 1.5px solid #00c8ff;
     color: #00c8ff;
     border-radius: 5px;
-    font-size: 13px;
+    font-size: 12px;
     cursor: pointer;
     font-family: inherit;
-    letter-spacing: 1px;
     text-shadow: 0 0 8px #00c8ff;
   }
   .gyro-btn:active { opacity: .85; }
@@ -710,15 +816,13 @@
     background: rgba(0,8,38,0.97);
     border: 1.5px solid #00c8ff;
     border-radius: 14px;
-    padding: 30px 36px;
+    padding: 28px 32px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 16px;
-    box-shadow:
-      0 0 50px rgba(0,200,255,0.30),
-      inset 0 0 30px rgba(0,0,80,0.35);
-    min-width: 240px;
+    gap: 14px;
+    min-width: 230px;
+    box-shadow: 0 0 50px rgba(0,200,255,0.30), inset 0 0 30px rgba(0,0,80,0.35);
   }
 
   .pause-title {
@@ -732,36 +836,34 @@
     color: rgba(0,200,255,0.55);
     font-size: 12px;
     letter-spacing: 2px;
-    margin-top: -6px;
+    margin-top: -4px;
   }
 
   .neon-btn {
     border: 1.5px solid #00c8ff;
     background: transparent;
     color: #00c8ff;
-    padding: 11px 20px;
+    padding: 10px 18px;
     border-radius: 7px;
     font-family: inherit;
     font-size: 12px;
     cursor: pointer;
-    letter-spacing: 2.5px;
+    letter-spacing: 2px;
     text-shadow: 0 0 8px #00c8ff;
-    box-shadow: 0 0 12px rgba(0,200,255,0.22);
+    box-shadow: 0 0 10px rgba(0,200,255,0.20);
     width: 100%;
   }
-  .neon-btn:active {
-    background: rgba(0,200,255,0.13);
-    box-shadow: 0 0 28px rgba(0,200,255,0.55);
+  .neon-btn:active { background: rgba(0,200,255,0.13); }
+
+  .neon-btn--green {
+    border-color: #00ff80; color: #00ff80;
+    text-shadow: 0 0 8px #00ff80; box-shadow: 0 0 10px rgba(0,255,128,0.20);
   }
+  .neon-btn--green:active { background: rgba(0,255,128,0.13); }
 
   .neon-btn--purple {
-    border-color: #aa44ff;
-    color: #cc66ff;
-    text-shadow: 0 0 8px #aa44ff;
-    box-shadow: 0 0 12px rgba(170,68,255,0.22);
+    border-color: #aa44ff; color: #cc66ff;
+    text-shadow: 0 0 8px #aa44ff; box-shadow: 0 0 10px rgba(170,68,255,0.20);
   }
-  .neon-btn--purple:active {
-    background: rgba(170,68,255,0.13);
-    box-shadow: 0 0 28px rgba(170,68,255,0.55);
-  }
+  .neon-btn--purple:active { background: rgba(170,68,255,0.13); }
 </style>
