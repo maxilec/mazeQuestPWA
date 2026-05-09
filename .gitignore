@@ -1,0 +1,7 @@
+maze-pwa/.vs/slnx.sqlite
+maze-pwa/package-lock.json
+node_modules/
+dist/
+.DS_Store
+*.local
+package-lock.json

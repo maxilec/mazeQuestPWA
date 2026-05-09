@@ -1,0 +1,17 @@
+{
+  "name": "maze-ball-pwa",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev":     "vite",
+    "build":   "node scripts/gen-icons.mjs && vite build",
+    "preview": "vite preview",
+    "icons":   "node scripts/gen-icons.mjs"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^3.1.0",
+    "svelte": "^4.2.18",
+    "vite": "^5.3.4",
+    "vite-plugin-pwa": "^0.20.1"
+  }
+}
