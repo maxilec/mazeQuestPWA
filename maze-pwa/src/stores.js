@@ -1,5 +1,7 @@
 import { writable } from 'svelte/store';
 
+export const audioMgrStore = writable(null);  // holds the shared audio manager instance
+
 function persist(key, initial) {
   const stored = localStorage.getItem(key);
   const store  = writable(stored ? JSON.parse(stored) : initial);

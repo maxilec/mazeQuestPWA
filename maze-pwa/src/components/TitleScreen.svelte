@@ -1,5 +1,5 @@
 <script>
-  import { screen, gameMode, runStats, highScores, settings } from '../stores.js';
+  import { screen, gameMode, runStats, highScores, settings, audioMgrStore } from '../stores.js';
   import SettingsPanel from './SettingsPanel.svelte';
 
   let selected  = 'survie';
@@ -22,6 +22,7 @@
   ];
 
   function startGame() {
+    $audioMgrStore?.start();
     gameMode.set(selected);
     runStats.set({ lvl: 1, falls: 0, startTime: performance.now() });
     screen.set('game');
@@ -31,8 +32,6 @@
 </script>
 
 <div class="title-root">
-  <div class="nebula"></div>
-
   <div class="title-inner">
 
     <!-- Logo -->
@@ -106,29 +105,12 @@
 </div>
 
 <style>
-  :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
-  :global(html, body) {
-    width: 100%; height: 100%;
-    background: #000; overflow: hidden;
-    touch-action: none; user-select: none;
-  }
-
   .title-root {
     position: fixed; inset: 0;
     display: flex; align-items: center; justify-content: center;
     font-family: 'Orbitron', 'Courier New', monospace;
     overflow: hidden;
-  }
-
-  .nebula {
-    position: absolute; inset: 0;
-    background:
-      radial-gradient(ellipse 70% 50% at 20% 30%, rgba(130,0,200,0.22) 0%, transparent 70%),
-      radial-gradient(ellipse 60% 45% at 75% 65%, rgba(0,40,180,0.20) 0%, transparent 70%),
-      radial-gradient(ellipse 50% 40% at 55% 85%, rgba(190,0,110,0.14) 0%, transparent 70%),
-      radial-gradient(ellipse 55% 45% at 85% 20%, rgba(0,90,220,0.16) 0%, transparent 70%),
-      #03000f;
-    z-index: 0;
+    z-index: 1;
   }
 
   .title-inner {

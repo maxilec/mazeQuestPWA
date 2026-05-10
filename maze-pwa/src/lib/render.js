@@ -427,18 +427,13 @@ export function drawJoystick(ctx, joy) {
 }
 
 // ── Main draw ─────────────────────────────────────────────────────────────────
-export function draw(ctx, g, ts, btx, bty, nebulaCanvas, tilt, joy) {
+export function draw(ctx, g, ts, btx, bty, tilt, joy) {
   const { W, H, introT } = g;
   const ia = Math.min(1, (ts - introT) / 300);
 
-  // Nebula background
+  // Transparent canvas — full-screen nebula is rendered in the HTML background
   ctx.globalAlpha = 1;
-  if (nebulaCanvas) {
-    ctx.drawImage(nebulaCanvas, 0, 0, W, H);
-  } else {
-    ctx.fillStyle = '#03000f';
-    ctx.fillRect(0, 0, W, H);
-  }
+  ctx.clearRect(0, 0, W, H);
 
   ctx.globalAlpha = ia;
 

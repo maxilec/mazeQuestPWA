@@ -5,9 +5,9 @@
   import { getTrackRatio, bfsPath, computeCheckpoints,
            computeCollectibles }                                    from '../lib/maze-utils.js';
   import { stepPhysics, checkWallFall }                            from '../lib/physics.js';
-  import { createAudioManager }                                     from '../lib/audio.js';
-  import { generateNebula, draw }                                  from '../lib/render.js';
-  import { screen as appScreen, gameMode, runStats, settings }     from '../stores.js';
+  import { draw }                                                   from '../lib/render.js';
+  import { screen as appScreen, gameMode, runStats, settings,
+           audioMgrStore }                                         from '../stores.js';
   import SettingsPanel                                              from './SettingsPanel.svelte';
 
   // ── Fixed grid (portrait base) ──────────────────────────────────────────────
@@ -51,8 +51,6 @@
   const JOY_RADIUS = 70;
   let boardTiltX   = 0;
   let boardTiltY   = 0;
-  let nebulaCanvas = null;
-  let audioMgr     = null;
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   function wallThickness(cw, ch) { return Math.max(3, Math.min(7, Math.min(cw, ch) * 0.12)); }
@@ -137,7 +135,6 @@
     if (hr === sc.r && hc === sc.c) hr = (hr + 1) % R;
 
     if (gyroOk) gyroOffset = { ...lastOrient };
-    nebulaCanvas = generateNebula(W, H, levelNum * 31 + 7);
 
     const path         = bfsPath(maze, R, C, sc, { r: hr, c: hc });
     const checkpoints  = computeCheckpoints(path);
@@ -198,7 +195,6 @@
         G.cw = newCw; G.ch = newCh;
         G.br = Math.min(newCw, newCh) * G.trackRatio * 0.35;
         G.wt = wallThickness(newCw, newCh);
-        nebulaCanvas = generateNebula(G.W, G.H, G.lvl * 31 + 7);
       }
 
       if (gyroOk) gyroOffset = { ...lastOrient };
@@ -225,14 +221,6 @@
   function toggleSound() {
     soundEnabled = !soundEnabled;
     settings.update(s => ({ ...s, muted: !soundEnabled }));
-    audioMgr?.setVolume(musicVolume, soundEnabled);
-  }
-
-  function toggleControlMode() {
-    controlMode = controlMode === 'gyro' ? 'joystick' : 'gyro';
-    settings.update(s => ({ ...s, controlMode }));
-    joyActive = false; joyDx = 0; joyDy = 0; tilt = { x: 0, y: 0 };
-    hint = controlMode === 'joystick' ? 'joystick' : (gyroOk ? 'gyro' : hint);
   }
 
   function restartLevel() {
@@ -255,16 +243,27 @@
     if (gyroOk) gyroOffset = { ...lastOrient };
   }
 
+  // ── Touch → canvas coordinate mapping (accounts for CSS world-lock rotation) ──
+  // The canvas is always portrait (H > W). In landscape the board is CSS-rotated
+  // by -deviceAngle, so touchscreen coords must be remapped to canvas space.
+  function screenToCanvas(vx, vy) {
+    const W = canvas.width, H = canvas.height;
+    const na = ((deviceAngle % 360) + 360) % 360;
+    if (na === 90)  return { x: W - vy, y: vx };      // CSS rotate(-90deg)
+    if (na === 270) return { x: vy,     y: H - vx };  // CSS rotate(+90deg)
+    if (na === 180) return { x: W - vx, y: H - vy };
+    return { x: vx, y: vy };
+  }
+
   // ── Touch handlers ───────────────────────────────────────────────────────────
   function onTouchStart(e) {
     e.preventDefault();
-    audioMgr?.start();
+    $audioMgrStore?.start();
     if (controlMode !== 'joystick') return;
     const t = e.changedTouches[0];
     const r = canvas.getBoundingClientRect();
-    const sx = canvas.width / r.width, sy = canvas.height / r.height;
-    joyCx = (t.clientX - r.left) * sx;
-    joyCy = (t.clientY - r.top)  * sy;
+    const cp = screenToCanvas(t.clientX - r.left, t.clientY - r.top);
+    joyCx = cp.x; joyCy = cp.y;
     joyDx = 0; joyDy = 0; joyActive = true;
   }
 
@@ -273,9 +272,8 @@
     if (!joyActive || controlMode !== 'joystick') return;
     const t = e.changedTouches[0];
     const r = canvas.getBoundingClientRect();
-    const sx = canvas.width / r.width, sy = canvas.height / r.height;
-    const dx = (t.clientX - r.left) * sx - joyCx;
-    const dy = (t.clientY - r.top)  * sy - joyCy;
+    const cp = screenToCanvas(t.clientX - r.left, t.clientY - r.top);
+    const dx = cp.x - joyCx, dy = cp.y - joyCy;
     const dist = Math.sqrt(dx * dx + dy * dy);
     const c = Math.min(dist, JOY_RADIUS);
     joyDx = dist > 0 ? (dx / dist) * c : 0;
@@ -295,7 +293,7 @@
 
   function handleCanvasTap() {
     if (!G || showIosOverlay) return;
-    audioMgr?.start();
+    $audioMgrStore?.start();
     if (G.phase === 'intro') {
       G.phase = 'play'; G.levelStart = performance.now(); countdownText = '';
     }
@@ -323,8 +321,6 @@
     if (G) { G.introT = performance.now(); }  // restart countdown fresh
   }
 
-  $: audioMgr?.setVolume(musicVolume, soundEnabled);
-
   // ── Mount ────────────────────────────────────────────────────────────────────
   onMount(() => {
     const s = $settings;
@@ -349,9 +345,6 @@
       if (document.visibilityState === 'visible') acquireWakeLock();
     });
     const wlInterval = setInterval(acquireWakeLock, 25000);
-
-    audioMgr = createAudioManager(import.meta.env.BASE_URL);
-    audioMgr.init(soundEnabled ? musicVolume : 0);
 
     // iOS gyro — show blocking overlay before the countdown starts.
     // iOS always requires requestPermission() per session (even if previously granted),
@@ -412,7 +405,6 @@
         G.trail = G.trail.map(p => ({ x: p.x * sx, y: p.y * sy }));
         G.br = Math.min(G.cw, G.ch) * G.trackRatio * 0.35;
         G.wt = wallThickness(G.cw, G.ch);
-        nebulaCanvas = generateNebula(G.W, G.H, G.lvl * 31 + 7);
       }
 
       // ── Intro phase ──
@@ -508,7 +500,7 @@
         }
       }
 
-      draw(ctx, G, ts, boardTiltX, boardTiltY, nebulaCanvas, tilt, {
+      draw(ctx, G, ts, boardTiltX, boardTiltY, tilt, {
         active: joyActive, cx: joyCx, cy: joyCy,
         dx: joyDx, dy: joyDy, radius: JOY_RADIUS, mode: controlMode,
       });
@@ -597,7 +589,6 @@
         G.cw = canvas.width / COLS; G.ch = canvas.height / ROWS;
         G.br = Math.min(G.cw, G.ch) * G.trackRatio * 0.35;
         G.wt = wallThickness(G.cw, G.ch);
-        nebulaCanvas = generateNebula(G.W, G.H, G.lvl * 31 + 7);
       }
     };
 
@@ -621,7 +612,6 @@
       if (raf) cancelAnimationFrame(raf);
       clearInterval(keyInt); clearInterval(wlInterval);
       wakeLock?.release();
-      audioMgr?.destroy();
       canvas.removeEventListener('touchstart', onTouchStart);
       canvas.removeEventListener('touchmove',  onTouchMove);
       canvas.removeEventListener('touchend',   onTouchEnd);
@@ -647,9 +637,6 @@
 
 <!-- ── Markup ─────────────────────────────────────────────────────────────── -->
 
-<!-- Full-screen nebula background -->
-<div class="bg-nebula"></div>
-
 <div class="container">
 
   <!-- Zone A : logo + hint -->
@@ -666,7 +653,8 @@
       {#if showIosOverlay}
         <!-- iOS gyro permission — blocks countdown until user decides -->
         <div class="countdown-overlay">
-          <div class="ios-panel">
+          <!-- counter-rotate so panel appears upright on screen regardless of device angle -->
+          <div class="ios-panel" style="transform: rotate({deviceAngle}deg)">
             <div class="ios-icon">📡</div>
             <div class="ios-title">Gyroscope</div>
             <div class="ios-desc">Autoriser le mouvement pour incliner le plateau</div>
@@ -680,9 +668,12 @@
         </div>
       {:else if countdownText}
         <div class="countdown-overlay">
-          {#key countdownText}
-            <div class="countdown-text">{countdownText}</div>
-          {/key}
+          <!-- counter-rotate wrapper keeps text upright; animation stays on inner div -->
+          <div class="countdown-rot" style="transform: rotate({deviceAngle}deg)">
+            {#key countdownText}
+              <div class="countdown-text">{countdownText}</div>
+            {/key}
+          </div>
         </div>
       {/if}
     </div>
@@ -703,7 +694,6 @@
       <button class="icon-btn" on:click={() => paused ? resumeGame() : pauseGame()} aria-label="Pause">
         {paused ? '▶' : '⏸'}
       </button>
-      <button class="icon-btn" on:click={() => showCfg = !showCfg} aria-label="Paramètres">⚙</button>
     </div>
   </div>
 
@@ -730,11 +720,8 @@
       <div class="pause-info">NVL {lvl}{currentMode !== 'zen' ? ' · ' + chrono : ''}</div>
       <button class="neon-btn" on:click={resumeGame}>▶&nbsp; REPRENDRE</button>
       <button class="neon-btn neon-btn--green" on:click={restartLevel}>↺&nbsp; RECOMMENCER</button>
-      <button class="neon-btn neon-btn--amber" on:click={toggleControlMode}>
-        {controlMode === 'gyro' ? '🕹 MODE JOYSTICK' : '📡 MODE GYROSCOPE'}
-      </button>
-      <button class="neon-btn neon-btn--sound" on:click={toggleSound}>
-        {soundEnabled ? '🔊 SON ACTIVÉ' : '🔇 SON COUPÉ'}
+      <button class="neon-btn neon-btn--amber" on:click={() => { showCfg = true; }}>
+        ⚙&nbsp; PARAMÈTRES
       </button>
       <button class="neon-btn neon-btn--dim" on:click={() => appScreen.set('title')}>
         ⬅ MENU PRINCIPAL
@@ -745,24 +732,6 @@
 
 <!-- ── Styles ─────────────────────────────────────────────────────────────── -->
 <style>
-  :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
-  :global(html, body) {
-    width: 100%; height: 100%;
-    background: #03000f; overflow: hidden;
-    touch-action: none; user-select: none;
-  }
-
-  /* Full-screen space nebula behind everything */
-  .bg-nebula {
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background:
-      radial-gradient(ellipse 70% 50% at 18% 28%, rgba(130,0,200,0.20) 0%, transparent 70%),
-      radial-gradient(ellipse 60% 45% at 75% 65%, rgba(0,40,180,0.18) 0%, transparent 70%),
-      radial-gradient(ellipse 50% 40% at 55% 85%, rgba(190,0,110,0.13) 0%, transparent 70%),
-      radial-gradient(ellipse 55% 45% at 84% 18%, rgba(0,90,220,0.15) 0%, transparent 70%),
-      #03000f;
-  }
-
   .container {
     position: relative; z-index: 1;
     width: 100vw; height: 100vh;
@@ -868,6 +837,7 @@
     display: flex; align-items: center; justify-content: center;
     background: rgba(0,0,10,0.55); border-radius: 3px; pointer-events: none;
   }
+  .countdown-rot { display: flex; align-items: center; justify-content: center; }
   .countdown-text {
     font-size: clamp(36px, 14vw, 72px); font-weight: 900; letter-spacing: 4px;
     color: #00c8ff;
@@ -920,9 +890,9 @@
   }
   .icon-btn:active { background: rgba(0,200,255,0.22); }
 
-  /* In-game settings overlay */
+  /* In-game settings overlay — z-index 300 so it appears above the pause panel (200) */
   .cfg-overlay {
-    position: fixed; inset: 0; z-index: 100;
+    position: fixed; inset: 0; z-index: 300;
     background: rgba(0,2,15,0.88);
     display: flex; align-items: center; justify-content: center;
     padding: 32px 24px;
@@ -960,9 +930,7 @@
   .neon-btn--green:active { background: rgba(0,255,128,0.13); }
   .neon-btn--amber { border-color:#ffb300; color:#ffcc44; text-shadow:0 0 8px #ffb300; box-shadow:0 0 10px rgba(255,179,0,0.20); }
   .neon-btn--amber:active { background: rgba(255,179,0,0.13); }
-  .neon-btn--sound { border-color:#44ddaa; color:#55ffbb; text-shadow:0 0 8px #44ddaa; box-shadow:0 0 10px rgba(68,221,170,0.20); }
-  .neon-btn--sound:active { background: rgba(68,221,170,0.13); }
-  .neon-btn--dim   { border-color:rgba(0,200,255,0.30); color:rgba(255,255,255,0.55); text-shadow:none; box-shadow:none; }
+.neon-btn--dim   { border-color:rgba(0,200,255,0.30); color:rgba(255,255,255,0.55); text-shadow:none; box-shadow:none; }
   .neon-btn--dim:active   { background: rgba(0,200,255,0.06); }
 
 </style>

@@ -35,8 +35,6 @@
 </script>
 
 <div class="go-root">
-  <div class="nebula"></div>
-
   <div class="go-panel">
     <div class="go-title" style="color: {modeColor[mode]}">{title}</div>
     <div class="go-mode">{modeLabel[mode]}</div>
@@ -77,19 +75,10 @@
     display: flex; align-items: center; justify-content: center;
     font-family: 'Orbitron', 'Courier New', monospace;
     overflow: hidden;
-  }
-
-  .nebula {
-    position: absolute; inset: 0;
-    background:
-      radial-gradient(ellipse 70% 50% at 20% 30%, rgba(130,0,200,0.22) 0%, transparent 70%),
-      radial-gradient(ellipse 60% 45% at 75% 65%, rgba(0,40,180,0.20) 0%, transparent 70%),
-      #03000f;
-    z-index: 0;
+    z-index: 1;
   }
 
   .go-panel {
-    position: relative; z-index: 1;
     background: rgba(0,5,20,0.96);
     border: 1.5px solid #00c8ff;
     border-radius: 16px;
