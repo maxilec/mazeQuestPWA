@@ -511,13 +511,13 @@
       // These formulas keep ball movement physically intuitive regardless of phone angle.
       let tx, ty;
       if (normAngle === 90) {
-        // Phone CW (landscape): canvas rotated -90° to world-lock
-        tx = -dB / s25;   // physical forward → canvas left
-        ty =  dG / s25;   // physical right   → canvas down (appears right in landscape)
+        // Phone CW (landscape): tilt forward (dG+) → move right on screen, tilt left (dB+) → move up
+        tx =  dG / s25;
+        ty = -dB / s25;
       } else if (normAngle === 270) {
-        // Phone CCW (landscape): canvas rotated +90° to world-lock
-        tx =  dB / s25;
-        ty = -dG / s25;
+        // Phone CCW (landscape): symmetric
+        tx = -dG / s25;
+        ty =  dB / s25;
       } else if (normAngle === 180) {
         // Upside-down portrait
         tx = -dG / s25;
