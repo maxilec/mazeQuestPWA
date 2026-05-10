@@ -20,25 +20,26 @@
   let chrono               = '0:00';
   let hint                 = 'mouse';
   let iosBtn               = false;
-  let rows                 = 6;
-  let cols                 = 10;
   let showCfg              = false;
   let paused               = false;
   let countdownText        = '';
   let isPortrait           = false;
   let attempts             = 0;
   let soundEnabled         = true;
+  let sensitivity          = 0.55;  // 0.1 → 1.5
+  let musicVolume          = 0.5;   // 0.0 → 1.0
 
   // ── Refs non-réactifs ─────────────────────────────────────────────────────
   let canvas;
   let boardWrap;
+  let joyOverlay;
   let G                    = null;
   let raf                  = null;
   let tilt                 = { x: 0, y: 0 };
   let gyroOk               = false;
   let pendingGyroActivation = false; // iOS: permission déjà accordée → activer au 1er tap
   let held                 = { l: 0, r: 0, u: 0, d: 0 };
-  let rowsInUse            = 6;   // toujours paysage
+  let rowsInUse            = 6;
   let colsInUse            = 10;
   let keyInt               = null;
   let gyroOffset           = { beta: 0, gamma: 0 };
@@ -48,7 +49,13 @@
   let joyCx = 0, joyCy    = 0;  // centre joystick (canvas px)
   let joyDx = 0, joyDy    = 0;  // déplacement courant
   const JOY_RADIUS         = 70; // rayon max (canvas px)
-  let audio                = null;
+  // Web Audio API
+  let audioCtx             = null;
+  let audioBuffer          = null;
+  let audioSource          = null;
+  let gainNode             = null;
+  let audioReady           = false;
+  let audioStarted         = false;
   let boardTiltX           = 0;  // tilt visuel lissé du plateau [-1, 1]
   let boardTiltY           = 0;
 
@@ -135,7 +142,19 @@
 
   function toggleSound() {
     soundEnabled = !soundEnabled;
-    if (audio) audio.muted = !soundEnabled;
+    if (gainNode) gainNode.gain.value = soundEnabled ? musicVolume : 0;
+  }
+
+  function startAudio() {
+    if (!audioReady || audioStarted) return;
+    audioCtx.resume().then(() => {
+      audioSource = audioCtx.createBufferSource();
+      audioSource.buffer = audioBuffer;
+      audioSource.loop = true;
+      audioSource.connect(gainNode);
+      audioSource.start(0);
+      audioStarted = true;
+    }).catch(() => {});
   }
 
   function toggleControlMode() {
@@ -145,20 +164,22 @@
     hint = controlMode === 'joystick' ? 'joystick' : (gyroOk ? 'gyro' : hint);
   }
 
-  // ── Joystick touch handlers ────────────────────────────────────────────────
+  // ── Joystick touch handlers (attachés à joyOverlay = plein écran) ─────────
   function onTouchStart(e) {
-    if (controlMode !== 'joystick') return;
+    e.preventDefault();
+    startAudio();
     const t = e.changedTouches[0];
     const r = canvas.getBoundingClientRect();
     const sx = canvas.width / r.width, sy = canvas.height / r.height;
-    joyCx = (t.clientX - r.left) * sx;
-    joyCy = (t.clientY - r.top)  * sy;
+    // Clamp joystick center to canvas bounds for rendering
+    joyCx = Math.max(0, Math.min(canvas.width,  (t.clientX - r.left) * sx));
+    joyCy = Math.max(0, Math.min(canvas.height, (t.clientY - r.top)  * sy));
     joyDx = 0; joyDy = 0; joyActive = true;
   }
 
   function onTouchMove(e) {
     e.preventDefault();
-    if (!joyActive || controlMode !== 'joystick') return;
+    if (!joyActive) return;
     const t = e.changedTouches[0];
     const r = canvas.getBoundingClientRect();
     const sx = canvas.width / r.width, sy = canvas.height / r.height;
@@ -169,27 +190,29 @@
     joyDx = dist > 0 ? (dx / dist) * c : 0;
     joyDy = dist > 0 ? (dy / dist) * c : 0;
     tilt = {
-      x: Math.max(-1, Math.min(1, joyDx / JOY_RADIUS)),
-      y: Math.max(-1, Math.min(1, joyDy / JOY_RADIUS)),
+      x: Math.max(-1, Math.min(1, joyDx / JOY_RADIUS * sensitivity)),
+      y: Math.max(-1, Math.min(1, joyDy / JOY_RADIUS * sensitivity)),
     };
   }
 
   function onTouchEnd(e) {
-    if (controlMode !== 'joystick') { handleCanvasTap(); return; }
     const scale = canvas.width / canvas.getBoundingClientRect().width;
     if (Math.hypot(joyDx, joyDy) < 8 * scale) handleCanvasTap();
     joyActive = false; joyDx = 0; joyDy = 0;
     tilt = { x: 0, y: 0 };
   }
 
+  // Tap canvas en mode gyro (pour démarrer audio / sauter countdown)
+  function onCanvasTouch(e) {
+    if (controlMode !== 'joystick') {
+      startAudio();
+      handleCanvasTap();
+    }
+  }
+
   // ── Tap sur le canvas ─────────────────────────────────────────────────────
   function handleCanvasTap() {
     if (!G) return;
-
-    // Démarrer la musique au premier geste utilisateur
-    if (audio && soundEnabled && audio.paused) {
-      audio.play().catch(() => {});
-    }
 
     // iOS : activer gyro automatiquement si permission déjà accordée avant
     if (pendingGyroActivation) {
@@ -221,6 +244,7 @@
     G.pauseAt  = 0;
     if (G.checkpoints) { G.checkpoints.forEach(cp => { cp.passed = false; }); }
     G.lastCheckpoint = null;
+    G.trail = [];
     chrono = '0:00';
     attempts = 0;
     countdownText = '';
@@ -234,6 +258,7 @@
     attempts += 1;
     const spawnPt = G.lastCheckpoint || G.spawn;
     G.ball = { x: spawnPt.c * G.cw + G.cw / 2, y: spawnPt.r * G.ch + G.ch / 2, vx: 0, vy: 0 };
+    G.trail = [];
     G.phase = 'play';
     countdownText = '';
     paused = false;
@@ -282,6 +307,7 @@
       hole: { r: hr, c: hc },
       checkpoints,
       lastCheckpoint: null,
+      trail: [],
       phase: 'intro',
       fallT: 0,
       fallCause: 'hole',
@@ -406,6 +432,17 @@
         }
       }
     }
+
+    // Côtés lumineux parallaxe (décalage fort — effet profondeur des flancs)
+    ctx.save();
+    ctx.translate(btx * 12, bty * 12);
+    ctx.globalAlpha = 0.18 * ia;
+    ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 14;
+    ctx.strokeStyle = 'rgba(0,180,255,0.60)';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineWidth = tw * 1.1;
+    buildPath(); ctx.stroke();
+    ctx.restore();
 
     // Ombre portée (parallaxe)
     ctx.save();
@@ -585,6 +622,26 @@
     ctx.fillText('FINISH', hx, hy + hR + Math.min(cw, ch) * 0.30);
     ctx.restore();
 
+    // Trainée lumineuse
+    if (g.trail && g.trail.length > 1) {
+      const tLen = g.trail.length;
+      for (let i = 0; i < tLen; i++) {
+        const tp = g.trail[i];
+        const frac = (i + 1) / tLen;
+        const r2 = br * (0.12 + frac * 0.52);
+        ctx.save();
+        ctx.globalAlpha = frac * 0.60 * ia;
+        ctx.shadowColor = N_BALL; ctx.shadowBlur = 8 * frac;
+        const tg = ctx.createRadialGradient(tp.x, tp.y, 0, tp.x, tp.y, r2);
+        tg.addColorStop(0, 'rgba(255,224,64,0.90)');
+        tg.addColorStop(0.5, 'rgba(255,140,0,0.45)');
+        tg.addColorStop(1, 'rgba(255,60,0,0)');
+        ctx.fillStyle = tg;
+        ctx.beginPath(); ctx.arc(tp.x, tp.y, r2, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+    }
+
     // Bille
     const el  = phase === 'falling' ? ts - fallT : 0;
     const sc2 = phase === 'falling' ? Math.max(0, 1 - el / 480) : 1;
@@ -663,11 +720,20 @@
       if (document.visibilityState === 'visible') acquireWakeLock();
     });
 
-    // Musique de fond (démarre au premier geste utilisateur)
-    audio = new Audio(`${import.meta.env.BASE_URL}assets/music/MazeBalll - Don't fall again.mp3`);
-    audio.loop = true;
-    audio.volume = 0.5;
-    audio.muted = !soundEnabled;
+    // Musique via Web Audio API (invisible pour l'OS media player)
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      gainNode = audioCtx.createGain();
+      gainNode.gain.value = soundEnabled ? musicVolume : 0;
+      gainNode.connect(audioCtx.destination);
+      fetch(`${import.meta.env.BASE_URL}assets/music/MazeBalll - Don't fall again.mp3`)
+        .then(r => r.arrayBuffer())
+        .then(buf => audioCtx.decodeAudioData(buf))
+        .then(decoded => { audioBuffer = decoded; audioReady = true; })
+        .catch(() => {});
+    } catch {}
+    // Effacer toute session média OS
+    if ('mediaSession' in navigator) navigator.mediaSession.metadata = null;
 
     fitCanvas(rowsInUse, colsInUse);
     setTimeout(() => initLevel(1, null, rowsInUse, colsInUse), 60);
@@ -725,6 +791,15 @@
       } else if (!paused && G.phase === 'play') {
         physics(G, dt);
         chrono = formatTime(ts - G.levelStart - G.pausedMs);
+        // Trainée
+        const spd = Math.hypot(G.ball.vx, G.ball.vy);
+        if (spd > 0.3) {
+          G.trail.push({ x: G.ball.x, y: G.ball.y });
+          const maxLen = Math.min(40, Math.round(spd * 6));
+          while (G.trail.length > maxLen) G.trail.shift();
+        } else {
+          if (G.trail.length > 0) G.trail = [];
+        }
         // Détection checkpoints
         if (G.checkpoints) {
           for (const cp of G.checkpoints) {
@@ -774,9 +849,10 @@
       const dB = (e.beta  || 0) - gyroOffset.beta;
       const dG = (e.gamma || 0) - gyroOffset.gamma;
       let tx, ty;
-      if      (angle === 90)              { tx =  dB / 25; ty = -dG / 25; }
-      else if (angle === -90 || angle === 270) { tx = -dB / 25; ty =  dG / 25; }
-      else                                { tx = dG / 25;  ty =  dB / 25; }
+      const s25 = 25 / sensitivity;
+      if      (angle === 90)              { tx =  dB / s25; ty = -dG / s25; }
+      else if (angle === -90 || angle === 270) { tx = -dB / s25; ty =  dG / s25; }
+      else                                { tx = dG / s25;  ty =  dB / s25; }
       tilt = { x: Math.max(-1, Math.min(1, tx)), y: Math.max(-1, Math.min(1, ty)) };
     };
 
@@ -805,7 +881,7 @@
       if (e.key === 'ArrowDown')  held.d = 0;
     };
     keyInt = setInterval(() => {
-      if (!gyroOk && controlMode !== 'joystick') tilt = { x: (held.r - held.l) * 0.9, y: (held.d - held.u) * 0.9 };
+      if (!gyroOk && controlMode !== 'joystick') tilt = { x: (held.r - held.l) * sensitivity, y: (held.d - held.u) * sensitivity };
     }, 16);
 
     const onResize = () => {
@@ -827,10 +903,12 @@
       }
     }, 150);
 
-    // Touch listeners non-passifs (preventDefault dans touchmove pour bloquer le scroll)
-    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
-    canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
-    canvas.addEventListener('touchend',   onTouchEnd);
+    // Joystick : plein écran via joyOverlay (non-passif pour preventDefault)
+    joyOverlay.addEventListener('touchstart', onTouchStart, { passive: false });
+    joyOverlay.addEventListener('touchmove',  onTouchMove,  { passive: false });
+    joyOverlay.addEventListener('touchend',   onTouchEnd,   { passive: false });
+    // Canvas en mode gyro : tap pour démarrer/sauter
+    canvas.addEventListener('touchend', onCanvasTouch);
 
     window.addEventListener('deviceorientation', onOrient);
     window.addEventListener('mousemove',         onMouse);
@@ -843,10 +921,12 @@
       cancelAnimationFrame(raf);
       clearInterval(keyInt);
       wakeLock?.release();
-      if (audio) { audio.pause(); audio = null; }
-      canvas.removeEventListener('touchstart', onTouchStart);
-      canvas.removeEventListener('touchmove',  onTouchMove);
-      canvas.removeEventListener('touchend',   onTouchEnd);
+      if (audioSource) { try { audioSource.stop(); } catch {} }
+      if (audioCtx) { audioCtx.close().catch(() => {}); }
+      joyOverlay.removeEventListener('touchstart', onTouchStart);
+      joyOverlay.removeEventListener('touchmove',  onTouchMove);
+      joyOverlay.removeEventListener('touchend',   onTouchEnd);
+      canvas.removeEventListener('touchend', onCanvasTouch);
       window.removeEventListener('deviceorientation', onOrient);
       window.removeEventListener('mousemove',         onMouse);
       window.removeEventListener('keydown',           onKD);
@@ -867,11 +947,8 @@
     } catch {}
   }
 
-  function applyConfig() {
-    rowsInUse = rows; colsInUse = cols;
-    fitCanvas(rows, cols);
-    setTimeout(() => { initLevel(1, null, rows, cols); lvl = 1; showCfg = false; }, 60);
-  }
+  // Volume réactif : met à jour le gain dès que musicVolume ou soundEnabled change
+  $: if (gainNode) gainNode.gain.value = soundEnabled ? musicVolume : 0;
 
   const hints = {
     gyro:     "📱 Inclinez l'appareil",
@@ -880,6 +957,11 @@
     joystick: '🕹 Glissez pour diriger',
   };
 </script>
+
+<!-- ── Overlay joystick plein-écran (derrière canvas, z-index:10) ─────────── -->
+<div class="joy-overlay" bind:this={joyOverlay}
+     style="pointer-events: {controlMode === 'joystick' && !paused ? 'all' : 'none'};">
+</div>
 
 <!-- ── Markup ───────────────────────────────────────────────────────────── -->
 <div class="container">
@@ -912,21 +994,13 @@
     {/if}
   </div>
 
-  <!-- Zone B : haut (portrait) → droite (paysage) = timer, vies, boutons -->
+  <!-- Zone B : haut (portrait) → droite (paysage) = timer, boutons -->
   <div class="zone-b">
     <div class="hud-timer">
       <div class="chrono">{chrono}</div>
       <div class="hud-label">TEMPS</div>
     </div>
     <div class="hud-level">NVL {lvl}</div>
-    {#if attempts > 0}
-      <div class="hud-lives">
-        {#each Array(Math.min(attempts, 8)) as _}
-          <span class="heart-lost">♥</span>
-        {/each}
-        {#if attempts > 8}<span class="lives-extra">+{attempts - 8}</span>{/if}
-      </div>
-    {/if}
     <div class="hud-btns">
       <button class="icon-btn" on:click={() => paused ? resumeGame() : pauseGame()} aria-label="Pause">
         {paused ? '▶' : '⏸'}
@@ -935,14 +1009,26 @@
     </div>
     {#if showCfg}
       <div class="config">
-        <label>Rangs <input type="number" min="3" max="16" bind:value={rows} /></label>
-        <label>Cols  <input type="number" min="3" max="12" bind:value={cols} /></label>
-        <button class="apply-btn" on:click={applyConfig}>OK</button>
+        <label class="cfg-label">
+          Sensibilité
+          <input type="range" min="0.1" max="1.5" step="0.05" bind:value={sensitivity} />
+          <span class="cfg-val">{sensitivity.toFixed(2)}</span>
+        </label>
+        <label class="cfg-label">
+          Volume
+          <input type="range" min="0" max="1" step="0.05" bind:value={musicVolume} />
+          <span class="cfg-val">{Math.round(musicVolume * 100)}%</span>
+        </label>
       </div>
     {/if}
   </div>
 
 </div>
+
+<!-- ── Bouton recentrer (FAB gyro) ───────────────────────────────────────── -->
+{#if controlMode === 'gyro' && !paused}
+  <button class="recenter-fab" on:click={recenterPosition} aria-label="Recentrer">⊕</button>
+{/if}
 
 <!-- ── Overlay portrait : demander de tourner l'appareil ─────────────────── -->
 {#if isPortrait}
@@ -958,13 +1044,12 @@
   <div class="pause-overlay" on:click|self={resumeGame}>
     <div class="pause-panel">
       <div class="pause-title">PAUSE</div>
-      <div class="pause-info">NVL {lvl} · {chrono} · {attempts} chute{attempts !== 1 ? 's' : ''}</div>
+      <div class="pause-info">NVL {lvl} · {chrono}</div>
       <button class="neon-btn" on:click={resumeGame}>▶&nbsp; REPRENDRE</button>
       <button class="neon-btn neon-btn--green" on:click={restartLevel}>↺&nbsp; RECOMMENCER</button>
       <button class="neon-btn neon-btn--amber" on:click={toggleControlMode}>
         {controlMode === 'gyro' ? '🕹 MODE JOYSTICK' : '📡 MODE GYROSCOPE'}
       </button>
-      <button class="neon-btn neon-btn--purple" on:click={recenterPosition}>⊕&nbsp; RECENTRER</button>
       <button class="neon-btn neon-btn--sound" on:click={toggleSound}>
         {soundEnabled ? '🔊 SON ACTIVÉ' : '🔇 SON COUPÉ'}
       </button>
@@ -1149,22 +1234,6 @@
     font-family: 'Courier New', monospace;
   }
 
-  .hud-lives {
-    display: flex; flex-wrap: wrap; gap: 3px;
-    max-width: 160px;
-  }
-
-  .heart-lost {
-    color: #ff3030;
-    font-size: 14px;
-    text-shadow: 0 0 7px #ff2020;
-    line-height: 1;
-  }
-
-  .lives-extra {
-    color: #ff3030; font-size: 11px; align-self: center; letter-spacing: 1px;
-  }
-
   .hud-btns { display: flex; gap: 6px; }
 
   @media (orientation: landscape) {
@@ -1190,22 +1259,47 @@
     background: rgba(0,5,20,0.97);
     border: 1px solid #00c8ff;
     border-radius: 6px;
-    padding: 8px 12px;
-    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 10px;
     font-size: 11px; color: #00c8ff; font-family: inherit;
     box-shadow: 0 0 20px rgba(0,200,255,0.18);
     margin-top: 4px;
   }
-  .config label { display: flex; align-items: center; gap: 4px; }
-  .config input {
-    width: 36px; background: rgba(0,20,60,0.8); color: #00c8ff;
-    border: 1px solid #00c8ff; border-radius: 3px;
-    padding: 2px 4px; text-align: center; font-family: inherit; font-size: 11px;
+  .cfg-label {
+    display: flex; flex-direction: column; gap: 4px;
+    color: rgba(0,200,255,0.80);
   }
-  .apply-btn {
-    background: rgba(0,200,255,0.12); color: #00c8ff;
-    border: 1px solid #00c8ff; border-radius: 4px;
-    padding: 3px 10px; cursor: pointer; font-family: inherit;
+  .cfg-label input[type=range] {
+    width: 100%; accent-color: #00c8ff;
+    cursor: pointer;
+  }
+  .cfg-val {
+    color: #00c8ff; font-size: 10px; letter-spacing: 1px;
+    text-shadow: 0 0 6px #00c8ff;
+  }
+
+  /* ── Bouton recentrer (FAB gyro) ── */
+  .recenter-fab {
+    position: fixed;
+    bottom: max(20px, env(safe-area-inset-bottom, 0px) + 12px);
+    right:  max(20px, env(safe-area-inset-right,  0px) + 12px);
+    z-index: 50;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(0,5,20,0.85);
+    border: 1.5px solid rgba(0,200,255,0.50);
+    color: #00c8ff; font-size: 18px; cursor: pointer;
+    text-shadow: 0 0 8px #00c8ff;
+    box-shadow: 0 0 16px rgba(0,200,255,0.25);
+    display: flex; align-items: center; justify-content: center;
+    font-family: inherit;
+  }
+  .recenter-fab:active { background: rgba(0,200,255,0.18); }
+
+  /* ── Overlay joystick plein-écran ── */
+  .joy-overlay {
+    position: fixed; inset: 0;
+    z-index: 10;
+    touch-action: none;
   }
 
   /* ── Menu Pause ── */
@@ -1250,12 +1344,6 @@
     text-shadow: 0 0 8px #00ff80; box-shadow: 0 0 10px rgba(0,255,128,0.20);
   }
   .neon-btn--green:active { background: rgba(0,255,128,0.13); }
-
-  .neon-btn--purple {
-    border-color: #aa44ff; color: #cc66ff;
-    text-shadow: 0 0 8px #aa44ff; box-shadow: 0 0 10px rgba(170,68,255,0.20);
-  }
-  .neon-btn--purple:active { background: rgba(170,68,255,0.13); }
 
   .neon-btn--amber {
     border-color: #ffb300; color: #ffcc44;
