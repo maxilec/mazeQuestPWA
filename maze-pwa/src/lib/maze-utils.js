@@ -28,14 +28,10 @@ export function bfsPath(maze, R, C, spawn, hole) {
   }
   const path = [];
   let cur = { r: hole.r, c: hole.c };
-  while (cur) {
-    path.unshift(cur);
-    cur = prev[cur.r][cur.c];
-  }
+  while (cur) { path.unshift(cur); cur = prev[cur.r][cur.c]; }
   return path;
 }
 
-// True if path[i] is on a straight segment (no turn, no intersection)
 function isStraight(path, i) {
   if (i <= 0 || i >= path.length - 1) return false;
   const a = path[i - 1], b = path[i], c = path[i + 1];
@@ -59,8 +55,6 @@ export function computeCheckpoints(path) {
       cp: { r: cell.r, c: cell.c, horizontal: (cell.r - prev.r) !== 0, passed: false },
     });
   }
-
-  // If both candidates are too close, keep only the more central one
   if (candidates.length === 2) {
     const minSep = Math.max(4, path.length * 0.20);
     if (Math.abs(candidates[1].idx - candidates[0].idx) < minSep) {
@@ -70,33 +64,74 @@ export function computeCheckpoints(path) {
       return [best.cp];
     }
   }
-
   return candidates.map(c => c.cp);
 }
 
-export function computeCollectibles(path, checkpoints, count = 3) {
+// Returns cells reachable from the path but not on it (sorted dead-ends first).
+function offPathCells(path, maze, R, C) {
+  const pathSet = new Set(path.map(p => `${p.r},${p.c}`));
+  const dirs = [
+    { dr: -1, dc: 0, wall: 'T' },
+    { dr:  1, dc: 0, wall: 'B' },
+    { dr:  0, dc: -1, wall: 'L' },
+    { dr:  0, dc:  1, wall: 'R' },
+  ];
+  const seen = new Set();
+  const result = [];
+  for (const { r, c } of path) {
+    const ce = maze[r][c];
+    for (const { dr, dc, wall } of dirs) {
+      const nr = r + dr, nc = c + dc;
+      const key = `${nr},${nc}`;
+      if (nr < 0 || nr >= R || nc < 0 || nc >= C) continue;
+      if (ce[wall]) continue;           // wall blocks passage
+      if (pathSet.has(key)) continue;   // on main path
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const cel = maze[nr][nc];
+      const open = (!cel.T?1:0) + (!cel.B?1:0) + (!cel.L?1:0) + (!cel.R?1:0);
+      result.push({ r: nr, c: nc, open });
+    }
+  }
+  result.sort((a, b) => a.open - b.open);  // dead-ends (open=1) first
+  return result;
+}
+
+export function computeCollectibles(path, maze, R, C, checkpoints) {
   if (path.length < 6) return [];
-  const cpCells = new Set(checkpoints.map(c => `${c.r},${c.c}`));
-  const candidates = [];
+  const cpSet = new Set(checkpoints.map(c => `${c.r},${c.c}`));
+
+  // On-path candidates: middle 70%, straight segments, avoiding checkpoints
   const start = Math.ceil(path.length * 0.15);
   const end   = Math.floor(path.length * 0.85);
+  const onPath = [];
   for (let i = start; i < end; i++) {
     if (!isStraight(path, i)) continue;
     const { r, c } = path[i];
-    if (cpCells.has(`${r},${c}`)) continue;
-    candidates.push({ i, r, c });
+    if (cpSet.has(`${r},${c}`)) continue;
+    onPath.push({ r, c });
   }
-  if (candidates.length === 0) return [];
 
-  // Pick `count` evenly spaced candidates
-  const types = ['+5s', '+10s', '+30s'];
-  const step   = Math.max(1, Math.floor(candidates.length / (count + 1)));
+  const offPath = offPathCells(path, maze, R, C);
   const result = [];
-  for (let k = 0; k < count; k++) {
-    const idx = step * (k + 1);
-    if (idx >= candidates.length) break;
-    const { r, c } = candidates[idx];
-    result.push({ r, c, type: types[k % types.length], collected: false, collectT: 0 });
+
+  // Always 1× +5s on the main path (mid-point)
+  if (onPath.length > 0) {
+    const mid = onPath[Math.floor(onPath.length * 0.5)];
+    result.push({ r: mid.r, c: mid.c, type: '+5s', collected: false, collectT: 0 });
   }
+
+  // 60% chance: 1× +10s off the main path (prefer dead-ends)
+  if (offPath.length > 0 && Math.random() < 0.60) {
+    const p = offPath[0];
+    result.push({ r: p.r, c: p.c, type: '+10s', collected: false, collectT: 0 });
+  }
+
+  // 15% chance: 1× +30s off path at a different dead-end
+  if (offPath.length > 1 && Math.random() < 0.15) {
+    const p = offPath[Math.min(2, offPath.length - 1)];
+    result.push({ r: p.r, c: p.c, type: '+30s', collected: false, collectT: 0 });
+  }
+
   return result;
 }

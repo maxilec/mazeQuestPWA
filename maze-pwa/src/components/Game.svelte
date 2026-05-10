@@ -1,18 +1,22 @@
 <script>
-  import { onMount } from 'svelte';
-  import { makeMaze }                                            from '../lib/maze.js';
-  import { N_BALL, N_HOLE, GYRO_KEY }                           from '../lib/constants.js';
+  import { onMount }                                                from 'svelte';
+  import { makeMaze }                                               from '../lib/maze.js';
+  import { N_BALL, N_HOLE, GYRO_KEY, getTrackColor }               from '../lib/constants.js';
   import { getTrackRatio, bfsPath, computeCheckpoints,
-           computeCollectibles }                                 from '../lib/maze-utils.js';
-  import { stepPhysics, checkWallFall }                         from '../lib/physics.js';
-  import { createAudioManager }                                  from '../lib/audio.js';
-  import { generateNebula, draw, drawFloatingTexts }             from '../lib/render.js';
-  import { screen, gameMode, runStats, settings }               from '../stores.js';
+           computeCollectibles }                                    from '../lib/maze-utils.js';
+  import { stepPhysics, checkWallFall }                            from '../lib/physics.js';
+  import { createAudioManager }                                     from '../lib/audio.js';
+  import { generateNebula, draw }                                  from '../lib/render.js';
+  import { screen as appScreen, gameMode, runStats, settings }     from '../stores.js';
+  import SettingsPanel                                              from './SettingsPanel.svelte';
+
+  // ── Fixed grid (portrait base) ──────────────────────────────────────────────
+  const ROWS = 10, COLS = 6;
 
   // ── Reactive state ──────────────────────────────────────────────────────────
   let lvl           = 1;
-  let chrono        = '2:00';  // countdown display
-  let timeLeft      = 120;     // seconds remaining (for Survie/Hardcore)
+  let chrono        = '2:00';
+  let timeLeft      = 120;
   let hint          = 'mouse';
   let iosBtn        = false;
   let showCfg       = false;
@@ -20,39 +24,36 @@
   let countdownText = '';
   let attempts      = 0;
   let lastHapticSec = -1;
+  let deviceAngle   = 0;   // current screen orientation angle
 
-  // Settings from store (initialised in onMount to avoid SSR issues)
-  let soundEnabled  = true;
-  let musicVolume   = 0.5;
-  let sensitivity   = 0.55;
-  let hapticsOn     = true;
+  // Settings (initialised from store in onMount)
+  let soundEnabled = true;
+  let musicVolume  = 0.5;
+  let sensitivity  = 0.55;
+  let hapticsOn    = true;
+  let controlMode  = 'gyro';
 
   const MODE_DURATION = 120;
+  const currentMode   = $gameMode;  // snapshot — won't change mid-run
 
   // ── Non-reactive refs ───────────────────────────────────────────────────────
-  let canvas, boardWrap;
-  let G             = null;
-  let raf           = null;
-  let tilt          = { x: 0, y: 0 };
-  let gyroOk        = false;
+  let canvas, boardWrap, worldRotateEl;
+  let G            = null;
+  let raf          = null;
+  let tilt         = { x: 0, y: 0 };
+  let gyroOk       = false;
   let pendingGyroActivation = false;
-  let held          = { l: 0, r: 0, u: 0, d: 0 };
-  let rowsInUse     = 6;
-  let colsInUse     = 10;
-  let keyInt        = null;
-  let gyroOffset    = { beta: 0, gamma: 0 };
-  let lastOrient    = { beta: 0, gamma: 0 };
-  let controlMode   = 'gyro';
-  let joyActive     = false;
-  let joyCx = 0, joyCy = 0;
-  let joyDx = 0, joyDy = 0;
-  const JOY_RADIUS  = 70;
-  let boardTiltX    = 0;
-  let boardTiltY    = 0;
-  let nebulaCanvas  = null;
-  let audioMgr      = null;
-
-  const currentMode = $gameMode;  // snapshot at mount — won't change mid-run
+  let held         = { l: 0, r: 0, u: 0, d: 0 };
+  let keyInt       = null;
+  let gyroOffset   = { beta: 0, gamma: 0 };
+  let lastOrient   = { beta: 0, gamma: 0 };
+  let joyActive    = false;
+  let joyCx = 0, joyCy = 0, joyDx = 0, joyDy = 0;
+  const JOY_RADIUS = 70;
+  let boardTiltX   = 0;
+  let boardTiltY   = 0;
+  let nebulaCanvas = null;
+  let audioMgr     = null;
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   function wallThickness(cw, ch) { return Math.max(3, Math.min(7, Math.min(cw, ch) * 0.12)); }
@@ -60,17 +61,146 @@
     const s = Math.max(0, ms) / 1000;
     return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   }
-  function getOrientationAngle() {
-    return (typeof screen !== 'undefined' && screen.orientation)
-      ? screen.orientation.angle : (window.orientation || 0);
+
+  function getDeviceAngle() {
+    if (typeof window === 'undefined') return 0;
+    const a = (window.screen?.orientation?.angle ?? window.orientation) || 0;
+    return ((a % 360) + 360) % 360;
   }
 
   function haptic(pattern = [30]) {
-    if (hapticsOn && navigator.vibrate) navigator.vibrate(pattern);
+    if (hapticsOn && $settings.haptics && navigator.vibrate) navigator.vibrate(pattern);
   }
 
   function spawnFloatingText(text, x, y, color) {
     if (G) G.floatingTexts.push({ text, x, y, color, startT: performance.now() });
+  }
+
+  // ── Canvas sizing (world-lock aware) ─────────────────────────────────────────
+  // Canvas is always portrait-shaped (ROWS > COLS).
+  // In landscape (normAngle=90 or 270), the canvas is CSS-rotated -90° so it
+  // appears landscape on screen.
+  function fitCanvas() {
+    if (!canvas) return;
+    const sw = window.innerWidth, sh = window.innerHeight;
+    const normAngle = getDeviceAngle();
+    const isLandscape = normAngle === 90 || normAngle === 270;
+    const aspect = ROWS / COLS;  // portrait H/W ratio (e.g. 10/6 ≈ 1.67)
+
+    let cw, ch;
+    if (!isLandscape) {
+      // Portrait: canvas appears portrait, fills portrait screen
+      const hudH = 160;
+      cw = Math.min(sw * 0.92, (sh - hudH) / aspect);
+      ch = cw * aspect;
+    } else {
+      // Landscape: canvas CSS-rotated -90° → appears landscape
+      // Visual width (landscape) = canvas.height, visual height (landscape) = canvas.width
+      // Constraints: canvas.height ≤ sh * 0.90 AND canvas.width ≤ (sw - 260)
+      const hudW = 260;
+      cw = Math.min(sh * 0.90 / aspect, sw - hudW);
+      ch = cw * aspect;
+    }
+
+    canvas.width  = Math.max(100, cw | 0);
+    canvas.height = Math.max(100, ch | 0);
+  }
+
+  // Update the world-rotate wrapper to take the correct VISUAL space in the layout.
+  function updateWorldRotateSize() {
+    if (!worldRotateEl || !canvas) return;
+    const normAngle = getDeviceAngle();
+    const isRotated = normAngle === 90 || normAngle === 270;
+    worldRotateEl.style.width  = (isRotated ? canvas.height : canvas.width)  + 'px';
+    worldRotateEl.style.height = (isRotated ? canvas.width  : canvas.height) + 'px';
+  }
+
+  // ── Level init ───────────────────────────────────────────────────────────────
+  function initLevel(levelNum, spawnCell) {
+    if (!canvas) return;
+    const W = canvas.width, H = canvas.height;
+    const R = ROWS, C = COLS;
+    const cw = W / C, ch = H / R;
+    const trackRatio = currentMode === 'zen' ? 0.65 : getTrackRatio(levelNum);
+    const br = Math.min(cw, ch) * trackRatio * 0.35;
+    const wt = wallThickness(cw, ch);
+    const maze = makeMaze(R, C);
+    const sc   = spawnCell || { r: 0, c: 0 };
+
+    let hr = -1, hc = -1, best = -1;
+    for (let i = 0; i < 30; i++) {
+      const tr = (Math.random() * R) | 0, tc = (Math.random() * C) | 0;
+      const d  = Math.abs(tr - sc.r) + Math.abs(tc - sc.c);
+      if (d > best && d > 1) { best = d; hr = tr; hc = tc; }
+    }
+    if (hr < 0) { hr = R - 1 - sc.r; hc = C - 1 - sc.c; }
+    if (hr === sc.r && hc === sc.c) hr = (hr + 1) % R;
+
+    if (gyroOk) gyroOffset = { ...lastOrient };
+    nebulaCanvas = generateNebula(W, H, levelNum * 31 + 7);
+
+    const path         = bfsPath(maze, R, C, sc, { r: hr, c: hc });
+    const checkpoints  = computeCheckpoints(path);
+    const collectibles = currentMode !== 'zen'
+      ? computeCollectibles(path, maze, R, C, checkpoints)
+      : [];
+
+    const trackColor = currentMode === 'zen'
+      ? ($settings.zenColor || '#00c8ff')
+      : getTrackColor(levelNum);
+
+    const initialTime = (G && G.initialTime != null && levelNum > 1)
+      ? G.initialTime + 30   // +30s bonus on level complete
+      : MODE_DURATION;
+
+    const now = performance.now();
+    G = {
+      W, H, cw, ch, br, wt, maze, lvl: levelNum, R, C, trackRatio, trackColor,
+      spawn: { ...sc },
+      ball: { x: sc.c * cw + cw / 2, y: sc.r * ch + ch / 2, vx: 0, vy: 0 },
+      hole: { r: hr, c: hc },
+      checkpoints, collectibles,
+      lastCheckpoint: null,
+      trail: [], floatingTexts: [],
+      phase: 'intro', fallT: 0, fallCause: 'hole',
+      introT: now, levelStart: now,
+      pausedMs: 0, pauseAt: 0,
+      initialTime,
+    };
+    lvl    = levelNum;
+    chrono = currentMode === 'zen' ? '∞' : formatTime(initialTime * 1000);
+    countdownText = '';
+    runStats.update(s => ({ ...s, lvl: levelNum }));
+  }
+
+  // ── Orientation change handler ───────────────────────────────────────────────
+  function handleOrientationChange() {
+    setTimeout(() => {
+      const oldCw = G ? G.cw : 0;
+      const oldCh = G ? G.ch : 0;
+
+      deviceAngle = getDeviceAngle();
+      fitCanvas();
+      updateWorldRotateSize();
+
+      if (G) {
+        const newCw = canvas.width  / COLS;
+        const newCh = canvas.height / ROWS;
+        const sx    = newCw / oldCw;
+        const sy    = newCh / oldCh;
+
+        G.ball.x  *= sx; G.ball.y  *= sy;
+        G.ball.vx *= sx; G.ball.vy *= sy;
+        G.trail = G.trail.map(p => ({ x: p.x * sx, y: p.y * sy }));
+        G.W = canvas.width; G.H = canvas.height;
+        G.cw = newCw; G.ch = newCh;
+        G.br = Math.min(newCw, newCh) * G.trackRatio * 0.35;
+        G.wt = wallThickness(newCw, newCh);
+        nebulaCanvas = generateNebula(G.W, G.H, G.lvl * 31 + 7);
+      }
+
+      if (gyroOk) gyroOffset = { ...lastOrient };
+    }, 180);
   }
 
   // ── Game actions ─────────────────────────────────────────────────────────────
@@ -85,9 +215,9 @@
   }
 
   function triggerGameOver() {
-    cancelAnimationFrame(raf); raf = null;
+    if (raf) { cancelAnimationFrame(raf); raf = null; }
     runStats.update(s => ({ ...s, lvl: G?.lvl ?? 1, falls: attempts }));
-    screen.set('gameover');
+    appScreen.set('gameover');
   }
 
   function toggleSound() {
@@ -105,18 +235,10 @@
 
   function restartLevel() {
     if (!G) return;
-    const now = performance.now();
-    G.ball = { x: G.spawn.c * G.cw + G.cw / 2, y: G.spawn.r * G.ch + G.ch / 2, vx: 0, vy: 0 };
-    G.phase = 'intro'; G.introT = now; G.levelStart = now;
-    G.pausedMs = 0; G.pauseAt = 0;
     G.initialTime = MODE_DURATION;
-    if (G.checkpoints) G.checkpoints.forEach(cp => { cp.passed = false; });
-    G.lastCheckpoint = null; G.trail = []; G.floatingTexts = [];
-    G.collectibles.forEach(c => { c.collected = false; c.collectT = 0; });
-    lvl = 1; attempts = 0; chrono = '2:00'; paused = false;
-    if (gyroOk) gyroOffset = { ...lastOrient };
-    // restart from level 1
-    initLevel(1, null, rowsInUse, colsInUse);
+    attempts = 0; chrono = currentMode === 'zen' ? '∞' : '2:00';
+    paused = false;
+    initLevel(1, null);
   }
 
   function restartAfterFall() {
@@ -127,91 +249,8 @@
     runStats.update(s => ({ ...s, falls: attempts }));
     const pt = G.lastCheckpoint || G.spawn;
     G.ball = { x: pt.c * G.cw + G.cw / 2, y: pt.r * G.ch + G.ch / 2, vx: 0, vy: 0 };
-    G.trail = []; G.phase = 'play'; paused = false;
+    G.trail = []; G.phase = 'play';
     if (gyroOk) gyroOffset = { ...lastOrient };
-  }
-
-  // ── Canvas sizing ────────────────────────────────────────────────────────────
-  function fitCanvas(R, C) {
-    if (!canvas) return;
-    const isLandscape = window.innerWidth >= window.innerHeight;
-    let w, h;
-    if (isLandscape) {
-      h = window.innerHeight * 0.88;
-      w = h * (C / R);
-      const maxW = window.innerWidth * 0.64;
-      if (w > maxW) { w = maxW; h = w * (R / C); }
-    } else {
-      w = Math.min(window.innerWidth * 0.94, 420);
-      h = w * (R / C);
-      const maxH = window.innerHeight * 0.58;
-      if (h > maxH) { h = maxH; w = h * (C / R); }
-    }
-    canvas.width  = w | 0;
-    canvas.height = h | 0;
-  }
-
-  // Returns [rows, cols] adjusted for current orientation
-  function gridDims() {
-    const isLandscape = window.innerWidth >= window.innerHeight;
-    return isLandscape ? [rowsInUse, colsInUse] : [colsInUse, rowsInUse];
-  }
-
-  // ── Level init ───────────────────────────────────────────────────────────────
-  function initLevel(levelNum, spawnCell, R, C) {
-    if (!canvas) return;
-    const W = canvas.width, H = canvas.height;
-    const cw = W / C, ch = H / R;
-    const trackRatio = getTrackRatio(levelNum);
-    const br = Math.min(cw, ch) * trackRatio * 0.35;
-    const wt = wallThickness(cw, ch);
-    const maze = makeMaze(R, C);
-    const sc = spawnCell || { r: 0, c: 0 };
-
-    let hr = -1, hc = -1, best = -1;
-    for (let i = 0; i < 30; i++) {
-      const tr = (Math.random() * R) | 0, tc = (Math.random() * C) | 0;
-      const d  = Math.abs(tr - sc.r) + Math.abs(tc - sc.c);
-      if (d > best && d > 1) { best = d; hr = tr; hc = tc; }
-    }
-    if (hr < 0) { hr = R - 1 - sc.r; hc = C - 1 - sc.c; }
-    if (hr === sc.r && hc === sc.c) hr = (hr + 1) % R;
-
-    if (gyroOk) gyroOffset = { ...lastOrient };
-    nebulaCanvas = generateNebula(W, H, levelNum * 31 + 7);
-
-    const path        = bfsPath(maze, R, C, sc, { r: hr, c: hc });
-    const checkpoints = computeCheckpoints(path);
-    const collectibles = currentMode !== 'zen'
-      ? computeCollectibles(path, checkpoints, 3)
-      : [];  // No collectibles in zen (no timer)
-
-    // Carry over remaining time when advancing (keep G.initialTime if it exists)
-    const initialTime = (G && G.initialTime != null && levelNum > 1)
-      ? G.initialTime + 30    // +30s bonus on level complete
-      : MODE_DURATION;
-
-    const now = performance.now();
-    G = {
-      W, H, cw, ch, br, wt, maze, lvl: levelNum, R, C, trackRatio,
-      spawn: { ...sc },
-      ball: { x: sc.c * cw + cw / 2, y: sc.r * ch + ch / 2, vx: 0, vy: 0 },
-      hole: { r: hr, c: hc },
-      checkpoints,
-      collectibles,
-      lastCheckpoint: null,
-      trail: [],
-      floatingTexts: [],
-      phase: 'intro',
-      fallT: 0, fallCause: 'hole',
-      introT: now, levelStart: now,
-      pausedMs: 0, pauseAt: 0,
-      initialTime,
-    };
-    lvl = levelNum;
-    chrono = currentMode === 'zen' ? '∞' : formatTime(initialTime * 1000);
-    countdownText = '';
-    runStats.update(s => ({ ...s, lvl: levelNum }));
   }
 
   // ── Touch handlers ───────────────────────────────────────────────────────────
@@ -258,7 +297,10 @@
     if (pendingGyroActivation) {
       pendingGyroActivation = false;
       DeviceOrientationEvent.requestPermission()
-        .then(res => { if (res === 'granted') { gyroOk = true; hint = 'gyro'; } else iosBtn = true; })
+        .then(res => {
+          if (res === 'granted') { gyroOk = true; hint = 'gyro'; }
+          else iosBtn = true;
+        })
         .catch(() => { iosBtn = true; });
       return;
     }
@@ -277,18 +319,16 @@
     } catch {}
   }
 
-  // Volume sync
   $: audioMgr?.setVolume(musicVolume, soundEnabled);
 
   // ── Mount ────────────────────────────────────────────────────────────────────
   onMount(() => {
-    // Apply settings from store
     const s = $settings;
-    soundEnabled  = !s.muted;
-    musicVolume   = s.volume;
-    sensitivity   = s.sensitivity;
-    controlMode   = s.controlMode;
-    hapticsOn     = s.haptics;
+    soundEnabled = !s.muted;
+    musicVolume  = s.volume;
+    sensitivity  = s.sensitivity;
+    controlMode  = s.controlMode;
+    hapticsOn    = s.haptics;
     hint = controlMode === 'joystick' ? 'joystick' : 'mouse';
 
     // Wake lock
@@ -296,8 +336,8 @@
     const acquireWakeLock = async () => {
       if (document.visibilityState !== 'visible') return;
       try {
-        wakeLock = await navigator.wakeLock.request('screen');
-        wakeLock.addEventListener('release', () => { setTimeout(acquireWakeLock, 500); });
+        wakeLock = await navigator.wakeLock?.request('screen');
+        wakeLock?.addEventListener('release', () => setTimeout(acquireWakeLock, 500));
       } catch {}
     };
     acquireWakeLock();
@@ -306,51 +346,64 @@
     });
     const wlInterval = setInterval(acquireWakeLock, 25000);
 
-    // Audio
     audioMgr = createAudioManager(import.meta.env.BASE_URL);
     audioMgr.init(soundEnabled ? musicVolume : 0);
 
-    // Screen orientation lock
-    try { screen.orientation?.lock('landscape').catch(() => {}); } catch {}
-
-    // Fit canvas & start
-    const [R, C] = gridDims();
-    fitCanvas(R, C);
-    setTimeout(() => initLevel(1, null, R, C), 60);
-
-    // iOS gyro check
+    // iOS gyro
     if (typeof DeviceOrientationEvent !== 'undefined' &&
         typeof DeviceOrientationEvent.requestPermission === 'function') {
-      if (localStorage.getItem(GYRO_KEY) === '1') {
-        pendingGyroActivation = true; iosBtn = false;
-      } else {
-        iosBtn = true;
-      }
+      if (localStorage.getItem(GYRO_KEY) === '1') pendingGyroActivation = true;
+      else iosBtn = true;
     }
 
-    const ctx  = canvas.getContext('2d');
-    let last   = performance.now();
+    deviceAngle = getDeviceAngle();
+    fitCanvas();
+    updateWorldRotateSize();
+    setTimeout(() => initLevel(1, null), 60);
+
+    const ctx = canvas.getContext('2d');
+    let last  = performance.now();
 
     function loop(ts) {
       if (!G) { raf = requestAnimationFrame(loop); return; }
       const dt = Math.min((ts - last) / 16.67, 3);
       last = ts;
 
-      // Visual board tilt
+      // Smooth board tilt
       boardTiltX += (tilt.x - boardTiltX) * 0.08;
       boardTiltY += (tilt.y - boardTiltY) * 0.08;
+
+      // World-lock + 3D tilt transform on the board
+      const MAX_DEG = 12;
+      const wlRot   = -deviceAngle;
       if (boardWrap) {
-        const MAX_DEG = 14;
-        boardWrap.style.transform =
-          `perspective(700px) rotateX(${-boardTiltY * MAX_DEG}deg) rotateY(${boardTiltX * MAX_DEG}deg)`;
+        boardWrap.style.transform = [
+          'translate(-50%, -50%)',
+          `rotate(${wlRot}deg)`,
+          'perspective(700px)',
+          `rotateX(${-boardTiltY * MAX_DEG}deg)`,
+          `rotateY(${boardTiltX * MAX_DEG}deg)`,
+        ].join(' ');
         boardWrap.style.boxShadow =
-          `0 0 45px rgba(0,200,255,0.22), ${boardTiltX * 22}px ${boardTiltY * 22 + 8}px 50px rgba(0,0,0,0.92)`;
+          `0 0 50px rgba(0,200,255,0.18), ${boardTiltX * 18}px ${boardTiltY * 18 + 6}px 48px rgba(0,0,0,0.90)`;
       }
 
-      // Resize sync
+      // Sync worldRotateEl size (cheap — just string assignment)
+      if (worldRotateEl) {
+        const normAngle = ((deviceAngle % 360) + 360) % 360;
+        const isRot = normAngle === 90 || normAngle === 270;
+        worldRotateEl.style.width  = (isRot ? canvas.height : canvas.width)  + 'px';
+        worldRotateEl.style.height = (isRot ? canvas.width  : canvas.height) + 'px';
+      }
+
+      // Canvas resize sync (if window resized without orientation change)
       if (G.W !== canvas.width || G.H !== canvas.height) {
+        const oldCw = G.cw, oldCh = G.ch;
         G.W = canvas.width; G.H = canvas.height;
         G.cw = G.W / G.C; G.ch = G.H / G.R;
+        const sx = G.cw / oldCw, sy = G.ch / oldCh;
+        G.ball.x *= sx; G.ball.y *= sy; G.ball.vx *= sx; G.ball.vy *= sy;
+        G.trail = G.trail.map(p => ({ x: p.x * sx, y: p.y * sy }));
         G.br = Math.min(G.cw, G.ch) * G.trackRatio * 0.35;
         G.wt = wallThickness(G.cw, G.ch);
         nebulaCanvas = generateNebula(G.W, G.H, G.lvl * 31 + 7);
@@ -359,7 +412,7 @@
       // ── Intro phase ──
       if (G.phase === 'intro') {
         const elapsed = ts - G.introT;
-        const step = elapsed < 900 ? `NVL ${G.lvl}`
+        const step = elapsed < 900  ? `NVL ${G.lvl}`
                    : elapsed < 1700 ? '3'
                    : elapsed < 2500 ? '2'
                    : elapsed < 3300 ? '1'
@@ -371,20 +424,16 @@
       } else if (!paused && G.phase === 'play') {
         stepPhysics(G, dt, tilt);
 
-        // Timer (Survie / Hardcore only)
+        // Timer
         if (currentMode !== 'zen') {
           const elapsed = (ts - G.levelStart - G.pausedMs) / 1000;
           const tl = Math.max(0, G.initialTime - elapsed);
           timeLeft = tl;
           chrono   = formatTime(tl * 1000);
-
-          // Haptic alert every second when ≤ 10s remain
           const secLeft = Math.ceil(tl);
           if (tl <= 10 && secLeft !== lastHapticSec) {
-            lastHapticSec = secLeft;
-            haptic([10]);
+            lastHapticSec = secLeft; haptic([10]);
           }
-
           if (tl <= 0) { triggerGameOver(); return; }
         }
 
@@ -394,42 +443,37 @@
           G.trail.push({ x: G.ball.x, y: G.ball.y });
           const maxLen = Math.max(10, Math.min(40, Math.round(spd * 10)));
           while (G.trail.length > maxLen) G.trail.shift();
-        } else {
-          if (G.trail.length > 0) G.trail = [];
+        } else if (G.trail.length > 0) {
+          G.trail = [];
         }
 
-        // Checkpoint detection
+        // Checkpoints
         if (G.checkpoints) {
           for (const cp of G.checkpoints) {
             if (cp.passed) continue;
-            const cpx = cp.c * G.cw + G.cw / 2;
-            const cpy = cp.r * G.ch + G.ch / 2;
+            const cpx = cp.c * G.cw + G.cw / 2, cpy = cp.r * G.ch + G.ch / 2;
             if (Math.hypot(G.ball.x - cpx, G.ball.y - cpy) < G.br * 1.6) {
-              cp.passed = true;
-              G.lastCheckpoint = { r: cp.r, c: cp.c };
+              cp.passed = true; G.lastCheckpoint = { r: cp.r, c: cp.c };
             }
           }
         }
 
-        // Collectible detection
+        // Collectibles
         if (G.collectibles) {
           for (const col of G.collectibles) {
             if (col.collected) continue;
-            const cx = col.c * G.cw + G.cw / 2;
-            const cy = col.r * G.ch + G.ch / 2;
+            const cx = col.c * G.cw + G.cw / 2, cy = col.r * G.ch + G.ch / 2;
             if (Math.hypot(G.ball.x - cx, G.ball.y - cy) < G.br * 2.0) {
               col.collected = true; col.collectT = ts;
-              const secs = parseInt(col.type);
-              G.initialTime += secs;
+              G.initialTime += parseInt(col.type);
               spawnFloatingText(col.type, cx, cy, '#ffe040');
               haptic([30, 15, 30]);
             }
           }
         }
 
-        // Hole detection (level complete)
-        const hx = G.hole.c * G.cw + G.cw / 2;
-        const hy = G.hole.r * G.ch + G.ch / 2;
+        // Hole detection
+        const hx = G.hole.c * G.cw + G.cw / 2, hy = G.hole.r * G.ch + G.ch / 2;
         if (Math.hypot(G.ball.x - hx, G.ball.y - hy) < G.br * 0.58) {
           haptic([20, 10, 20, 10, 40]);
           spawnFloatingText('+30s', G.W / 2, G.H / 2, '#00ff80');
@@ -441,9 +485,7 @@
       // ── Falling phase ──
       } else if (G.phase === 'falling' && ts - G.fallT > 720) {
         if (G.fallCause === 'hole') {
-          const nl = G.lvl + 1;
-          const [R, C] = gridDims();
-          initLevel(nl, { r: G.hole.r, c: G.hole.c }, R, C);
+          initLevel(G.lvl + 1, { r: G.hole.r, c: G.hole.c });
         } else {
           restartAfterFall();
         }
@@ -453,26 +495,45 @@
         active: joyActive, cx: joyCx, cy: joyCy,
         dx: joyDx, dy: joyDy, radius: JOY_RADIUS, mode: controlMode,
       });
+
       raf = requestAnimationFrame(loop);
     }
 
     raf = requestAnimationFrame(loop);
 
-    // Gyroscope
+    // ── Gyroscope ──
     const onOrient = (e) => {
       if (e.beta == null) return;
       lastOrient = { beta: e.beta || 0, gamma: e.gamma || 0 };
       if (!gyroOk) { gyroOffset = { ...lastOrient }; gyroOk = true; hint = 'gyro'; }
       if (controlMode !== 'gyro') return;
-      const angle = getOrientationAngle();
+
+      const normAngle = getDeviceAngle();
       const dB = (e.beta  || 0) - gyroOffset.beta;
       const dG = (e.gamma || 0) - gyroOffset.gamma;
       const s25 = 25 / sensitivity;
+
+      // World-lock mapping: physical right always → canvas x+ (appears right on screen)
+      // Canvas is always portrait; CSS rotates it for landscape view.
+      // These formulas keep ball movement physically intuitive regardless of phone angle.
       let tx, ty;
-      if      (angle === 90)                   { tx =  dB / s25; ty = -dG / s25; }
-      else if (angle === -90 || angle === 270) { tx = -dB / s25; ty =  dG / s25; }
-      else if (angle === 180)                  { tx = -dG / s25; ty = -dB / s25; }
-      else                                     { tx =  dG / s25; ty =  dB / s25; }
+      if (normAngle === 90) {
+        // Phone CW (landscape): canvas rotated -90° to world-lock
+        tx = -dB / s25;   // physical forward → canvas left
+        ty =  dG / s25;   // physical right   → canvas down (appears right in landscape)
+      } else if (normAngle === 270) {
+        // Phone CCW (landscape): canvas rotated +90° to world-lock
+        tx =  dB / s25;
+        ty = -dG / s25;
+      } else if (normAngle === 180) {
+        // Upside-down portrait
+        tx = -dG / s25;
+        ty = -dB / s25;
+      } else {
+        // Normal portrait
+        tx =  dG / s25;
+        ty =  dB / s25;
+      }
       tilt = { x: Math.max(-1, Math.min(1, tx)), y: Math.max(-1, Math.min(1, ty)) };
     };
 
@@ -506,21 +567,27 @@
     }, 16);
 
     const onResize = () => {
-      const [R, C] = gridDims();
-      fitCanvas(R, C);
-      if (G) {
+      const oldCw = G ? G.cw : 0;
+      const oldCh = G ? G.ch : 0;
+      fitCanvas();
+      updateWorldRotateSize();
+      if (G && oldCw > 0) {
+        const sx = (canvas.width  / COLS) / oldCw;
+        const sy = (canvas.height / ROWS) / oldCh;
+        G.ball.x *= sx; G.ball.y *= sy; G.ball.vx *= sx; G.ball.vy *= sy;
+        G.trail = G.trail.map(p => ({ x: p.x * sx, y: p.y * sy }));
         G.W = canvas.width; G.H = canvas.height;
-        G.cw = G.W / G.C; G.ch = G.H / G.R;
+        G.cw = canvas.width / COLS; G.ch = canvas.height / ROWS;
         G.br = Math.min(G.cw, G.ch) * G.trackRatio * 0.35;
         G.wt = wallThickness(G.cw, G.ch);
         nebulaCanvas = generateNebula(G.W, G.H, G.lvl * 31 + 7);
       }
     };
 
-    const onRotate = () => setTimeout(() => {
-      onResize();
-      if (gyroOk) gyroOffset = { ...lastOrient };
-    }, 150);
+    const onRotate = () => {
+      deviceAngle = getDeviceAngle();
+      handleOrientationChange();
+    };
 
     canvas.addEventListener('touchstart', onTouchStart, { passive: false });
     canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
@@ -531,11 +598,11 @@
     window.addEventListener('keyup',             onKU);
     window.addEventListener('resize',            onResize);
     window.addEventListener('orientationchange', onRotate);
+    window.screen?.orientation?.addEventListener('change', onRotate);
 
     return () => {
       if (raf) cancelAnimationFrame(raf);
-      clearInterval(keyInt);
-      clearInterval(wlInterval);
+      clearInterval(keyInt); clearInterval(wlInterval);
       wakeLock?.release();
       audioMgr?.destroy();
       canvas.removeEventListener('touchstart', onTouchStart);
@@ -547,6 +614,7 @@
       window.removeEventListener('keyup',             onKU);
       window.removeEventListener('resize',            onResize);
       window.removeEventListener('orientationchange', onRotate);
+      window.screen?.orientation?.removeEventListener('change', onRotate);
     };
   });
 
@@ -557,10 +625,14 @@
     joystick: '🕹 Glissez pour diriger',
   };
 
-  const modeColor = { survie: '#00c8ff', hardcore: '#ff4444', zen: '#bb44ff' };
+  const modeColor = { survie: '#00c8ff', hardcore: '#ff5555', zen: '#bb44ff' };
 </script>
 
 <!-- ── Markup ─────────────────────────────────────────────────────────────── -->
+
+<!-- Full-screen nebula background -->
+<div class="bg-nebula"></div>
+
 <div class="container">
 
   <!-- Zone A : logo + hint -->
@@ -572,29 +644,31 @@
     {/if}
   </div>
 
-  <!-- Board -->
-  <div class="board-wrap" bind:this={boardWrap}>
-    <canvas bind:this={canvas} on:click={handleCanvasTap}></canvas>
+  <!-- Board (world-rotate sets visual layout size; board-wrap carries CSS rotation) -->
+  <div class="world-rotate" bind:this={worldRotateEl}>
+    <div class="board-wrap" bind:this={boardWrap}>
+      <canvas bind:this={canvas} on:click={handleCanvasTap}></canvas>
 
-    {#if countdownText}
-      <div class="countdown-overlay">
-        {#if iosBtn}
-          <button class="neon-btn ios-start-btn" on:click={requestGyroIOS}>
-            ▶ ACTIVER &amp; JOUER
-          </button>
-        {:else}
-          {#key countdownText}
-            <div class="countdown-text">{countdownText}</div>
-          {/key}
-        {/if}
-      </div>
-    {/if}
+      {#if countdownText}
+        <div class="countdown-overlay">
+          {#if iosBtn}
+            <button class="neon-btn ios-start-btn" on:click={requestGyroIOS}>
+              ▶ ACTIVER &amp; JOUER
+            </button>
+          {:else}
+            {#key countdownText}
+              <div class="countdown-text">{countdownText}</div>
+            {/key}
+          {/if}
+        </div>
+      {/if}
+    </div>
   </div>
 
   <!-- Zone B : HUD -->
   <div class="zone-b">
     {#if currentMode !== 'zen'}
-      <div class="hud-timer" class:alert={currentMode !== 'zen' && timeLeft <= 10}>
+      <div class="hud-timer" class:alert={timeLeft <= 10 && timeLeft > 0}>
         <div class="chrono">{chrono}</div>
         <div class="hud-label">TEMPS</div>
       </div>
@@ -608,27 +682,20 @@
       </button>
       <button class="icon-btn" on:click={() => showCfg = !showCfg} aria-label="Paramètres">⚙</button>
     </div>
-    {#if showCfg}
-      <div class="config">
-        <label class="cfg-label">
-          Sensibilité
-          <input type="range" min="0.1" max="1.5" step="0.05"
-            bind:value={sensitivity}
-            on:change={() => settings.update(s => ({ ...s, sensitivity }))} />
-          <span class="cfg-val">{sensitivity.toFixed(2)}</span>
-        </label>
-        <label class="cfg-label">
-          Volume
-          <input type="range" min="0" max="1" step="0.05"
-            bind:value={musicVolume}
-            on:change={() => { settings.update(s => ({ ...s, volume: musicVolume })); audioMgr?.setVolume(musicVolume, soundEnabled); }} />
-          <span class="cfg-val">{Math.round(musicVolume * 100)}%</span>
-        </label>
-      </div>
-    {/if}
   </div>
 
 </div>
+
+<!-- ── In-game settings panel ─────────────────────────────────────────────── -->
+{#if showCfg}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="cfg-overlay" on:click|self={() => showCfg = false}>
+    <div class="cfg-panel">
+      <SettingsPanel showClose={true} onClose={() => showCfg = false} />
+    </div>
+  </div>
+{/if}
 
 <!-- ── Pause menu ─────────────────────────────────────────────────────────── -->
 {#if paused}
@@ -646,7 +713,7 @@
       <button class="neon-btn neon-btn--sound" on:click={toggleSound}>
         {soundEnabled ? '🔊 SON ACTIVÉ' : '🔇 SON COUPÉ'}
       </button>
-      <button class="neon-btn neon-btn--dim" on:click={() => screen.set('title')}>
+      <button class="neon-btn neon-btn--dim" on:click={() => appScreen.set('title')}>
         ⬅ MENU PRINCIPAL
       </button>
     </div>
@@ -658,77 +725,90 @@
   :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   :global(html, body) {
     width: 100%; height: 100%;
-    background: #000; overflow: hidden;
+    background: #03000f; overflow: hidden;
     touch-action: none; user-select: none;
   }
 
+  /* Full-screen space nebula behind everything */
+  .bg-nebula {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse 70% 50% at 18% 28%, rgba(130,0,200,0.20) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 45% at 75% 65%, rgba(0,40,180,0.18) 0%, transparent 70%),
+      radial-gradient(ellipse 50% 40% at 55% 85%, rgba(190,0,110,0.13) 0%, transparent 70%),
+      radial-gradient(ellipse 55% 45% at 84% 18%, rgba(0,90,220,0.15) 0%, transparent 70%),
+      #03000f;
+  }
+
   .container {
+    position: relative; z-index: 1;
     width: 100vw; height: 100vh;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     font-family: 'Orbitron', 'Courier New', monospace;
-    gap: 8px;
-    padding-top:    max(8px, env(safe-area-inset-top));
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    gap: 10px;
+    padding-top:    max(10px, env(safe-area-inset-top));
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
     padding-left:   env(safe-area-inset-left);
     padding-right:  env(safe-area-inset-right);
   }
 
-  .zone-a    { order: 0; width: 100%; max-width: 460px; }
-  .board-wrap { order: 1; flex-shrink: 0; }
-  .zone-b    { order: 2; width: 100%; max-width: 460px; }
+  .zone-a { order: 0; }
+  .world-rotate { order: 1; flex-shrink: 0; position: relative; }
+  .zone-b { order: 2; }
 
   @media (orientation: landscape) {
     .container {
-      flex-direction: row; gap: 12px;
-      padding-top:    env(safe-area-inset-top,    4px);
-      padding-bottom: env(safe-area-inset-bottom, 4px);
-      padding-left:  max(12px, env(safe-area-inset-left));
-      padding-right: max(12px, env(safe-area-inset-right));
+      flex-direction: row; gap: 14px;
+      padding-left:  max(14px, env(safe-area-inset-left));
+      padding-right: max(14px, env(safe-area-inset-right));
     }
-    .zone-a    { order: 0; width: 90px;  min-width: 70px;  max-width: 110px; flex-shrink: 0; }
-    .board-wrap { order: 1; }
-    .zone-b    { order: 2; width: 150px; min-width: 130px; max-width: 170px; flex-shrink: 0; }
+    .zone-a    { order: 0; width: 90px;  min-width: 70px; flex-shrink: 0; }
+    .world-rotate { order: 1; }
+    .zone-b    { order: 2; width: 160px; min-width: 130px; flex-shrink: 0; }
   }
 
+  /* Zone A */
   .zone-a {
-    display: flex; flex-direction: column; align-items: center;
-    gap: 10px; justify-content: center;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 8px; justify-content: center;
   }
-
   .logo {
-    font-weight: 900; font-size: clamp(12px, 2.2vw, 20px);
+    font-weight: 900; font-size: clamp(14px, 2.4vw, 22px);
     color: #00c8ff; letter-spacing: 2px;
     text-shadow: 0 0 18px #00c8ff, 0 0 6px #00c8ff;
     text-align: center;
   }
-
+  .hint {
+    color: rgba(255,255,255,0.60);
+    font-size: 10px; text-align: center; letter-spacing: .5px;
+    font-family: 'Courier New', monospace;
+  }
   @media (orientation: landscape) {
-    .logo {
-      writing-mode: vertical-rl; text-orientation: mixed;
-      transform: rotate(180deg);
-      font-size: clamp(14px, 1.8vh, 22px); letter-spacing: 4px;
-    }
+    .logo { writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); font-size: clamp(14px, 1.8vh, 22px); letter-spacing: 4px; }
     .hint { writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); font-size: 9px; }
   }
 
-  .hint { color: rgba(0,200,255,0.35); font-size: 10px; text-align: center; letter-spacing: .5px; font-family: 'Courier New', monospace; }
-
   .gyro-btn {
-    padding: 6px 10px; background: rgba(0,200,255,0.08);
+    padding: 6px 10px; background: rgba(0,200,255,0.10);
     border: 1.5px solid #00c8ff; color: #00c8ff;
     border-radius: 5px; font-size: 10px; cursor: pointer;
     font-family: inherit; text-shadow: 0 0 8px #00c8ff;
   }
 
+  /* World-rotate: sizes itself to the VISUAL (post-CSS-rotation) canvas dimensions */
+  .world-rotate { display: flex; align-items: center; justify-content: center; }
+
+  /* Board-wrap: centered inside world-rotate, carries the world-lock CSS rotation */
   .board-wrap {
-    position: relative; border-radius: 4px;
-    box-shadow: 0 0 50px rgba(0,200,255,0.18), 0 10px 50px rgba(0,0,0,0.95);
+    position: absolute; top: 50%; left: 50%;
+    border-radius: 4px;
   }
+
   canvas {
     display: block; border-radius: 3px;
-    border: 1.5px solid rgba(0,200,255,0.30);
-    box-shadow: 0 0 30px rgba(0,200,255,0.10); cursor: pointer;
+    border: 1.5px solid rgba(0,200,255,0.35);
+    cursor: pointer;
   }
 
   .countdown-overlay {
@@ -747,60 +827,62 @@
     to   { transform: scale(1);   opacity: 1; }
   }
 
-  /* HUD */
+  /* HUD - Zone B */
   .zone-b {
-    display: flex; flex-direction: row; align-items: center;
-    justify-content: space-around; gap: 8px; flex-wrap: wrap;
+    display: flex; flex-direction: row;
+    align-items: center; justify-content: space-around;
+    gap: 10px; flex-wrap: wrap;
   }
   @media (orientation: landscape) {
-    .zone-b { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 12px; height: 100%; padding-top: 4px; }
+    .zone-b { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 14px; height: 100%; padding-top: 4px; }
   }
 
   .hud-timer { display: flex; flex-direction: column; align-items: flex-start; }
   .hud-timer.alert .chrono {
-    color: #ff4444;
-    text-shadow: 0 0 14px #ff4444, 0 0 5px #ff4444;
+    color: #ff5555; text-shadow: 0 0 14px #ff5555, 0 0 5px #ff5555;
     animation: timerFlash 0.6s ease-in-out infinite;
   }
-  @keyframes timerFlash { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  @keyframes timerFlash { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
   .chrono {
-    color: #ffe040; font-size: clamp(20px, 3vw, 32px);
+    color: #ffe040; font-size: clamp(22px, 3.5vw, 36px);
     font-weight: 700; letter-spacing: 3px;
     text-shadow: 0 0 14px #ffe040, 0 0 5px #ffe040; line-height: 1;
   }
   .hud-label {
-    color: rgba(255,224,64,0.40); font-size: 8px; letter-spacing: 4px;
+    color: rgba(255,224,64,0.65);
+    font-size: 8px; letter-spacing: 4px;
     font-family: 'Courier New', monospace; margin-top: 1px;
   }
-  .hud-zen {
-    color: rgba(187,68,255,0.60); font-size: 13px; letter-spacing: 5px;
-    text-shadow: 0 0 10px #bb44ff;
-  }
-  .hud-level { font-size: 11px; letter-spacing: 3px; }
-  .hud-btns  { display: flex; gap: 6px; }
+  .hud-zen { color: #bb44ff; font-size: 13px; letter-spacing: 5px; text-shadow: 0 0 10px #bb44ff; }
+  .hud-level { font-size: 12px; letter-spacing: 3px; font-weight: 700; }
+  .hud-btns  { display: flex; gap: 8px; }
   @media (orientation: landscape) { .hud-btns { margin-top: auto; } }
 
   .icon-btn {
-    background: transparent; border: 1px solid #00c8ff; color: #00c8ff;
-    width: 30px; height: 30px; border-radius: 5px; font-size: 12px; cursor: pointer;
+    background: rgba(0,200,255,0.08); border: 1.5px solid #00c8ff; color: #00c8ff;
+    width: 34px; height: 34px; border-radius: 6px; font-size: 14px; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    text-shadow: 0 0 6px #00c8ff; box-shadow: 0 0 8px rgba(0,200,255,0.20);
+    text-shadow: 0 0 8px #00c8ff; box-shadow: 0 0 10px rgba(0,200,255,0.20);
     font-family: inherit;
   }
-  .icon-btn:active { background: rgba(0,200,255,0.15); }
+  .icon-btn:active { background: rgba(0,200,255,0.22); }
 
-  .config {
-    background: rgba(0,5,20,0.97); border: 1px solid #00c8ff; border-radius: 6px;
-    padding: 10px 12px; display: flex; flex-direction: column; gap: 10px;
-    font-size: 11px; color: #00c8ff; font-family: 'Courier New', monospace;
-    box-shadow: 0 0 20px rgba(0,200,255,0.18); margin-top: 4px;
+  /* In-game settings overlay */
+  .cfg-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,2,15,0.88);
+    display: flex; align-items: center; justify-content: center;
+    padding: 32px 24px;
   }
-  .cfg-label { display: flex; flex-direction: column; gap: 4px; color: rgba(0,200,255,0.80); }
-  .cfg-label input[type=range] { width: 100%; accent-color: #00c8ff; cursor: pointer; }
-  .cfg-val { color: #00c8ff; font-size: 10px; letter-spacing: 1px; text-shadow: 0 0 6px #00c8ff; }
+  .cfg-panel {
+    background: rgba(0,5,25,0.98);
+    border: 1.5px solid rgba(0,200,255,0.55);
+    border-radius: 14px; padding: 28px 28px;
+    box-shadow: 0 0 40px rgba(0,200,255,0.22);
+  }
 
-  /* Pause */
+  /* Pause overlay */
   .pause-overlay {
     position: fixed; inset: 0; background: rgba(0,0,10,0.85);
     display: flex; align-items: center; justify-content: center;
@@ -810,10 +892,10 @@
     background: rgba(0,5,20,0.98); border: 1.5px solid #00c8ff; border-radius: 14px;
     padding: 28px 32px; display: flex; flex-direction: column; align-items: center; gap: 14px;
     min-width: 220px;
-    box-shadow: 0 0 50px rgba(0,200,255,0.30), inset 0 0 30px rgba(0,0,80,0.35);
+    box-shadow: 0 0 50px rgba(0,200,255,0.28), inset 0 0 30px rgba(0,0,80,0.35);
   }
-  .pause-title { color: #00c8ff; font-size: 22px; letter-spacing: 8px; text-shadow: 0 0 20px #00c8ff, 0 0 8px #00c8ff; }
-  .pause-info  { color: rgba(0,200,255,0.55); font-size: 11px; letter-spacing: 2px; margin-top: -4px; font-family: 'Courier New', monospace; }
+  .pause-title { color: #00c8ff; font-size: 22px; letter-spacing: 8px; text-shadow: 0 0 20px #00c8ff; }
+  .pause-info  { color: rgba(255,255,255,0.65); font-size: 11px; letter-spacing: 2px; margin-top: -4px; font-family: 'Courier New', monospace; }
 
   .neon-btn {
     border: 1.5px solid #00c8ff; background: transparent; color: #00c8ff;
@@ -822,14 +904,14 @@
     box-shadow: 0 0 10px rgba(0,200,255,0.20); width: 100%;
   }
   .neon-btn:active { background: rgba(0,200,255,0.13); }
-  .neon-btn--green  { border-color: #00ff80; color: #00ff80; text-shadow: 0 0 8px #00ff80; box-shadow: 0 0 10px rgba(0,255,128,0.20); }
-  .neon-btn--green:active  { background: rgba(0,255,128,0.13); }
-  .neon-btn--amber  { border-color: #ffb300; color: #ffcc44; text-shadow: 0 0 8px #ffb300; box-shadow: 0 0 10px rgba(255,179,0,0.20); }
-  .neon-btn--amber:active  { background: rgba(255,179,0,0.13); }
-  .neon-btn--sound  { border-color: #44ddaa; color: #55ffbb; text-shadow: 0 0 8px #44ddaa; box-shadow: 0 0 10px rgba(68,221,170,0.20); }
-  .neon-btn--sound:active  { background: rgba(68,221,170,0.13); }
-  .neon-btn--dim    { border-color: rgba(0,200,255,0.30); color: rgba(0,200,255,0.45); text-shadow: none; box-shadow: none; }
-  .neon-btn--dim:active    { background: rgba(0,200,255,0.06); }
+  .neon-btn--green { border-color:#00ff80; color:#00ff80; text-shadow:0 0 8px #00ff80; box-shadow:0 0 10px rgba(0,255,128,0.20); }
+  .neon-btn--green:active { background: rgba(0,255,128,0.13); }
+  .neon-btn--amber { border-color:#ffb300; color:#ffcc44; text-shadow:0 0 8px #ffb300; box-shadow:0 0 10px rgba(255,179,0,0.20); }
+  .neon-btn--amber:active { background: rgba(255,179,0,0.13); }
+  .neon-btn--sound { border-color:#44ddaa; color:#55ffbb; text-shadow:0 0 8px #44ddaa; box-shadow:0 0 10px rgba(68,221,170,0.20); }
+  .neon-btn--sound:active { background: rgba(68,221,170,0.13); }
+  .neon-btn--dim   { border-color:rgba(0,200,255,0.30); color:rgba(255,255,255,0.55); text-shadow:none; box-shadow:none; }
+  .neon-btn--dim:active   { background: rgba(0,200,255,0.06); }
 
   .ios-start-btn { font-size: 16px; letter-spacing: 4px; padding: 14px 28px; pointer-events: all; width: auto; }
 </style>

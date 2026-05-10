@@ -79,7 +79,16 @@ export function generateNebula(w, h, seed = 42) {
 // ── Track (metallic neon) ─────────────────────────────────────────────────────
 export function drawTrack(ctx, g, btx, bty, ia) {
   const { maze, cw, ch, R, C, trackRatio, W, H } = g;
+  const tc = g.trackColor || '#00c8ff';   // neon colour (changes every 5 levels)
   const tw = Math.min(cw, ch) * trackRatio;
+
+  // Derive rgba helper from hex colour
+  function tcRgba(a) {
+    const r = parseInt(tc.slice(1,3), 16);
+    const gv = parseInt(tc.slice(3,5), 16);
+    const b = parseInt(tc.slice(5,7), 16);
+    return `rgba(${r},${gv},${b},${a})`;
+  }
 
   ctx.save();
   ctx.translate(btx * -4, bty * -4);
@@ -132,8 +141,8 @@ export function drawTrack(ctx, g, btx, bty, ia) {
   ctx.save();
   ctx.translate(btx * 20, bty * 20);
   ctx.globalAlpha = 0.22 * ia;
-  ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 18;
-  ctx.strokeStyle = 'rgba(0,180,255,0.65)';
+  ctx.shadowColor = tc; ctx.shadowBlur = 18;
+  ctx.strokeStyle = tcRgba(0.65);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.lineWidth = tw * 1.15;
   buildPath(); ctx.stroke();
@@ -185,8 +194,8 @@ export function drawTrack(ctx, g, btx, bty, ia) {
   // Wide neon glow
   ctx.save();
   ctx.globalAlpha = ia;
-  ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 18;
-  ctx.strokeStyle = 'rgba(0,180,255,0.55)';
+  ctx.shadowColor = tc; ctx.shadowBlur = 18;
+  ctx.strokeStyle = tcRgba(0.55);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.lineWidth = tw * 0.18;
   buildPath(); ctx.stroke();
@@ -211,12 +220,12 @@ export function drawTrack(ctx, g, btx, bty, ia) {
         const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
         ctx.save();
         ctx.globalAlpha = 0.50 * ia;
-        ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 26;
-        ctx.fillStyle = 'rgba(0,200,255,0.38)';
+        ctx.shadowColor = tc; ctx.shadowBlur = 26;
+        ctx.fillStyle = tcRgba(0.38);
         ctx.beginPath(); ctx.arc(cx, cy, tw * 0.48, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 0.80 * ia;
         ctx.shadowBlur = 8;
-        ctx.fillStyle = 'rgba(160,235,255,0.78)';
+        ctx.fillStyle = tcRgba(0.78);
         ctx.beginPath(); ctx.arc(cx, cy, tw * 0.10, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       }
@@ -226,8 +235,8 @@ export function drawTrack(ctx, g, btx, bty, ia) {
   // Maze border
   ctx.save();
   ctx.globalAlpha = 0.72 * ia;
-  ctx.shadowColor = '#0044ff'; ctx.shadowBlur = 22;
-  ctx.strokeStyle = 'rgba(0,55,215,0.80)';
+  ctx.shadowColor = tc; ctx.shadowBlur = 22;
+  ctx.strokeStyle = tcRgba(0.80);
   ctx.lineWidth = 3; ctx.lineCap = 'square';
   ctx.strokeRect(2, 2, W - 4, H - 4);
   ctx.restore();

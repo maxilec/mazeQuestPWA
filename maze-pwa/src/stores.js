@@ -23,4 +23,5 @@ export const settings = persist('mbSettings', {
   sensitivity: 0.55,
   controlMode: 'gyro',   // 'gyro' | 'joystick'
   haptics:     true,
+  zenColor:    '#00c8ff',
 });
