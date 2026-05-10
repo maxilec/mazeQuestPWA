@@ -3,24 +3,23 @@ name: Build & Deploy — GitHub Pages
 on:
   push:
     branches:
-      - main                                 # build + deploy
-      - 'claude/gyroscope-marble-maze-s2CPy' # build uniquement (validation CI)
+      - main
+      - 'claude/gyroscope-marble-maze-s2CPy'
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # anticipe la migration Node.js 24
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# peaceiris/actions-gh-pages a besoin d'écrire sur la branche gh-pages
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build Svelte PWA
+  build-and-deploy:
+    name: Build & Deploy Svelte PWA
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -41,23 +40,8 @@ jobs:
         env:
           GITHUB_ACTIONS: true
 
-      # L'artifact n'est uploadé que pour main → seul main peut déployer
-      - name: Upload Pages artifact
-        if: github.ref == 'refs/heads/main'
-        uses: actions/upload-pages-artifact@v3
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: maze-pwa/dist
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    # Condition explicite : deploy uniquement depuis main
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: maze-pwa/dist
