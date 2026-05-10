@@ -32,7 +32,6 @@
   // ── Refs non-réactifs ─────────────────────────────────────────────────────
   let canvas;
   let boardWrap;
-  let joyOverlay;
   let G                    = null;
   let raf                  = null;
   let tilt                 = { x: 0, y: 0 };
@@ -164,22 +163,22 @@
     hint = controlMode === 'joystick' ? 'joystick' : (gyroOk ? 'gyro' : hint);
   }
 
-  // ── Joystick touch handlers (attachés à joyOverlay = plein écran) ─────────
+  // ── Joystick touch handlers (canvas uniquement) ───────────────────────────
   function onTouchStart(e) {
     e.preventDefault();
     startAudio();
+    if (controlMode !== 'joystick') return;
     const t = e.changedTouches[0];
     const r = canvas.getBoundingClientRect();
     const sx = canvas.width / r.width, sy = canvas.height / r.height;
-    // Clamp joystick center to canvas bounds for rendering
-    joyCx = Math.max(0, Math.min(canvas.width,  (t.clientX - r.left) * sx));
-    joyCy = Math.max(0, Math.min(canvas.height, (t.clientY - r.top)  * sy));
+    joyCx = (t.clientX - r.left) * sx;
+    joyCy = (t.clientY - r.top)  * sy;
     joyDx = 0; joyDy = 0; joyActive = true;
   }
 
   function onTouchMove(e) {
     e.preventDefault();
-    if (!joyActive) return;
+    if (!joyActive || controlMode !== 'joystick') return;
     const t = e.changedTouches[0];
     const r = canvas.getBoundingClientRect();
     const sx = canvas.width / r.width, sy = canvas.height / r.height;
@@ -196,18 +195,11 @@
   }
 
   function onTouchEnd(e) {
+    if (controlMode !== 'joystick') { handleCanvasTap(); return; }
     const scale = canvas.width / canvas.getBoundingClientRect().width;
     if (Math.hypot(joyDx, joyDy) < 8 * scale) handleCanvasTap();
     joyActive = false; joyDx = 0; joyDy = 0;
     tilt = { x: 0, y: 0 };
-  }
-
-  // Tap canvas en mode gyro (pour démarrer audio / sauter countdown)
-  function onCanvasTouch(e) {
-    if (controlMode !== 'joystick') {
-      startAudio();
-      handleCanvasTap();
-    }
   }
 
   // ── Tap sur le canvas ─────────────────────────────────────────────────────
@@ -385,7 +377,7 @@
     const tw = Math.min(cw, ch) * trackRatio;
 
     ctx.save();
-    ctx.translate(btx * -2, bty * -2);
+    ctx.translate(btx * -4, bty * -4);
 
     // Grille hexagonale subtile dans le vide
     ctx.save();
@@ -435,18 +427,18 @@
 
     // Côtés lumineux parallaxe (décalage fort — effet profondeur des flancs)
     ctx.save();
-    ctx.translate(btx * 12, bty * 12);
-    ctx.globalAlpha = 0.18 * ia;
-    ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 14;
-    ctx.strokeStyle = 'rgba(0,180,255,0.60)';
+    ctx.translate(btx * 20, bty * 20);
+    ctx.globalAlpha = 0.22 * ia;
+    ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 18;
+    ctx.strokeStyle = 'rgba(0,180,255,0.65)';
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.lineWidth = tw * 1.1;
+    ctx.lineWidth = tw * 1.15;
     buildPath(); ctx.stroke();
     ctx.restore();
 
     // Ombre portée (parallaxe)
     ctx.save();
-    ctx.translate(btx * 5, bty * 5);
+    ctx.translate(btx * 9, bty * 9);
     ctx.globalAlpha = 0.22 * ia;
     ctx.strokeStyle = 'rgba(0,5,40,0.85)';
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -597,25 +589,61 @@
     // Checkpoints
     drawCheckpoints(ctx, g, ia);
 
-    // Trou neon
+    // ── Vortex de sortie ─────────────────────────────────────────────────────
     const hx = hole.c * cw + cw / 2, hy = hole.r * ch + ch / 2, hR = br * 1.25;
-    const hGlow = ctx.createRadialGradient(hx, hy, hR * .4, hx, hy, hR * 3.2);
-    hGlow.addColorStop(0, 'rgba(0,255,128,0.22)'); hGlow.addColorStop(1, 'rgba(0,255,128,0)');
+    const vt = ts * 0.001; // temps en secondes pour animer le vortex
+
+    // Halo externe rayonnant
+    const hGlow = ctx.createRadialGradient(hx, hy, hR * 0.3, hx, hy, hR * 3.5);
+    hGlow.addColorStop(0, 'rgba(0,255,128,0.20)'); hGlow.addColorStop(1, 'rgba(0,255,128,0)');
+    ctx.globalAlpha = ia;
     ctx.fillStyle = hGlow;
-    ctx.beginPath(); ctx.arc(hx, hy, hR * 3.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx, hy, hR * 3.5, 0, Math.PI * 2); ctx.fill();
+
+    // Vide central noir
     ctx.fillStyle = '#000';
-    ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx, hy, hR * 1.05, 0, Math.PI * 2); ctx.fill();
+
+    // Bras spiralés (3 couches, 5 bras chacune, vitesses différentes)
+    for (let layer = 2; layer >= 0; layer--) {
+      const r2 = hR * (0.45 + layer * 0.32);
+      const speed = 1.6 - layer * 0.35;
+      const numArms = 5;
+      const arcLen = Math.PI * 0.42;
+      ctx.save();
+      ctx.shadowColor = '#00ff80';
+      ctx.shadowBlur = 10 + layer * 6;
+      const alpha = layer === 2 ? 0.65 : layer === 1 ? 0.45 : 0.30;
+      const lw    = layer === 2 ? 1.5  : layer === 1 ? 2.5  : 3.5;
+      ctx.strokeStyle = layer === 2
+        ? 'rgba(200,255,215,0.95)'
+        : layer === 1 ? 'rgba(0,255,128,0.85)' : 'rgba(0,200,100,0.70)';
+      ctx.lineWidth = lw;
+      ctx.lineCap = 'round';
+      for (let arm = 0; arm < numArms; arm++) {
+        const baseAngle = (arm / numArms) * Math.PI * 2 + vt * speed;
+        ctx.globalAlpha = alpha * ia;
+        ctx.beginPath();
+        ctx.arc(hx, hy, r2, baseAngle, baseAngle + arcLen);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Anneau néon vif
     ctx.save();
-    ctx.shadowColor = N_HOLE; ctx.shadowBlur = 16;
+    ctx.globalAlpha = ia;
+    ctx.shadowColor = N_HOLE; ctx.shadowBlur = 22;
     ctx.strokeStyle = N_HOLE; ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.stroke();
-    ctx.shadowBlur = 4; ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.stroke();
+    ctx.shadowBlur = 6;
+    ctx.strokeStyle = 'rgba(200,255,220,0.90)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(hx, hy, hR * 0.68, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
 
     // Label FINISH
     ctx.save();
-    ctx.globalAlpha = 0.80 * ia;
+    ctx.globalAlpha = 0.78 * ia;
     ctx.font = `bold ${Math.min(cw, ch) * 0.22}px "Courier New"`;
     ctx.fillStyle = N_HOLE; ctx.textAlign = 'center';
     ctx.shadowColor = N_HOLE; ctx.shadowBlur = 12;
@@ -710,15 +738,25 @@
     // Essayer de verrouiller l'orientation paysage (Android PWA installée)
     try { screen.orientation.lock('landscape').catch(() => {}); } catch {}
 
-    // Wake lock — empêcher la mise en veille pendant le jeu
+    // Wake lock — empêcher la mise en veille (robuste : re-acquisition auto)
     let wakeLock = null;
     const acquireWakeLock = async () => {
-      try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+      if (document.visibilityState !== 'visible') return;
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        // Re-acquire automatiquement si l'OS libère le lock (ex. perte de focus)
+        wakeLock.addEventListener('release', () => {
+          setTimeout(acquireWakeLock, 500);
+        });
+      } catch {}
     };
     acquireWakeLock();
+    // Re-acquire quand la page redevient visible (app en arrière-plan → premier plan)
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') acquireWakeLock();
     });
+    // Tentative périodique de secours (certains navigateurs libèrent silencieusement)
+    const wlInterval = setInterval(acquireWakeLock, 25000);
 
     // Musique via Web Audio API (invisible pour l'OS media player)
     try {
@@ -762,9 +800,9 @@
       boardTiltX += (tilt.x - boardTiltX) * 0.08;
       boardTiltY += (tilt.y - boardTiltY) * 0.08;
       if (boardWrap) {
-        const MAX_DEG = 8;
+        const MAX_DEG = 14;
         boardWrap.style.transform =
-          `perspective(900px) rotateX(${-boardTiltY * MAX_DEG}deg) rotateY(${boardTiltX * MAX_DEG}deg)`;
+          `perspective(700px) rotateX(${-boardTiltY * MAX_DEG}deg) rotateY(${boardTiltX * MAX_DEG}deg)`;
         boardWrap.style.boxShadow =
           `0 0 45px rgba(0,200,255,0.22), ${boardTiltX * 22}px ${boardTiltY * 22 + 8}px 50px rgba(0,0,0,0.92)`;
       }
@@ -903,12 +941,10 @@
       }
     }, 150);
 
-    // Joystick : plein écran via joyOverlay (non-passif pour preventDefault)
-    joyOverlay.addEventListener('touchstart', onTouchStart, { passive: false });
-    joyOverlay.addEventListener('touchmove',  onTouchMove,  { passive: false });
-    joyOverlay.addEventListener('touchend',   onTouchEnd,   { passive: false });
-    // Canvas en mode gyro : tap pour démarrer/sauter
-    canvas.addEventListener('touchend', onCanvasTouch);
+    // Joystick sur le canvas uniquement
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
+    canvas.addEventListener('touchend',   onTouchEnd);
 
     window.addEventListener('deviceorientation', onOrient);
     window.addEventListener('mousemove',         onMouse);
@@ -920,13 +956,13 @@
     return () => {
       cancelAnimationFrame(raf);
       clearInterval(keyInt);
+      clearInterval(wlInterval);
       wakeLock?.release();
       if (audioSource) { try { audioSource.stop(); } catch {} }
       if (audioCtx) { audioCtx.close().catch(() => {}); }
-      joyOverlay.removeEventListener('touchstart', onTouchStart);
-      joyOverlay.removeEventListener('touchmove',  onTouchMove);
-      joyOverlay.removeEventListener('touchend',   onTouchEnd);
-      canvas.removeEventListener('touchend', onCanvasTouch);
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove',  onTouchMove);
+      canvas.removeEventListener('touchend',   onTouchEnd);
       window.removeEventListener('deviceorientation', onOrient);
       window.removeEventListener('mousemove',         onMouse);
       window.removeEventListener('keydown',           onKD);
@@ -957,11 +993,6 @@
     joystick: '🕹 Glissez pour diriger',
   };
 </script>
-
-<!-- ── Overlay joystick plein-écran (derrière canvas, z-index:10) ─────────── -->
-<div class="joy-overlay" bind:this={joyOverlay}
-     style="pointer-events: {controlMode === 'joystick' && !paused ? 'all' : 'none'};">
-</div>
 
 <!-- ── Markup ───────────────────────────────────────────────────────────── -->
 <div class="container">
@@ -1024,11 +1055,6 @@
   </div>
 
 </div>
-
-<!-- ── Bouton recentrer (FAB gyro) ───────────────────────────────────────── -->
-{#if controlMode === 'gyro' && !paused}
-  <button class="recenter-fab" on:click={recenterPosition} aria-label="Recentrer">⊕</button>
-{/if}
 
 <!-- ── Overlay portrait : demander de tourner l'appareil ─────────────────── -->
 {#if isPortrait}
@@ -1278,29 +1304,6 @@
     text-shadow: 0 0 6px #00c8ff;
   }
 
-  /* ── Bouton recentrer (FAB gyro) ── */
-  .recenter-fab {
-    position: fixed;
-    bottom: max(20px, env(safe-area-inset-bottom, 0px) + 12px);
-    right:  max(20px, env(safe-area-inset-right,  0px) + 12px);
-    z-index: 50;
-    width: 44px; height: 44px; border-radius: 50%;
-    background: rgba(0,5,20,0.85);
-    border: 1.5px solid rgba(0,200,255,0.50);
-    color: #00c8ff; font-size: 18px; cursor: pointer;
-    text-shadow: 0 0 8px #00c8ff;
-    box-shadow: 0 0 16px rgba(0,200,255,0.25);
-    display: flex; align-items: center; justify-content: center;
-    font-family: inherit;
-  }
-  .recenter-fab:active { background: rgba(0,200,255,0.18); }
-
-  /* ── Overlay joystick plein-écran ── */
-  .joy-overlay {
-    position: fixed; inset: 0;
-    z-index: 10;
-    touch-action: none;
-  }
 
   /* ── Menu Pause ── */
   .pause-overlay {
