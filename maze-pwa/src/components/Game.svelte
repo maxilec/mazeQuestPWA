@@ -28,12 +28,17 @@
   let lastHapticSec = -1;
   let deviceAngle   = 0;   // current screen orientation angle
 
-  // Settings (initialised from store in onMount)
+  // Settings — initialised from store; reactive statements keep them in sync when
+  // the user changes them via the SettingsPanel during a session.
   let soundEnabled = true;
   let musicVolume  = 0.5;
   let sensitivity  = 0.55;
   let hapticsOn    = true;
   let controlMode  = 'gyro';
+
+  $: controlMode = $settings.controlMode;
+  $: sensitivity = $settings.sensitivity;
+  $: hapticsOn   = $settings.haptics;
 
   const MODE_DURATION = 120;
   const currentMode   = $gameMode;  // snapshot — won't change mid-run
@@ -323,10 +328,7 @@
     const s = $settings;
     soundEnabled = !s.muted;
     musicVolume  = s.volume;
-    sensitivity  = s.sensitivity;
-    controlMode  = s.controlMode;
-    hapticsOn    = s.haptics;
-    hint = controlMode === 'joystick' ? 'joystick' : 'mouse';
+    hint = s.controlMode === 'joystick' ? 'joystick' : 'mouse';
 
     // Wake lock
     let wakeLock = null;

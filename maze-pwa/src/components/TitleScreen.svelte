@@ -1,5 +1,6 @@
 <script>
   import { screen, gameMode, runStats, highScores, settings, audioMgrStore } from '../stores.js';
+  import { get } from 'svelte/store';
   import SettingsPanel from './SettingsPanel.svelte';
 
   let selected  = 'survie';
@@ -25,8 +26,22 @@
     $audioMgrStore?.start();
   }
 
-  function startGame() {
+  async function startGame() {
     $audioMgrStore?.start();
+    // iOS requires requestPermission() inside a user gesture. The JOUER tap is
+    // the ideal moment: clean user-gesture context, before Game.svelte mounts.
+    if (get(settings).controlMode === 'gyro' &&
+        typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        const res = await DeviceOrientationEvent.requestPermission();
+        if (res !== 'granted') {
+          settings.update(s => ({ ...s, controlMode: 'joystick' }));
+        }
+      } catch {
+        settings.update(s => ({ ...s, controlMode: 'joystick' }));
+      }
+    }
     gameMode.set(selected);
     runStats.set({ lvl: 1, falls: 0, startTime: performance.now() });
     screen.set('game');

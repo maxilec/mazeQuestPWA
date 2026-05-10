@@ -1,5 +1,5 @@
 <script>
-  import { screen, gameMode, runStats, highScores } from '../stores.js';
+  import { screen, gameMode, runStats, highScores, settings } from '../stores.js';
   import { get } from 'svelte/store';
 
   const mode  = get(gameMode);
@@ -27,7 +27,18 @@
 
   const title = mode === 'hardcore' ? 'GAME OVER' : 'FIN DE MISSION';
 
-  function replay() {
+  async function replay() {
+    // On iOS, re-request gyro permission (session-wide: returns immediately if already granted)
+    if (get(settings).controlMode === 'gyro' &&
+        typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        const res = await DeviceOrientationEvent.requestPermission();
+        if (res !== 'granted') settings.update(s => ({ ...s, controlMode: 'joystick' }));
+      } catch {
+        settings.update(s => ({ ...s, controlMode: 'joystick' }));
+      }
+    }
     runStats.set({ lvl: 1, falls: 0, startTime: performance.now() });
     screen.set('game');
   }
