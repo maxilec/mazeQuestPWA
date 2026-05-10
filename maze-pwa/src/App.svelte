@@ -27,6 +27,7 @@
   let countdownText        = '';
   let isPortrait           = false;
   let attempts             = 0;
+  let soundEnabled         = true;
 
   // ── Refs non-réactifs ─────────────────────────────────────────────────────
   let canvas;
@@ -47,6 +48,7 @@
   let joyCx = 0, joyCy    = 0;  // centre joystick (canvas px)
   let joyDx = 0, joyDy    = 0;  // déplacement courant
   const JOY_RADIUS         = 70; // rayon max (canvas px)
+  let audio                = null;
   let boardTiltX           = 0;  // tilt visuel lissé du plateau [-1, 1]
   let boardTiltY           = 0;
 
@@ -57,6 +59,50 @@
 
   function getTrackRatio(lvl) {
     return Math.max(0.35, 0.65 - Math.floor((lvl - 1) / 5) * 0.05);
+  }
+
+  // ── BFS : chemin spawn → trou pour placer les checkpoints ────────────────
+  function bfsPath(maze, R, C, spawn, hole) {
+    const dist = Array.from({ length: R }, () => Array(C).fill(-1));
+    const prev = Array.from({ length: R }, () => Array(C).fill(null));
+    const queue = [{ r: spawn.r, c: spawn.c }];
+    dist[spawn.r][spawn.c] = 0;
+    while (queue.length > 0) {
+      const { r, c } = queue.shift();
+      const ce = maze[r][c];
+      const neighbors = [];
+      if (!ce.T && r > 0)   neighbors.push({ r: r - 1, c });
+      if (!ce.B && r < R-1) neighbors.push({ r: r + 1, c });
+      if (!ce.L && c > 0)   neighbors.push({ r, c: c - 1 });
+      if (!ce.R && c < C-1) neighbors.push({ r, c: c + 1 });
+      for (const n of neighbors) {
+        if (dist[n.r][n.c] === -1) {
+          dist[n.r][n.c] = dist[r][c] + 1;
+          prev[n.r][n.c] = { r, c };
+          queue.push(n);
+        }
+      }
+    }
+    const path = [];
+    let cur = { r: hole.r, c: hole.c };
+    while (cur) {
+      path.unshift(cur);
+      cur = prev[cur.r][cur.c];
+    }
+    return path;
+  }
+
+  function computeCheckpoints(path) {
+    if (path.length < 4) return [];
+    const checkpoints = [];
+    for (const frac of [0.33, 0.67]) {
+      const idx = Math.round(frac * (path.length - 1));
+      const cell = path[idx];
+      const prevCell = path[Math.max(0, idx - 1)];
+      const dr = cell.r - prevCell.r;
+      checkpoints.push({ r: cell.r, c: cell.c, horizontal: dr !== 0, passed: false });
+    }
+    return checkpoints;
   }
 
   function formatTime(ms) {
@@ -85,6 +131,11 @@
 
   function recenterPosition() {
     gyroOffset = { ...lastOrient };
+  }
+
+  function toggleSound() {
+    soundEnabled = !soundEnabled;
+    if (audio) audio.muted = !soundEnabled;
   }
 
   function toggleControlMode() {
@@ -135,6 +186,11 @@
   function handleCanvasTap() {
     if (!G) return;
 
+    // Démarrer la musique au premier geste utilisateur
+    if (audio && soundEnabled && audio.paused) {
+      audio.play().catch(() => {});
+    }
+
     // iOS : activer gyro automatiquement si permission déjà accordée avant
     if (pendingGyroActivation) {
       pendingGyroActivation = false;
@@ -163,6 +219,8 @@
     G.levelStart = now;
     G.pausedMs = 0;
     G.pauseAt  = 0;
+    if (G.checkpoints) { G.checkpoints.forEach(cp => { cp.passed = false; }); }
+    G.lastCheckpoint = null;
     chrono = '0:00';
     attempts = 0;
     countdownText = '';
@@ -174,7 +232,8 @@
   function restartAfterFall() {
     if (!G) return;
     attempts += 1;
-    G.ball = { x: G.spawn.c * G.cw + G.cw / 2, y: G.spawn.r * G.ch + G.ch / 2, vx: 0, vy: 0 };
+    const spawnPt = G.lastCheckpoint || G.spawn;
+    G.ball = { x: spawnPt.c * G.cw + G.cw / 2, y: spawnPt.r * G.ch + G.ch / 2, vx: 0, vy: 0 };
     G.phase = 'play';
     countdownText = '';
     paused = false;
@@ -212,12 +271,17 @@
       a: Math.random() * 0.45 + 0.12,
     }));
 
+    const path = bfsPath(maze, R, C, sc, { r: hr, c: hc });
+    const checkpoints = computeCheckpoints(path);
+
     const now = performance.now();
     G = {
       W, H, cw, ch, br, wt, maze, lvl: levelNum, R, C, trackRatio, stars,
       spawn: { ...sc },
       ball: { x: sc.c * cw + cw / 2, y: sc.r * ch + ch / 2, vx: 0, vy: 0 },
       hole: { r: hr, c: hc },
+      checkpoints,
+      lastCheckpoint: null,
       phase: 'intro',
       fallT: 0,
       fallCause: 'hole',
@@ -289,90 +353,187 @@
     ball.y += ball.vy * dt;
   }
 
-  // ── Piste lumineuse ───────────────────────────────────────────────────────
+  // ── Piste métallique avec néon central ───────────────────────────────────
   function drawTrack(ctx, g, btx, bty, ia) {
-    const { maze, cw, ch, R, C, trackRatio } = g;
+    const { maze, cw, ch, R, C, trackRatio, W, H } = g;
     const tw = Math.min(cw, ch) * trackRatio;
-    const hw = tw / 2;
-
-    function fillPieces(style) {
-      ctx.fillStyle = style;
-      for (let r = 0; r < R; r++) {
-        for (let c = 0; c < C; c++) {
-          const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
-          const ce = maze[r][c];
-          ctx.fillRect(cx - hw, cy - hw, tw, tw);
-          if (c < C - 1 && !ce.R) ctx.fillRect(cx, cy - hw, cw, tw);
-          if (r < R - 1 && !ce.B) ctx.fillRect(cx - hw, cy, tw, ch);
-        }
-      }
-    }
 
     ctx.save();
     ctx.translate(btx * -2, bty * -2);
 
-    // Halo extérieur large (dans le vide autour de la piste)
+    // Grille hexagonale subtile dans le vide
     ctx.save();
-    ctx.globalAlpha = ia;
-    ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 20;
-    ctx.strokeStyle = 'rgba(0,200,255,0.28)';
-    ctx.lineWidth = tw * 0.55;
-    ctx.lineCap = 'square'; ctx.lineJoin = 'miter';
-    for (let r = 0; r < R; r++) {
-      for (let c = 0; c < C; c++) {
-        const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
-        const ce = maze[r][c];
-        ctx.strokeRect(cx - hw, cy - hw, tw, tw);
-        if (c < C - 1 && !ce.R) ctx.strokeRect(cx, cy - hw, cw, tw);
-        if (r < R - 1 && !ce.B) ctx.strokeRect(cx - hw, cy, tw, ch);
+    ctx.globalAlpha = 0.048 * ia;
+    ctx.strokeStyle = '#003399';
+    ctx.lineWidth = 0.5;
+    const hSize = Math.min(cw, ch) * 0.24;
+    const hexCols = Math.ceil(W / (hSize * 1.732)) + 2;
+    const hexRows = Math.ceil(H / (hSize * 1.5)) + 2;
+    for (let hr = -1; hr < hexRows; hr++) {
+      for (let hc2 = -1; hc2 < hexCols; hc2++) {
+        const hx = hc2 * hSize * 1.732 + (((hr % 2) + 2) % 2) * hSize * 0.866;
+        const hy = hr * hSize * 1.5;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 3) * i - Math.PI / 6;
+          const px = hx + hSize * Math.cos(a), py = hy + hSize * Math.sin(a);
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath(); ctx.stroke();
       }
     }
     ctx.restore();
 
-    // Sol sombre (couvre le glow intérieur du halo)
-    ctx.globalAlpha = ia;
-    ctx.shadowBlur = 0;
-    fillPieces('#07001b');
+    // Lignes centrales des corridors (moveTo/lineTo, lineCap='round')
+    function buildPath() {
+      ctx.beginPath();
+      for (let r = 0; r < R; r++) {
+        for (let c = 0; c < C; c++) {
+          const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
+          const ce = maze[r][c];
+          if (c < C - 1 && !ce.R) { ctx.moveTo(cx, cy); ctx.lineTo(cx + cw, cy); }
+          if (r < R - 1 && !ce.B) { ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + ch); }
+        }
+      }
+    }
 
-    // Bords extérieurs neon — seulement les arêtes faisant face au vide
+    // Cercles aux nœuds pour combler les jonctions
+    function drawNodes(radius) {
+      for (let r = 0; r < R; r++) {
+        for (let c = 0; c < C; c++) {
+          const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
+          ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+
+    // Ombre portée (parallaxe)
+    ctx.save();
+    ctx.translate(btx * 5, bty * 5);
+    ctx.globalAlpha = 0.22 * ia;
+    ctx.strokeStyle = 'rgba(0,5,40,0.85)';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineWidth = tw;
+    buildPath(); ctx.stroke();
+    ctx.restore();
+
+    // Chrome argent (bordure extérieure de la plateforme)
     ctx.save();
     ctx.globalAlpha = ia;
-    ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 9;
-    ctx.strokeStyle = 'rgba(20,220,255,0.92)';
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(155,205,235,0.88)';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineWidth = tw;
+    buildPath(); ctx.stroke();
+    ctx.fillStyle = 'rgba(155,205,235,0.88)';
+    drawNodes(tw / 2);
+    ctx.restore();
+
+    // Surface sombre métallique (cache l'intérieur du chrome)
+    ctx.save();
+    ctx.globalAlpha = ia;
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#05001a';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineWidth = tw * 0.80;
+    buildPath(); ctx.stroke();
+    ctx.fillStyle = '#05001a';
+    drawNodes(tw * 0.40);
+    ctx.restore();
+
+    // Reflet interne subtil (effet métal brossé)
+    ctx.save();
+    ctx.globalAlpha = 0.32 * ia;
+    ctx.strokeStyle = 'rgba(30,65,130,1)';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineWidth = tw * 0.58;
+    buildPath(); ctx.stroke();
+    ctx.restore();
+
+    // Halo néon cyan (lueur large)
+    ctx.save();
+    ctx.globalAlpha = ia;
+    ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 18;
+    ctx.strokeStyle = 'rgba(0,180,255,0.55)';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineWidth = tw * 0.18;
+    buildPath(); ctx.stroke();
+    ctx.restore();
+
+    // Filet lumineux central (ligne blanche-cyan)
+    ctx.save();
+    ctx.globalAlpha = ia;
+    ctx.shadowColor = '#a8e8ff'; ctx.shadowBlur = 5;
+    ctx.strokeStyle = 'rgba(205,245,255,0.95)';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.lineWidth = 1.5;
-    ctx.lineCap = 'square'; ctx.lineJoin = 'miter';
-    ctx.beginPath();
+    buildPath(); ctx.stroke();
+    ctx.restore();
+
+    // Intersections plus lumineuses (≥3 passages ouverts)
     for (let r = 0; r < R; r++) {
       for (let c = 0; c < C; c++) {
-        const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
         const ce = maze[r][c];
-        const x0 = cx - hw, x1 = cx + hw, y0 = cy - hw, y1 = cy + hw;
-        if (ce.T) { ctx.moveTo(x0, y0); ctx.lineTo(x1, y0); }
-        if (ce.B) { ctx.moveTo(x0, y1); ctx.lineTo(x1, y1); }
-        if (ce.L) { ctx.moveTo(x0, y0); ctx.lineTo(x0, y1); }
-        if (ce.R) { ctx.moveTo(x1, y0); ctx.lineTo(x1, y1); }
-        if (c < C - 1 && !ce.R) {
-          ctx.moveTo(x1, y0); ctx.lineTo(x1 + cw - tw, y0);
-          ctx.moveTo(x1, y1); ctx.lineTo(x1 + cw - tw, y1);
-        }
-        if (r < R - 1 && !ce.B) {
-          ctx.moveTo(x0, y1); ctx.lineTo(x0, y1 + ch - tw);
-          ctx.moveTo(x1, y1); ctx.lineTo(x1, y1 + ch - tw);
+        const open = (!ce.T?1:0) + (!ce.B?1:0) + (!ce.L?1:0) + (!ce.R?1:0);
+        if (open >= 3) {
+          const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
+          ctx.save();
+          ctx.globalAlpha = 0.50 * ia;
+          ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 26;
+          ctx.fillStyle = 'rgba(0,200,255,0.38)';
+          ctx.beginPath(); ctx.arc(cx, cy, tw * 0.48, 0, Math.PI * 2); ctx.fill();
+          ctx.globalAlpha = 0.80 * ia;
+          ctx.shadowBlur = 8;
+          ctx.fillStyle = 'rgba(160,235,255,0.78)';
+          ctx.beginPath(); ctx.arc(cx, cy, tw * 0.10, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
         }
       }
     }
-    ctx.stroke();
-    ctx.restore();
 
-    // Lueur parallaxe décalée (profondeur 3D)
+    // Bordure extérieure du labyrinthe (néon bleu foncé)
     ctx.save();
-    ctx.translate(btx * 9, bty * 9);
-    ctx.globalAlpha = 0.16 * ia;
-    ctx.shadowBlur = 0;
-    fillPieces('rgba(0,120,220,0.55)');
+    ctx.globalAlpha = 0.72 * ia;
+    ctx.shadowColor = '#0044ff'; ctx.shadowBlur = 22;
+    ctx.strokeStyle = 'rgba(0,55,215,0.80)';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'square';
+    ctx.strokeRect(2, 2, W - 4, H - 4);
     ctx.restore();
 
     ctx.restore();
+  }
+
+  // ── Checkpoints ───────────────────────────────────────────────────────────
+  function drawCheckpoints(ctx, g, ia) {
+    const { checkpoints, cw, ch, trackRatio } = g;
+    if (!checkpoints || checkpoints.length === 0) return;
+    const tw = Math.min(cw, ch) * trackRatio;
+    const hw = tw / 2;
+
+    for (const cp of checkpoints) {
+      const cx = cp.c * cw + cw / 2, cy = cp.r * ch + ch / 2;
+      const color = cp.passed ? '#ffcc00' : '#00ff80';
+      ctx.save();
+      ctx.globalAlpha = (cp.passed ? 0.55 : 0.88) * ia;
+      ctx.shadowColor = color; ctx.shadowBlur = 14;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      if (cp.horizontal) {
+        ctx.moveTo(cx - hw, cy); ctx.lineTo(cx + hw, cy);
+      } else {
+        ctx.moveTo(cx, cy - hw); ctx.lineTo(cx, cy + hw);
+      }
+      ctx.stroke();
+      // Marqueur central
+      ctx.globalAlpha = (cp.passed ? 0.40 : 0.70) * ia;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(cx, cy, tw * 0.10, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
   }
 
   // ── Rendu Canvas ──────────────────────────────────────────────────────────
@@ -393,8 +554,11 @@
     }
     ctx.globalAlpha = ia;
 
-    // Piste lumineuse
+    // Piste métallique
     drawTrack(ctx, g, btx, bty, ia);
+
+    // Checkpoints
+    drawCheckpoints(ctx, g, ia);
 
     // Trou neon
     const hx = hole.c * cw + cw / 2, hy = hole.r * ch + ch / 2, hR = br * 1.25;
@@ -499,6 +663,12 @@
       if (document.visibilityState === 'visible') acquireWakeLock();
     });
 
+    // Musique de fond (démarre au premier geste utilisateur)
+    audio = new Audio(`${import.meta.env.BASE_URL}assets/music/MazeBalll - Don't fall again.mp3`);
+    audio.loop = true;
+    audio.volume = 0.5;
+    audio.muted = !soundEnabled;
+
     fitCanvas(rowsInUse, colsInUse);
     setTimeout(() => initLevel(1, null, rowsInUse, colsInUse), 60);
 
@@ -555,6 +725,17 @@
       } else if (!paused && G.phase === 'play') {
         physics(G, dt);
         chrono = formatTime(ts - G.levelStart - G.pausedMs);
+        // Détection checkpoints
+        if (G.checkpoints) {
+          for (const cp of G.checkpoints) {
+            if (cp.passed) continue;
+            const cpx = cp.c * G.cw + G.cw / 2, cpy = cp.r * G.ch + G.ch / 2;
+            if (Math.hypot(G.ball.x - cpx, G.ball.y - cpy) < G.br * 1.6) {
+              cp.passed = true;
+              G.lastCheckpoint = { r: cp.r, c: cp.c };
+            }
+          }
+        }
         // Détection : trou de sortie (fin de niveau)
         const hx = G.hole.c * G.cw + G.cw / 2, hy = G.hole.r * G.ch + G.ch / 2;
         if (Math.hypot(G.ball.x - hx, G.ball.y - hy) < G.br * .58) {
@@ -662,6 +843,7 @@
       cancelAnimationFrame(raf);
       clearInterval(keyInt);
       wakeLock?.release();
+      if (audio) { audio.pause(); audio = null; }
       canvas.removeEventListener('touchstart', onTouchStart);
       canvas.removeEventListener('touchmove',  onTouchMove);
       canvas.removeEventListener('touchend',   onTouchEnd);
@@ -783,6 +965,9 @@
         {controlMode === 'gyro' ? '🕹 MODE JOYSTICK' : '📡 MODE GYROSCOPE'}
       </button>
       <button class="neon-btn neon-btn--purple" on:click={recenterPosition}>⊕&nbsp; RECENTRER</button>
+      <button class="neon-btn neon-btn--sound" on:click={toggleSound}>
+        {soundEnabled ? '🔊 SON ACTIVÉ' : '🔇 SON COUPÉ'}
+      </button>
     </div>
   </div>
 {/if}
@@ -1078,6 +1263,13 @@
     box-shadow: 0 0 10px rgba(255,179,0,0.20);
   }
   .neon-btn--amber:active { background: rgba(255,179,0,0.13); }
+
+  .neon-btn--sound {
+    border-color: #44ddaa; color: #55ffbb;
+    text-shadow: 0 0 8px #44ddaa;
+    box-shadow: 0 0 10px rgba(68,221,170,0.20);
+  }
+  .neon-btn--sound:active { background: rgba(68,221,170,0.13); }
 
   .ios-start-btn {
     font-size: 16px; letter-spacing: 4px; padding: 14px 28px;
