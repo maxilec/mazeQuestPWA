@@ -18,7 +18,7 @@
   let chrono        = '2:00';
   let timeLeft      = 120;
   let hint          = 'mouse';
-  let iosBtn        = false;
+  let showIosOverlay = false;   // iOS gyro permission overlay (blocks countdown)
   let showCfg       = false;
   let paused        = false;
   let countdownText = '';
@@ -42,7 +42,6 @@
   let raf          = null;
   let tilt         = { x: 0, y: 0 };
   let gyroOk       = false;
-  let pendingGyroActivation = false;
   let held         = { l: 0, r: 0, u: 0, d: 0 };
   let keyInt       = null;
   let gyroOffset   = { beta: 0, gamma: 0 };
@@ -94,11 +93,12 @@
       cw = Math.min(sw * 0.92, (sh - hudH) / aspect);
       ch = cw * aspect;
     } else {
-      // Landscape: canvas CSS-rotated -90° → appears landscape
-      // Visual width (landscape) = canvas.height, visual height (landscape) = canvas.width
-      // Constraints: canvas.height ≤ sh * 0.90 AND canvas.width ≤ (sw - 260)
+      // Landscape: canvas CSS-rotated -90° → appears landscape on screen
+      // visual_landscape_width  = canvas.height  ≤ sh × 0.90
+      // visual_landscape_height = canvas.width   ≤ (sw - hudW)
+      // canvas aspect: ch = cw × aspect  →  cw ≤ sh×0.90 AND cw×aspect ≤ sw-hudW
       const hudW = 260;
-      cw = Math.min(sh * 0.90 / aspect, sw - hudW);
+      cw = Math.min(sh * 0.90, (sw - hudW) / aspect);
       ch = cw * aspect;
     }
 
@@ -149,8 +149,10 @@
       ? ($settings.zenColor || '#00c8ff')
       : getTrackColor(levelNum);
 
-    const initialTime = (G && G.initialTime != null && levelNum > 1)
-      ? G.initialTime + 30   // +30s bonus on level complete
+    // Carry remaining time + bonus. G.remainingAtComplete is set when the ball
+    // enters the hole, so we add 30s to what was actually left, not to initialTime.
+    const initialTime = (levelNum > 1 && G?.remainingAtComplete != null)
+      ? G.remainingAtComplete + 30
       : MODE_DURATION;
 
     const now = performance.now();
@@ -292,31 +294,33 @@
   }
 
   function handleCanvasTap() {
-    if (!G) return;
+    if (!G || showIosOverlay) return;
     audioMgr?.start();
-    if (pendingGyroActivation) {
-      pendingGyroActivation = false;
-      DeviceOrientationEvent.requestPermission()
-        .then(res => {
-          if (res === 'granted') { gyroOk = true; hint = 'gyro'; }
-          else iosBtn = true;
-        })
-        .catch(() => { iosBtn = true; });
-      return;
-    }
     if (G.phase === 'intro') {
       G.phase = 'play'; G.levelStart = performance.now(); countdownText = '';
     }
   }
 
-  async function requestGyroIOS() {
+  // Called by iOS overlay button "ACTIVER"
+  async function iosActivateGyro() {
     try {
       const res = await DeviceOrientationEvent.requestPermission();
       if (res === 'granted') {
-        gyroOk = true; iosBtn = false; hint = 'gyro';
+        gyroOk = true; hint = 'gyro';
         localStorage.setItem(GYRO_KEY, '1');
       }
     } catch {}
+    showIosOverlay = false;
+    if (G) { G.introT = performance.now(); }  // restart countdown fresh
+  }
+
+  // Called by iOS overlay button "JOYSTICK"
+  function iosSkipGyro() {
+    showIosOverlay = false;
+    controlMode = 'joystick';
+    settings.update(s => ({ ...s, controlMode: 'joystick' }));
+    hint = 'joystick';
+    if (G) { G.introT = performance.now(); }  // restart countdown fresh
   }
 
   $: audioMgr?.setVolume(musicVolume, soundEnabled);
@@ -349,11 +353,13 @@
     audioMgr = createAudioManager(import.meta.env.BASE_URL);
     audioMgr.init(soundEnabled ? musicVolume : 0);
 
-    // iOS gyro
+    // iOS gyro — show blocking overlay before the countdown starts.
+    // iOS always requires requestPermission() per session (even if previously granted),
+    // so we always show the overlay. We just pre-select the right default based on
+    // the stored preference (GYRO_KEY).
     if (typeof DeviceOrientationEvent !== 'undefined' &&
         typeof DeviceOrientationEvent.requestPermission === 'function') {
-      if (localStorage.getItem(GYRO_KEY) === '1') pendingGyroActivation = true;
-      else iosBtn = true;
+      showIosOverlay = true;
     }
 
     deviceAngle = getDeviceAngle();
@@ -411,6 +417,11 @@
 
       // ── Intro phase ──
       if (G.phase === 'intro') {
+        // Freeze countdown while iOS permission overlay is shown
+        if (showIosOverlay) {
+          if (countdownText !== `NVL ${G.lvl}`) countdownText = `NVL ${G.lvl}`;
+          // fall through to draw, but don't advance timer
+        } else {
         const elapsed = ts - G.introT;
         const step = elapsed < 900  ? `NVL ${G.lvl}`
                    : elapsed < 1700 ? '3'
@@ -419,6 +430,7 @@
                    : '';
         if (step === '' && countdownText !== '') { G.phase = 'play'; G.levelStart = ts; }
         if (step !== countdownText) countdownText = step;
+        }
 
       // ── Play phase ──
       } else if (!paused && G.phase === 'play') {
@@ -476,6 +488,11 @@
         const hx = G.hole.c * G.cw + G.cw / 2, hy = G.hole.r * G.ch + G.ch / 2;
         if (Math.hypot(G.ball.x - hx, G.ball.y - hy) < G.br * 0.58) {
           haptic([20, 10, 20, 10, 40]);
+          // Snapshot remaining time NOW so initLevel can add the 30s bonus to it
+          if (currentMode !== 'zen') {
+            const elapsed = (ts - G.levelStart - G.pausedMs) / 1000;
+            G.remainingAtComplete = Math.max(0, G.initialTime - elapsed);
+          }
           spawnFloatingText('+30s', G.W / 2, G.H / 2, '#00ff80');
           G.phase = 'falling'; G.fallT = ts; G.fallCause = 'hole';
         } else if (checkWallFall(G.ball, G)) {
@@ -639,9 +656,6 @@
   <div class="zone-a">
     <div class="logo">MazeBall</div>
     <p class="hint">{hints[hint]}</p>
-    {#if iosBtn && controlMode === 'gyro'}
-      <button class="gyro-btn" on:click={requestGyroIOS}>Activer le gyroscope</button>
-    {/if}
   </div>
 
   <!-- Board (world-rotate sets visual layout size; board-wrap carries CSS rotation) -->
@@ -649,17 +663,26 @@
     <div class="board-wrap" bind:this={boardWrap}>
       <canvas bind:this={canvas} on:click={handleCanvasTap}></canvas>
 
-      {#if countdownText}
+      {#if showIosOverlay}
+        <!-- iOS gyro permission — blocks countdown until user decides -->
         <div class="countdown-overlay">
-          {#if iosBtn}
-            <button class="neon-btn ios-start-btn" on:click={requestGyroIOS}>
-              ▶ ACTIVER &amp; JOUER
+          <div class="ios-panel">
+            <div class="ios-icon">📡</div>
+            <div class="ios-title">Gyroscope</div>
+            <div class="ios-desc">Autoriser le mouvement pour incliner le plateau</div>
+            <button class="ios-btn ios-btn--primary" on:click={iosActivateGyro}>
+              AUTORISER
             </button>
-          {:else}
-            {#key countdownText}
-              <div class="countdown-text">{countdownText}</div>
-            {/key}
-          {/if}
+            <button class="ios-btn ios-btn--secondary" on:click={iosSkipGyro}>
+              Mode joystick
+            </button>
+          </div>
+        </div>
+      {:else if countdownText}
+        <div class="countdown-overlay">
+          {#key countdownText}
+            <div class="countdown-text">{countdownText}</div>
+          {/key}
         </div>
       {/if}
     </div>
@@ -789,12 +812,41 @@
     .hint { writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); font-size: 9px; }
   }
 
-  .gyro-btn {
-    padding: 6px 10px; background: rgba(0,200,255,0.10);
-    border: 1.5px solid #00c8ff; color: #00c8ff;
-    border-radius: 5px; font-size: 10px; cursor: pointer;
-    font-family: inherit; text-shadow: 0 0 8px #00c8ff;
+  /* iOS gyro permission panel */
+  .ios-panel {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    background: rgba(0,5,25,0.97);
+    border: 1.5px solid rgba(0,200,255,0.60);
+    border-radius: 16px; padding: 28px 24px;
+    box-shadow: 0 0 40px rgba(0,200,255,0.25);
+    max-width: 260px;
+    font-family: 'Orbitron', 'Courier New', monospace;
+    pointer-events: all;
   }
+  .ios-icon  { font-size: 32px; }
+  .ios-title {
+    color: #00c8ff; font-size: 14px; font-weight: 700; letter-spacing: 4px;
+    text-shadow: 0 0 12px #00c8ff;
+  }
+  .ios-desc  {
+    color: rgba(255,255,255,0.75); font-size: 10px; text-align: center;
+    font-family: 'Courier New', monospace; line-height: 1.5; letter-spacing: 0.3px;
+  }
+  .ios-btn {
+    width: 100%; padding: 11px 16px; border-radius: 7px;
+    font-family: 'Orbitron', monospace; font-size: 11px; cursor: pointer;
+    letter-spacing: 2px;
+  }
+  .ios-btn--primary {
+    border: 1.5px solid #00c8ff; background: rgba(0,200,255,0.12); color: #00c8ff;
+    text-shadow: 0 0 8px #00c8ff; box-shadow: 0 0 12px rgba(0,200,255,0.22);
+  }
+  .ios-btn--primary:active  { background: rgba(0,200,255,0.25); }
+  .ios-btn--secondary {
+    border: 1px solid rgba(255,255,255,0.25); background: transparent;
+    color: rgba(255,255,255,0.55); font-size: 10px; letter-spacing: 1px;
+  }
+  .ios-btn--secondary:active { background: rgba(255,255,255,0.07); }
 
   /* World-rotate: sizes itself to the VISUAL (post-CSS-rotation) canvas dimensions */
   .world-rotate { display: flex; align-items: center; justify-content: center; }
@@ -913,5 +965,4 @@
   .neon-btn--dim   { border-color:rgba(0,200,255,0.30); color:rgba(255,255,255,0.55); text-shadow:none; box-shadow:none; }
   .neon-btn--dim:active   { background: rgba(0,200,255,0.06); }
 
-  .ios-start-btn { font-size: 16px; letter-spacing: 4px; padding: 14px 28px; pointer-events: all; width: auto; }
 </style>
