@@ -58,6 +58,8 @@
   const JOY_RADIUS = 70;
   let boardTiltX   = 0;
   let boardTiltY   = 0;
+  let gyroParallaxX = 0;
+  let gyroParallaxY = 0;
   let gyroPermissionRequested = false;
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -358,9 +360,11 @@
       const dt = Math.min((ts - last) / 16.67, 3);
       last = ts;
 
-      // Smooth board tilt
-      boardTiltX += (tilt.x - boardTiltX) * 0.08;
-      boardTiltY += (tilt.y - boardTiltY) * 0.08;
+      // Smooth board tilt (parallax: use raw gyro when available, otherwise joystick tilt)
+      const ptx = gyroOk ? gyroParallaxX : tilt.x;
+      const pty = gyroOk ? gyroParallaxY : tilt.y;
+      boardTiltX += (ptx - boardTiltX) * 0.08;
+      boardTiltY += (pty - boardTiltY) * 0.08;
 
       // World-lock + 3D tilt transform on the board
       const MAX_DEG = 12;
@@ -499,29 +503,30 @@
       if (e.beta == null) return;
       lastOrient = { beta: e.beta || 0, gamma: e.gamma || 0 };
       if (!gyroOk) { gyroOffset = { ...lastOrient }; gyroOk = true; hint = 'gyro'; }
-      if (controlMode !== 'gyro') return;
 
       const normAngle = getDeviceAngle();
       const dB = (e.beta  || 0) - gyroOffset.beta;
       const dG = (e.gamma || 0) - gyroOffset.gamma;
+
+      // Parallax uses portrait formula always (CSS world-lock handles visual orientation)
+      gyroParallaxX = Math.max(-1, Math.min(1,  dG / 20));
+      gyroParallaxY = Math.max(-1, Math.min(1, dB / 20));
+
+      if (controlMode !== 'gyro') return;
+
       const s25 = 25 / sensitivity;
 
-      // World-lock mapping: physical right always → canvas x+ (appears right on screen)
-      // Canvas is always portrait; CSS rotates it for landscape view.
-      // These formulas keep ball movement physically intuitive regardless of phone angle.
+      // Ball control: CSS world-lock keeps canvas in portrait, so the same
+      // gamma→x / beta→y formula works for all orientations.
       let tx, ty;
-      if (normAngle === 90) {
+      if (normAngle === 180) {
         tx = -dG / s25;
         ty = -dB / s25;
       } else if (normAngle === 270) {
-        tx =  dG / s25;
-        ty =  dB / s25;
-      } else if (normAngle === 180) {
-        // Upside-down portrait
         tx = -dG / s25;
         ty = -dB / s25;
       } else {
-        // Normal portrait
+        // 0° (portrait) and 90° (landscape CW): same mapping
         tx =  dG / s25;
         ty =  dB / s25;
       }
