@@ -45,22 +45,32 @@ function isStraight(path, i) {
 
 export function computeCheckpoints(path) {
   if (path.length < 4) return [];
-  const checkpoints = [];
+  const candidates = [];
   for (const frac of [0.33, 0.67]) {
     const base = Math.round(frac * (path.length - 1));
     let found = -1;
-    // Recherche en spirale depuis la position cible
     for (let d = 0; d < path.length; d++) {
       if (base + d < path.length - 1 && isStraight(path, base + d)) { found = base + d; break; }
       if (d > 0 && base - d > 0 && isStraight(path, base - d))     { found = base - d; break; }
     }
     if (found < 0) continue;
     const cell = path[found], prev = path[found - 1];
-    checkpoints.push({
-      r: cell.r, c: cell.c,
-      horizontal: (cell.r - prev.r) !== 0, // deplacement vertical → barre horizontale
-      passed: false,
+    candidates.push({
+      idx: found,
+      cp: { r: cell.r, c: cell.c, horizontal: (cell.r - prev.r) !== 0, passed: false },
     });
   }
-  return checkpoints;
+
+  // Si les deux checkpoints sont trop proches, garder seulement celui le plus central
+  if (candidates.length === 2) {
+    const minSep = Math.max(4, path.length * 0.20);
+    if (Math.abs(candidates[1].idx - candidates[0].idx) < minSep) {
+      const mid = Math.round(0.5 * (path.length - 1));
+      const best = Math.abs(candidates[0].idx - mid) <= Math.abs(candidates[1].idx - mid)
+        ? candidates[0] : candidates[1];
+      return [best.cp];
+    }
+  }
+
+  return candidates.map(c => c.cp);
 }

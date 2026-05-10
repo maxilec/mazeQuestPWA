@@ -215,6 +215,7 @@
 
   function handleCanvasTap() {
     if (!G) return;
+    audioMgr?.start();
     if (pendingGyroActivation) {
       pendingGyroActivation = false;
       DeviceOrientationEvent.requestPermission()
@@ -328,9 +329,9 @@
 
         // Trail
         const spd = Math.hypot(G.ball.vx, G.ball.vy);
-        if (spd > 0.3) {
+        if (spd > 0.06) {
           G.trail.push({ x: G.ball.x, y: G.ball.y });
-          const maxLen = Math.min(40, Math.round(spd * 6));
+          const maxLen = Math.max(10, Math.min(40, Math.round(spd * 10)));
           while (G.trail.length > maxLen) G.trail.shift();
         } else {
           if (G.trail.length > 0) G.trail = [];
