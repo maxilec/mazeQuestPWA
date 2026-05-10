@@ -1,7 +1,7 @@
 <script>
   import { onMount }                                                from 'svelte';
   import { makeMaze }                                               from '../lib/maze.js';
-  import { N_BALL, N_HOLE, GYRO_KEY, getTrackColor }               from '../lib/constants.js';
+  import { N_BALL, N_HOLE, getTrackColor }                          from '../lib/constants.js';
   import { getTrackRatio, bfsPath, computeCheckpoints,
            computeCollectibles }                                    from '../lib/maze-utils.js';
   import { stepPhysics, checkWallFall }                            from '../lib/physics.js';
@@ -12,13 +12,15 @@
 
   // ── Fixed grid (portrait base) ──────────────────────────────────────────────
   const ROWS = 10, COLS = 6;
+  // Ball radius is fixed relative to the cell size regardless of track width,
+  // keeping difficulty constant as the track narrows at higher levels.
+  const BALL_RATIO = 0.65 * 0.35;  // = 0.2275
 
   // ── Reactive state ──────────────────────────────────────────────────────────
   let lvl           = 1;
   let chrono        = '2:00';
   let timeLeft      = 120;
   let hint          = 'mouse';
-  let showIosOverlay = false;   // iOS gyro permission overlay (blocks countdown)
   let showCfg       = false;
   let paused        = false;
   let countdownText = '';
@@ -51,6 +53,7 @@
   const JOY_RADIUS = 70;
   let boardTiltX   = 0;
   let boardTiltY   = 0;
+  let gyroPermissionRequested = false;
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   function wallThickness(cw, ch) { return Math.max(3, Math.min(7, Math.min(cw, ch) * 0.12)); }
@@ -120,7 +123,7 @@
     const R = ROWS, C = COLS;
     const cw = W / C, ch = H / R;
     const trackRatio = currentMode === 'zen' ? 0.65 : getTrackRatio(levelNum);
-    const br = Math.min(cw, ch) * trackRatio * 0.35;
+    const br = Math.min(cw, ch) * BALL_RATIO;
     const wt = wallThickness(cw, ch);
     const maze = makeMaze(R, C);
     const sc   = spawnCell || { r: 0, c: 0 };
@@ -193,7 +196,7 @@
         G.trail = G.trail.map(p => ({ x: p.x * sx, y: p.y * sy }));
         G.W = canvas.width; G.H = canvas.height;
         G.cw = newCw; G.ch = newCh;
-        G.br = Math.min(newCw, newCh) * G.trackRatio * 0.35;
+        G.br = Math.min(newCw, newCh) * BALL_RATIO;
         G.wt = wallThickness(newCw, newCh);
       }
 
@@ -259,6 +262,8 @@
   function onTouchStart(e) {
     e.preventDefault();
     $audioMgrStore?.start();
+    // Request iOS gyro permission on first user touch (must be inside gesture handler)
+    if (controlMode === 'gyro' && !gyroOk) tryRequestGyroPermission();
     if (controlMode !== 'joystick') return;
     const t = e.changedTouches[0];
     const r = canvas.getBoundingClientRect();
@@ -292,33 +297,25 @@
   }
 
   function handleCanvasTap() {
-    if (!G || showIosOverlay) return;
+    if (!G) return;
     $audioMgrStore?.start();
     if (G.phase === 'intro') {
       G.phase = 'play'; G.levelStart = performance.now(); countdownText = '';
     }
   }
 
-  // Called by iOS overlay button "ACTIVER"
-  async function iosActivateGyro() {
-    try {
-      const res = await DeviceOrientationEvent.requestPermission();
-      if (res === 'granted') {
-        gyroOk = true; hint = 'gyro';
-        localStorage.setItem(GYRO_KEY, '1');
-      }
-    } catch {}
-    showIosOverlay = false;
-    if (G) { G.introT = performance.now(); }  // restart countdown fresh
-  }
-
-  // Called by iOS overlay button "JOYSTICK"
-  function iosSkipGyro() {
-    showIosOverlay = false;
-    controlMode = 'joystick';
-    settings.update(s => ({ ...s, controlMode: 'joystick' }));
-    hint = 'joystick';
-    if (G) { G.introT = performance.now(); }  // restart countdown fresh
+  // Request iOS gyro permission silently on first touch (no blocking overlay).
+  // Must be called from a user gesture handler (touchstart).
+  async function tryRequestGyroPermission() {
+    if (gyroPermissionRequested) return;
+    gyroPermissionRequested = true;
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        const res = await DeviceOrientationEvent.requestPermission();
+        if (res === 'granted') { gyroOk = true; hint = 'gyro'; }
+      } catch {}
+    }
   }
 
   // ── Mount ────────────────────────────────────────────────────────────────────
@@ -345,15 +342,6 @@
       if (document.visibilityState === 'visible') acquireWakeLock();
     });
     const wlInterval = setInterval(acquireWakeLock, 25000);
-
-    // iOS gyro — show blocking overlay before the countdown starts.
-    // iOS always requires requestPermission() per session (even if previously granted),
-    // so we always show the overlay. We just pre-select the right default based on
-    // the stored preference (GYRO_KEY).
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-      showIosOverlay = true;
-    }
 
     deviceAngle = getDeviceAngle();
     fitCanvas();
@@ -403,17 +391,12 @@
         const sx = G.cw / oldCw, sy = G.ch / oldCh;
         G.ball.x *= sx; G.ball.y *= sy; G.ball.vx *= sx; G.ball.vy *= sy;
         G.trail = G.trail.map(p => ({ x: p.x * sx, y: p.y * sy }));
-        G.br = Math.min(G.cw, G.ch) * G.trackRatio * 0.35;
+        G.br = Math.min(G.cw, G.ch) * BALL_RATIO;
         G.wt = wallThickness(G.cw, G.ch);
       }
 
       // ── Intro phase ──
       if (G.phase === 'intro') {
-        // Freeze countdown while iOS permission overlay is shown
-        if (showIosOverlay) {
-          if (countdownText !== `NVL ${G.lvl}`) countdownText = `NVL ${G.lvl}`;
-          // fall through to draw, but don't advance timer
-        } else {
         const elapsed = ts - G.introT;
         const step = elapsed < 900  ? `NVL ${G.lvl}`
                    : elapsed < 1700 ? '3'
@@ -422,7 +405,6 @@
                    : '';
         if (step === '' && countdownText !== '') { G.phase = 'play'; G.levelStart = ts; }
         if (step !== countdownText) countdownText = step;
-        }
 
       // ── Play phase ──
       } else if (!paused && G.phase === 'play') {
@@ -503,7 +485,7 @@
       draw(ctx, G, ts, boardTiltX, boardTiltY, tilt, {
         active: joyActive, cx: joyCx, cy: joyCy,
         dx: joyDx, dy: joyDy, radius: JOY_RADIUS, mode: controlMode,
-      });
+      }, deviceAngle * Math.PI / 180);
 
       raf = requestAnimationFrame(loop);
     }
@@ -587,7 +569,7 @@
         G.trail = G.trail.map(p => ({ x: p.x * sx, y: p.y * sy }));
         G.W = canvas.width; G.H = canvas.height;
         G.cw = canvas.width / COLS; G.ch = canvas.height / ROWS;
-        G.br = Math.min(G.cw, G.ch) * G.trackRatio * 0.35;
+        G.br = Math.min(G.cw, G.ch) * BALL_RATIO;
         G.wt = wallThickness(G.cw, G.ch);
       }
     };
@@ -650,23 +632,7 @@
     <div class="board-wrap" bind:this={boardWrap}>
       <canvas bind:this={canvas} on:click={handleCanvasTap}></canvas>
 
-      {#if showIosOverlay}
-        <!-- iOS gyro permission — blocks countdown until user decides -->
-        <div class="countdown-overlay">
-          <!-- counter-rotate so panel appears upright on screen regardless of device angle -->
-          <div class="ios-panel" style="transform: rotate({deviceAngle}deg)">
-            <div class="ios-icon">📡</div>
-            <div class="ios-title">Gyroscope</div>
-            <div class="ios-desc">Autoriser le mouvement pour incliner le plateau</div>
-            <button class="ios-btn ios-btn--primary" on:click={iosActivateGyro}>
-              AUTORISER
-            </button>
-            <button class="ios-btn ios-btn--secondary" on:click={iosSkipGyro}>
-              Mode joystick
-            </button>
-          </div>
-        </div>
-      {:else if countdownText}
+      {#if countdownText}
         <div class="countdown-overlay">
           <!-- counter-rotate wrapper keeps text upright; animation stays on inner div -->
           <div class="countdown-rot" style="transform: rotate({deviceAngle}deg)">
@@ -780,42 +746,6 @@
     .logo { writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); font-size: clamp(14px, 1.8vh, 22px); letter-spacing: 4px; }
     .hint { writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); font-size: 9px; }
   }
-
-  /* iOS gyro permission panel */
-  .ios-panel {
-    display: flex; flex-direction: column; align-items: center; gap: 12px;
-    background: rgba(0,5,25,0.97);
-    border: 1.5px solid rgba(0,200,255,0.60);
-    border-radius: 16px; padding: 28px 24px;
-    box-shadow: 0 0 40px rgba(0,200,255,0.25);
-    max-width: 260px;
-    font-family: 'Orbitron', 'Courier New', monospace;
-    pointer-events: all;
-  }
-  .ios-icon  { font-size: 32px; }
-  .ios-title {
-    color: #00c8ff; font-size: 14px; font-weight: 700; letter-spacing: 4px;
-    text-shadow: 0 0 12px #00c8ff;
-  }
-  .ios-desc  {
-    color: rgba(255,255,255,0.75); font-size: 10px; text-align: center;
-    font-family: 'Courier New', monospace; line-height: 1.5; letter-spacing: 0.3px;
-  }
-  .ios-btn {
-    width: 100%; padding: 11px 16px; border-radius: 7px;
-    font-family: 'Orbitron', monospace; font-size: 11px; cursor: pointer;
-    letter-spacing: 2px;
-  }
-  .ios-btn--primary {
-    border: 1.5px solid #00c8ff; background: rgba(0,200,255,0.12); color: #00c8ff;
-    text-shadow: 0 0 8px #00c8ff; box-shadow: 0 0 12px rgba(0,200,255,0.22);
-  }
-  .ios-btn--primary:active  { background: rgba(0,200,255,0.25); }
-  .ios-btn--secondary {
-    border: 1px solid rgba(255,255,255,0.25); background: transparent;
-    color: rgba(255,255,255,0.55); font-size: 10px; letter-spacing: 1px;
-  }
-  .ios-btn--secondary:active { background: rgba(255,255,255,0.07); }
 
   /* World-rotate: sizes itself to the VISUAL (post-CSS-rotation) canvas dimensions */
   .world-rotate { display: flex; align-items: center; justify-content: center; }

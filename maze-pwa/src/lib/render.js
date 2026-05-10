@@ -274,7 +274,7 @@ export function drawCheckpoints(ctx, g, ia) {
 }
 
 // ── Exit vortex ───────────────────────────────────────────────────────────────
-export function drawVortex(ctx, g, ts, ia) {
+export function drawVortex(ctx, g, ts, ia, canvasRot = 0) {
   const { cw, ch, br, hole } = g;
   const hx = hole.c * cw + cw / 2, hy = hole.r * ch + ch / 2;
   const hR = br * 1.25;
@@ -325,13 +325,16 @@ export function drawVortex(ctx, g, ts, ia) {
   ctx.beginPath(); ctx.arc(hx, hy, hR * 0.68, 0, Math.PI * 2); ctx.stroke();
   ctx.restore();
 
-  // FINISH label
+  // FINISH label — counter-rotated so it reads upright on screen
   ctx.save();
   ctx.globalAlpha = 0.78 * ia;
+  const finTx = hx, finTy = hy + hR + Math.min(cw, ch) * 0.30;
+  ctx.translate(finTx, finTy);
+  ctx.rotate(canvasRot);
   ctx.font = `bold ${Math.min(cw, ch) * 0.22}px "Courier New"`;
-  ctx.fillStyle = N_HOLE; ctx.textAlign = 'center';
+  ctx.fillStyle = N_HOLE; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.shadowColor = N_HOLE; ctx.shadowBlur = 12;
-  ctx.fillText('FINISH', hx, hy + hR + Math.min(cw, ch) * 0.30);
+  ctx.fillText('FINISH', 0, 0);
   ctx.restore();
 }
 
@@ -427,7 +430,7 @@ export function drawJoystick(ctx, joy) {
 }
 
 // ── Main draw ─────────────────────────────────────────────────────────────────
-export function draw(ctx, g, ts, btx, bty, tilt, joy) {
+export function draw(ctx, g, ts, btx, bty, tilt, joy, canvasRot = 0) {
   const { W, H, introT } = g;
   const ia = Math.min(1, (ts - introT) / 300);
 
@@ -439,18 +442,18 @@ export function draw(ctx, g, ts, btx, bty, tilt, joy) {
 
   drawTrack(ctx, g, btx, bty, ia);
   drawCheckpoints(ctx, g, ia);
-  drawCollectibles(ctx, g, ts, ia);
-  drawVortex(ctx, g, ts, ia);
+  drawCollectibles(ctx, g, ts, ia, canvasRot);
+  drawVortex(ctx, g, ts, ia, canvasRot);
   drawTrail(ctx, g, ia);
   drawBall(ctx, g, ts, tilt, ia);
 
   ctx.globalAlpha = 1;
   drawJoystick(ctx, { ...joy, phase: g.phase });
-  drawFloatingTexts(ctx, g, ts);
+  drawFloatingTexts(ctx, g, ts, canvasRot);
 }
 
 // ── Collectibles (+5s / +10s / +30s) ─────────────────────────────────────────
-export function drawCollectibles(ctx, g, ts, ia) {
+export function drawCollectibles(ctx, g, ts, ia, canvasRot = 0) {
   const { collectibles, cw, ch, br } = g;
   if (!collectibles || collectibles.length === 0) return;
   const r = br * 0.60;
@@ -494,35 +497,42 @@ export function drawCollectibles(ctx, g, ts, ia) {
     ctx.fillStyle = grad;
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
 
-    // Label
+    // Label — counter-rotated to read upright on screen
+    ctx.save();
     ctx.globalAlpha = ia;
+    ctx.translate(cx, cy);
+    ctx.rotate(canvasRot);
     ctx.fillStyle = '#fff';
     ctx.shadowColor = color; ctx.shadowBlur = 8;
     ctx.font = `bold ${Math.round(r * 0.9)}px Orbitron, Courier New`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(col.type, cx, cy);
-    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(col.type, 0, 0);
+    ctx.restore();
 
     ctx.restore();
   }
 }
 
 // ── Floating texts (+Xs animation) ───────────────────────────────────────────
-export function drawFloatingTexts(ctx, g, ts) {
+export function drawFloatingTexts(ctx, g, ts, canvasRot = 0) {
   if (!g.floatingTexts || g.floatingTexts.length === 0) return;
   g.floatingTexts = g.floatingTexts.filter(ft => ts - ft.startT < 1200);
   for (const ft of g.floatingTexts) {
     const age   = (ts - ft.startT) / 1200;
     const alpha = 1 - age;
-    const y     = ft.y - age * 70;
+    // Rise direction tracks world-up (counter-rotate the offset vector)
+    const rise  = age * 70;
+    const rx = -Math.sin(canvasRot) * rise;
+    const ry = -Math.cos(canvasRot) * rise;
     ctx.save();
     ctx.globalAlpha = alpha;
+    ctx.translate(ft.x + rx, ft.y - ry);
+    ctx.rotate(canvasRot);
     ctx.fillStyle   = ft.color;
     ctx.shadowColor = ft.color; ctx.shadowBlur = 14;
     ctx.font = `bold 18px Orbitron, Courier New`;
-    ctx.textAlign = 'center';
-    ctx.fillText(ft.text, ft.x, y);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(ft.text, 0, 0);
     ctx.restore();
   }
 }

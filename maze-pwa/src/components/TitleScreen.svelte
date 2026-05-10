@@ -21,6 +21,10 @@
     '#bb44ff', '#ff5555', '#44ffff', '#ffff55',
   ];
 
+  function handleInteraction() {
+    $audioMgrStore?.start();
+  }
+
   function startGame() {
     $audioMgrStore?.start();
     gameMode.set(selected);
@@ -31,7 +35,9 @@
   function bestLvl(mode) { return $highScores[mode]?.lvl ?? null; }
 </script>
 
-<div class="title-root">
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div class="title-root" on:click={handleInteraction}>
   <div class="title-inner">
 
     <!-- Logo -->
