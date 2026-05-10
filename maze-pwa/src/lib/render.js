@@ -435,10 +435,90 @@ export function draw(ctx, g, ts, btx, bty, nebulaCanvas, tilt, joy) {
 
   drawTrack(ctx, g, btx, bty, ia);
   drawCheckpoints(ctx, g, ia);
+  drawCollectibles(ctx, g, ts, ia);
   drawVortex(ctx, g, ts, ia);
   drawTrail(ctx, g, ia);
   drawBall(ctx, g, ts, tilt, ia);
 
   ctx.globalAlpha = 1;
   drawJoystick(ctx, { ...joy, phase: g.phase });
+  drawFloatingTexts(ctx, g, ts);
+}
+
+// ── Collectibles (+5s / +10s / +30s) ─────────────────────────────────────────
+export function drawCollectibles(ctx, g, ts, ia) {
+  const { collectibles, cw, ch, br } = g;
+  if (!collectibles || collectibles.length === 0) return;
+  const r = br * 0.60;
+  const COLORS = { '+5s': '#00c8ff', '+10s': '#00ff80', '+30s': '#dd44ff' };
+
+  for (const col of collectibles) {
+    const cx = col.c * cw + cw / 2;
+    const cy = col.r * ch + ch / 2;
+    const color = COLORS[col.type] || '#00c8ff';
+
+    if (col.collected) {
+      // Disappear animation (400ms scale-down)
+      const age = ts - col.collectT;
+      if (age > 400) continue;
+      const sc = 1 - age / 400;
+      ctx.save();
+      ctx.globalAlpha = sc * ia;
+      ctx.shadowColor = color; ctx.shadowBlur = 20;
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, r * sc * 2.0, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+      continue;
+    }
+
+    // Pulse animation
+    const pulse = Math.sin(ts * 0.004 + col.c + col.r) * 0.12 + 0.88;
+
+    ctx.save();
+    ctx.globalAlpha = pulse * ia;
+    ctx.shadowColor = color; ctx.shadowBlur = 18;
+
+    // Outer ring
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, cy, r * 1.35, 0, Math.PI * 2); ctx.stroke();
+
+    // Inner filled circle
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    grad.addColorStop(0,   `${color}cc`);
+    grad.addColorStop(0.5, `${color}66`);
+    grad.addColorStop(1,   `${color}11`);
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+
+    // Label
+    ctx.globalAlpha = ia;
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = color; ctx.shadowBlur = 8;
+    ctx.font = `bold ${Math.round(r * 0.9)}px Orbitron, Courier New`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(col.type, cx, cy);
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.restore();
+  }
+}
+
+// ── Floating texts (+Xs animation) ───────────────────────────────────────────
+export function drawFloatingTexts(ctx, g, ts) {
+  if (!g.floatingTexts || g.floatingTexts.length === 0) return;
+  g.floatingTexts = g.floatingTexts.filter(ft => ts - ft.startT < 1200);
+  for (const ft of g.floatingTexts) {
+    const age   = (ts - ft.startT) / 1200;
+    const alpha = 1 - age;
+    const y     = ft.y - age * 70;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle   = ft.color;
+    ctx.shadowColor = ft.color; ctx.shadowBlur = 14;
+    ctx.font = `bold 18px Orbitron, Courier New`;
+    ctx.textAlign = 'center';
+    ctx.fillText(ft.text, ft.x, y);
+    ctx.restore();
+  }
 }

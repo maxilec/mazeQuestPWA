@@ -35,8 +35,7 @@ export function bfsPath(maze, R, C, spawn, hole) {
   return path;
 }
 
-// Retourne true si la cellule path[i] est sur une ligne droite
-// (direction entrante == direction sortante — ni angle ni intersection)
+// True if path[i] is on a straight segment (no turn, no intersection)
 function isStraight(path, i) {
   if (i <= 0 || i >= path.length - 1) return false;
   const a = path[i - 1], b = path[i], c = path[i + 1];
@@ -61,11 +60,11 @@ export function computeCheckpoints(path) {
     });
   }
 
-  // Si les deux checkpoints sont trop proches, garder seulement celui le plus central
+  // If both candidates are too close, keep only the more central one
   if (candidates.length === 2) {
     const minSep = Math.max(4, path.length * 0.20);
     if (Math.abs(candidates[1].idx - candidates[0].idx) < minSep) {
-      const mid = Math.round(0.5 * (path.length - 1));
+      const mid  = Math.round(0.5 * (path.length - 1));
       const best = Math.abs(candidates[0].idx - mid) <= Math.abs(candidates[1].idx - mid)
         ? candidates[0] : candidates[1];
       return [best.cp];
@@ -73,4 +72,31 @@ export function computeCheckpoints(path) {
   }
 
   return candidates.map(c => c.cp);
+}
+
+export function computeCollectibles(path, checkpoints, count = 3) {
+  if (path.length < 6) return [];
+  const cpCells = new Set(checkpoints.map(c => `${c.r},${c.c}`));
+  const candidates = [];
+  const start = Math.ceil(path.length * 0.15);
+  const end   = Math.floor(path.length * 0.85);
+  for (let i = start; i < end; i++) {
+    if (!isStraight(path, i)) continue;
+    const { r, c } = path[i];
+    if (cpCells.has(`${r},${c}`)) continue;
+    candidates.push({ i, r, c });
+  }
+  if (candidates.length === 0) return [];
+
+  // Pick `count` evenly spaced candidates
+  const types = ['+5s', '+10s', '+30s'];
+  const step   = Math.max(1, Math.floor(candidates.length / (count + 1)));
+  const result = [];
+  for (let k = 0; k < count; k++) {
+    const idx = step * (k + 1);
+    if (idx >= candidates.length) break;
+    const { r, c } = candidates[idx];
+    result.push({ r, c, type: types[k % types.length], collected: false, collectT: 0 });
+  }
+  return result;
 }
