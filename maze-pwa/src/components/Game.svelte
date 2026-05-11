@@ -246,6 +246,10 @@
     if (currentMode === 'hardcore') { triggerGameOver(); return; }
     attempts += 1;
     haptic([80]);
+    if (currentMode !== 'zen') {
+      G.initialTime = Math.max(0, G.initialTime - 5);
+      spawnFloatingText('-5s', G.W / 2, G.H / 2, '#ff5555');
+    }
     runStats.update(s => ({ ...s, falls: attempts }));
     const pt = G.lastCheckpoint || G.spawn;
     G.ball = { x: pt.c * G.cw + G.cw / 2, y: pt.r * G.ch + G.ch / 2, vx: 0, vy: 0 };
@@ -308,7 +312,18 @@
     $audioMgrStore?.start();
     if (G.phase === 'intro') {
       G.phase = 'play'; G.levelStart = performance.now(); countdownText = '';
+      return;
     }
+    if (controlMode === 'gyro' && G.phase === 'play') {
+      paused ? resumeGame() : pauseGame();
+    }
+  }
+
+  function handleContainerTap(e) {
+    if (controlMode !== 'gyro') return;
+    if (!G || G.phase !== 'play' || paused) return;
+    if (e.target.closest('button')) return;
+    pauseGame();
   }
 
   // Request iOS gyro permission silently on first touch (no blocking overlay).
@@ -620,6 +635,10 @@
   };
 
   const modeColor = { survie: '#00c8ff', hardcore: '#ff5555', zen: '#bb44ff' };
+
+  $: gaugeFill = currentMode !== 'zen' ? Math.min(100, timeLeft / 120 * 100) : 100;
+  $: gaugeOverflow = timeLeft > 120;
+  $: gaugeAlert = timeLeft <= 10 && timeLeft > 0;
 </script>
 
 <!-- ── Markup ─────────────────────────────────────────────────────────────── -->

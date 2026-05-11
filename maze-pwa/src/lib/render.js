@@ -361,19 +361,22 @@ export function drawTrail(ctx, g, ia) {
 }
 
 // ── Ball ──────────────────────────────────────────────────────────────────────
-export function drawBall(ctx, g, ts, tilt, ia) {
+export function drawBall(ctx, g, ts, tilt, ia, canvasRot = 0) {
   const { ball, br, phase, fallT } = g;
   const el  = phase === 'falling' ? ts - fallT : 0;
   const sc2 = phase === 'falling' ? Math.max(0, 1 - el / 480) : 1;
   const rbr = br * sc2;
   if (rbr < 1.5) return;
 
+  // Screen-down offset rotated to canvas space
+  const sdx = -Math.sin(canvasRot) * rbr * 0.45;
+  const sdy =  Math.cos(canvasRot) * rbr * 0.45;
   // Shadow
   ctx.save();
   ctx.globalAlpha = 0.45 * ia * sc2;
   ctx.fillStyle = '#000';
   ctx.beginPath();
-  ctx.ellipse(ball.x + tilt.x * br * 0.55, ball.y + tilt.y * br * 0.55 + rbr * 0.45,
+  ctx.ellipse(ball.x + tilt.x * br * 0.55 + sdx, ball.y + tilt.y * br * 0.55 + sdy,
     rbr * 0.85, rbr * 0.22, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
@@ -394,16 +397,19 @@ export function drawBall(ctx, g, ts, tilt, ia) {
   ctx.fillStyle = bg; ctx.fill();
   ctx.restore();
 
-  // Specular
+  // Specular — rotate highlight to always appear screen-upper-left
+  const bhx = -rbr * 0.36, bhy = -rbr * 0.42;
+  const rhx = bhx * Math.cos(canvasRot) - bhy * Math.sin(canvasRot);
+  const rhy = bhx * Math.sin(canvasRot) + bhy * Math.cos(canvasRot);
   ctx.save();
   ctx.globalAlpha = 0.55 * ia;
   const sp = ctx.createRadialGradient(
-    ball.x - rbr * 0.36, ball.y - rbr * 0.42, 0,
-    ball.x - rbr * 0.36, ball.y - rbr * 0.42, rbr * 0.38);
+    ball.x + rhx, ball.y + rhy, 0,
+    ball.x + rhx, ball.y + rhy, rbr * 0.38);
   sp.addColorStop(0,   'rgba(255,255,255,0.92)');
   sp.addColorStop(0.6, 'rgba(255,255,255,0.15)');
   sp.addColorStop(1,   'rgba(255,255,255,0)');
-  ctx.beginPath(); ctx.arc(ball.x - rbr * 0.36, ball.y - rbr * 0.42, rbr * 0.38, 0, Math.PI * 2);
+  ctx.beginPath(); ctx.arc(ball.x + rhx, ball.y + rhy, rbr * 0.38, 0, Math.PI * 2);
   ctx.fillStyle = sp; ctx.fill();
   ctx.restore();
 }
@@ -445,7 +451,7 @@ export function draw(ctx, g, ts, btx, bty, tilt, joy, canvasRot = 0) {
   drawCollectibles(ctx, g, ts, ia, canvasRot);
   drawVortex(ctx, g, ts, ia, canvasRot);
   drawTrail(ctx, g, ia);
-  drawBall(ctx, g, ts, tilt, ia);
+  drawBall(ctx, g, ts, tilt, ia, canvasRot);
 
   ctx.globalAlpha = 1;
   drawJoystick(ctx, { ...joy, phase: g.phase });
