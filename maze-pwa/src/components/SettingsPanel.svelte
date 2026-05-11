@@ -10,53 +10,87 @@
 <div class="sp-wrap">
   <div class="sp-title">PARAMÈTRES</div>
 
-  <label class="sp-row">
-    <span class="sp-lbl">Volume</span>
-    <div class="sp-right">
-      <input type="range" min="0" max="1" step="0.05"
-        bind:value={$settings.volume}
-        disabled={$settings.muted} />
-      <span class="sp-val">{Math.round($settings.volume * 100)}%</span>
+  <!-- Music section -->
+  <div class="sp-section">
+    <div class="sp-row sp-row--toggle">
+      <span class="sp-lbl">Musique</span>
+      <div class="sp-onoff">
+        <button
+          class="sp-toggle-btn"
+          class:active={!$settings.muted}
+          on:click={() => $settings.muted = false}>
+          ON
+        </button>
+        <button
+          class="sp-toggle-btn"
+          class:active={$settings.muted}
+          on:click={() => $settings.muted = true}>
+          OFF
+        </button>
+      </div>
     </div>
-  </label>
 
-  <label class="sp-row sp-check">
-    <span class="sp-lbl">Muet</span>
-    <input type="checkbox" bind:checked={$settings.muted} />
-  </label>
+    {#if !$settings.muted}
+      <label class="sp-row">
+        <span class="sp-lbl">Volume</span>
+        <div class="sp-right">
+          <input type="range" min="0" max="1" step="0.05"
+            bind:value={$settings.volume} />
+          <span class="sp-val">{Math.round($settings.volume * 100)}%</span>
+        </div>
+      </label>
+    {/if}
+  </div>
 
-  <label class="sp-row">
-    <span class="sp-lbl">Sensibilité</span>
-    <div class="sp-right">
-      <input type="range" min="0.1" max="1.5" step="0.05"
-        bind:value={$settings.sensitivity} />
-      <span class="sp-val">{$settings.sensitivity.toFixed(2)}</span>
-    </div>
-  </label>
-
-  <div class="sp-row sp-row--col">
-    <span class="sp-lbl">Contrôle</span>
-    <div class="sp-toggle-row">
+  <!-- Gyroscope section -->
+  <div class="sp-row sp-row--toggle">
+    <span class="sp-lbl">Gyroscope</span>
+    <div class="sp-onoff">
       <button
         class="sp-toggle-btn"
         class:active={$settings.controlMode === 'gyro'}
         on:click={() => $settings.controlMode = 'gyro'}>
-        📡 Gyroscope
+        ON
       </button>
       <button
         class="sp-toggle-btn"
         class:active={$settings.controlMode === 'joystick'}
         on:click={() => $settings.controlMode = 'joystick'}>
-        🕹 Joystick
+        OFF
       </button>
     </div>
   </div>
 
-  {#if hasHaptic}
-    <label class="sp-row sp-check">
-      <span class="sp-lbl">Vibrations</span>
-      <input type="checkbox" bind:checked={$settings.haptics} />
+  <!-- Sensitivity (only when gyro ON) -->
+  {#if $settings.controlMode === 'gyro'}
+    <label class="sp-row">
+      <span class="sp-lbl">Sensibilité</span>
+      <div class="sp-right">
+        <input type="range" min="0.1" max="1.5" step="0.05"
+          bind:value={$settings.sensitivity} />
+        <span class="sp-val">{$settings.sensitivity.toFixed(2)}</span>
+      </div>
     </label>
+  {/if}
+
+  {#if hasHaptic}
+    <div class="sp-row sp-row--toggle">
+      <span class="sp-lbl">Vibrations</span>
+      <div class="sp-onoff">
+        <button
+          class="sp-toggle-btn"
+          class:active={$settings.haptics}
+          on:click={() => $settings.haptics = true}>
+          ON
+        </button>
+        <button
+          class="sp-toggle-btn"
+          class:active={!$settings.haptics}
+          on:click={() => $settings.haptics = false}>
+          OFF
+        </button>
+      </div>
+    </div>
   {/if}
 
   {#if showClose}
@@ -68,7 +102,7 @@
   .sp-wrap {
     display: flex; flex-direction: column; gap: 14px;
     font-family: 'Courier New', monospace;
-    width: 100%; max-width: 340px;
+    width: 100%; max-width: 320px;
   }
 
   .sp-title {
@@ -79,12 +113,14 @@
     text-align: center; margin-bottom: 4px;
   }
 
+  .sp-section { display: flex; flex-direction: column; gap: 10px; }
+
   .sp-row {
     display: flex; align-items: center;
     justify-content: space-between;
     gap: 12px; cursor: default;
   }
-  .sp-row--col { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .sp-row--toggle { gap: 8px; }
 
   .sp-lbl {
     color: rgba(255,255,255,0.85);
@@ -96,20 +132,16 @@
   .sp-right input[type=range] {
     flex: 1; accent-color: #00c8ff; cursor: pointer; min-width: 80px;
   }
-  .sp-right input[type=range]:disabled { opacity: 0.35; cursor: not-allowed; }
   .sp-val { color: #00c8ff; font-size: 11px; min-width: 36px; text-align: right; }
 
-  .sp-check { cursor: pointer; }
-  .sp-check input[type=checkbox] { accent-color: #00c8ff; width: 17px; height: 17px; cursor: pointer; }
-
-  .sp-toggle-row { display: flex; gap: 8px; width: 100%; }
+  .sp-onoff { display: flex; gap: 6px; }
   .sp-toggle-btn {
-    flex: 1; padding: 7px 6px;
+    padding: 5px 14px;
     background: transparent;
     border: 1px solid rgba(0,200,255,0.30);
-    color: rgba(255,255,255,0.55);
+    color: rgba(255,255,255,0.45);
     font-family: 'Courier New', monospace;
-    font-size: 10px; letter-spacing: 0.3px; cursor: pointer;
+    font-size: 10px; letter-spacing: 1px; cursor: pointer;
     border-radius: 5px; transition: all 0.15s;
   }
   .sp-toggle-btn.active {

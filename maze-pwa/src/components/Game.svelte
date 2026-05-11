@@ -643,12 +643,31 @@
 
 <!-- ── Markup ─────────────────────────────────────────────────────────────── -->
 
-<div class="container">
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div class="container" on:click={handleContainerTap}>
 
   <!-- Zone A : logo + hint -->
   <div class="zone-a">
     <div class="logo">MazeBall</div>
     <p class="hint">{hints[hint]}</p>
+  </div>
+
+  <!-- Portrait-only gauge (above board) -->
+  <div class="gauge-p">
+    {#if currentMode !== 'zen'}
+      <div class="gauge-wrap-p">
+        <div class="gauge-bar-p">
+          <div class="gauge-fill-p"
+            style="width:{gaugeFill}%"
+            class:g-overflow={gaugeOverflow}
+            class:g-alert={gaugeAlert}></div>
+        </div>
+        <div class="gauge-time-p" class:g-alert={gaugeAlert}>{chrono}</div>
+      </div>
+    {:else}
+      <div class="zen-badge">∞ ZEN MODE</div>
+    {/if}
   </div>
 
   <!-- Board (world-rotate sets visual layout size; board-wrap carries CSS rotation) -->
@@ -658,7 +677,6 @@
 
       {#if countdownText}
         <div class="countdown-overlay">
-          <!-- counter-rotate wrapper keeps text upright; animation stays on inner div -->
           <div class="countdown-rot" style="transform: rotate({deviceAngle}deg)">
             {#key countdownText}
               <div class="countdown-text">{countdownText}</div>
@@ -669,22 +687,35 @@
     </div>
   </div>
 
-  <!-- Zone B : HUD -->
+  <!-- Zone B : HUD (landscape: right column with vertical gauge) -->
   <div class="zone-b">
-    {#if currentMode !== 'zen'}
-      <div class="hud-timer" class:alert={timeLeft <= 10 && timeLeft > 0}>
-        <div class="chrono">{chrono}</div>
-        <div class="hud-label">TEMPS</div>
-      </div>
-    {:else}
-      <div class="hud-zen">ZEN</div>
-    {/if}
-    <div class="hud-level" style="color: {modeColor[currentMode]}">NVL {lvl}</div>
-    <div class="hud-btns">
-      <button class="icon-btn" on:click={() => paused ? resumeGame() : pauseGame()} aria-label="Pause">
-        {paused ? '▶' : '⏸'}
-      </button>
+
+    <!-- Landscape-only gauge (vertical) -->
+    <div class="gauge-l">
+      {#if currentMode !== 'zen'}
+        <div class="gauge-time-l" class:g-alert={gaugeAlert}>{chrono}</div>
+        <div class="gauge-track-l">
+          <div class="gauge-fill-l"
+            style="height:{gaugeFill}%"
+            class:g-overflow={gaugeOverflow}
+            class:g-alert={gaugeAlert}></div>
+        </div>
+      {:else}
+        <div class="zen-badge-l">∞</div>
+      {/if}
     </div>
+
+    <!-- Stats -->
+    <div class="hud-stats">
+      <div class="hud-level" style="color:{modeColor[currentMode]}">NVL {lvl}</div>
+      <div class="hud-falls">⬇ {attempts}</div>
+    </div>
+
+    <!-- Capsule pause button -->
+    <button class="pause-capsule" on:click|stopPropagation={() => paused ? resumeGame() : pauseGame()}>
+      {paused ? '▶' : '⏸'}
+    </button>
+
   </div>
 
 </div>
@@ -728,64 +759,206 @@
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     font-family: 'Orbitron', 'Courier New', monospace;
-    gap: 10px;
-    padding-top:    max(10px, env(safe-area-inset-top));
-    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    gap: 8px;
+    padding-top:    max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
     padding-left:   env(safe-area-inset-left);
     padding-right:  env(safe-area-inset-right);
+    box-sizing: border-box;
   }
 
-  .zone-a { order: 0; }
-  .world-rotate { order: 1; flex-shrink: 0; position: relative; }
-  .zone-b { order: 2; }
+  .zone-a { order: 0; flex-shrink: 0; }
+  .gauge-p { order: 1; width: 100%; flex-shrink: 0; }
+  .world-rotate { order: 2; flex-shrink: 0; position: relative; }
+  .zone-b { order: 3; flex-shrink: 0; }
 
   @media (orientation: landscape) {
     .container {
-      flex-direction: row; gap: 14px;
-      padding-left:  max(14px, env(safe-area-inset-left));
-      padding-right: max(14px, env(safe-area-inset-right));
+      flex-direction: row; gap: 10px;
+      padding-left:  max(10px, env(safe-area-inset-left));
+      padding-right: max(10px, env(safe-area-inset-right));
     }
-    .zone-a    { order: 0; width: 90px;  min-width: 70px; flex-shrink: 0; }
+    .zone-a    { order: 0; width: 80px;  min-width: 60px; align-self: stretch; display: flex; flex-direction: column; justify-content: center; }
+    .gauge-p   { display: none; }
     .world-rotate { order: 1; }
-    .zone-b    { order: 2; width: 160px; min-width: 130px; flex-shrink: 0; }
+    .zone-b    { order: 2; width: 110px; min-width: 90px; align-self: stretch; }
   }
 
   /* Zone A */
   .zone-a {
     display: flex; flex-direction: column;
-    align-items: center; gap: 8px; justify-content: center;
+    align-items: center; gap: 6px; justify-content: center;
   }
   .logo {
-    font-weight: 900; font-size: clamp(14px, 2.4vw, 22px);
+    font-weight: 900; font-size: clamp(14px, 2.4vw, 20px);
     color: #00c8ff; letter-spacing: 2px;
     text-shadow: 0 0 18px #00c8ff, 0 0 6px #00c8ff;
     text-align: center;
   }
   .hint {
-    color: rgba(255,255,255,0.60);
-    font-size: 10px; text-align: center; letter-spacing: .5px;
-    font-family: 'Courier New', monospace;
+    color: rgba(255,255,255,0.55);
+    font-size: 9px; text-align: center; letter-spacing: .4px;
+    font-family: 'Courier New', monospace; margin: 0;
   }
   @media (orientation: landscape) {
-    .logo { writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); font-size: clamp(14px, 1.8vh, 22px); letter-spacing: 4px; }
+    .logo { writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); font-size: clamp(12px, 1.8vh, 20px); letter-spacing: 4px; }
     .hint { writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); font-size: 9px; }
   }
 
-  /* World-rotate: sizes itself to the VISUAL (post-CSS-rotation) canvas dimensions */
+  /* World-rotate / board */
   .world-rotate { display: flex; align-items: center; justify-content: center; }
-
-  /* Board-wrap: centered inside world-rotate, carries the world-lock CSS rotation */
   .board-wrap {
     position: absolute; top: 50%; left: 50%;
     border-radius: 4px;
   }
-
   canvas {
     display: block; border-radius: 3px;
     border: 1.5px solid rgba(0,200,255,0.35);
     cursor: pointer;
   }
 
+  /* ── Portrait gauge ── */
+  .gauge-p {
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 12px;
+  }
+  .gauge-wrap-p {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    width: 100%;
+  }
+  .gauge-bar-p {
+    width: 100%; height: 10px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 5px; overflow: hidden;
+    border: 1px solid rgba(255,224,64,0.20);
+  }
+  .gauge-fill-p {
+    height: 100%;
+    background: #ffe040;
+    border-radius: 5px;
+    transition: width 0.4s linear;
+    box-shadow: 0 0 6px #ffe040;
+  }
+  .gauge-fill-p.g-overflow {
+    background: #00ff80;
+    box-shadow: 0 0 14px #00ff80, 0 0 28px rgba(0,255,128,0.40);
+    animation: gaugeGlow 1.2s ease-in-out infinite;
+  }
+  .gauge-fill-p.g-alert { background: #ff5555; box-shadow: 0 0 8px #ff5555; }
+  .gauge-time-p {
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(20px, 3vw, 30px); font-weight: 700;
+    color: #ffe040; letter-spacing: 3px;
+    text-shadow: 0 0 12px #ffe040;
+    line-height: 1;
+  }
+  .gauge-time-p.g-alert {
+    color: #ff5555; text-shadow: 0 0 14px #ff5555;
+    animation: timerFlash 0.6s ease-in-out infinite;
+  }
+
+  /* ── Landscape gauge (inside zone-b) ── */
+  .gauge-l { display: none; }
+  @media (orientation: landscape) {
+    .gauge-l {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 6px;
+      flex: 1; min-height: 0;
+    }
+    .gauge-time-l {
+      font-family: 'Orbitron', monospace;
+      font-size: clamp(16px, 2.2vh, 24px); font-weight: 700;
+      color: #ffe040; letter-spacing: 2px;
+      text-shadow: 0 0 12px #ffe040;
+      white-space: nowrap;
+    }
+    .gauge-time-l.g-alert {
+      color: #ff5555; text-shadow: 0 0 14px #ff5555;
+      animation: timerFlash 0.6s ease-in-out infinite;
+    }
+    .gauge-track-l {
+      flex: 1; width: 10px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 5px; overflow: hidden;
+      border: 1px solid rgba(255,224,64,0.20);
+      display: flex; flex-direction: column; justify-content: flex-end;
+    }
+    .gauge-fill-l {
+      width: 100%;
+      background: #ffe040;
+      border-radius: 5px;
+      transition: height 0.4s linear;
+      box-shadow: 0 0 6px #ffe040;
+    }
+    .gauge-fill-l.g-overflow {
+      background: #00ff80;
+      box-shadow: 0 0 14px #00ff80, 0 0 28px rgba(0,255,128,0.40);
+      animation: gaugeGlow 1.2s ease-in-out infinite;
+    }
+    .gauge-fill-l.g-alert { background: #ff5555; box-shadow: 0 0 8px #ff5555; }
+  }
+
+  .zen-badge {
+    font-family: 'Courier New', monospace;
+    font-size: 11px; letter-spacing: 4px; color: #bb44ff;
+    text-shadow: 0 0 10px #bb44ff;
+  }
+  .zen-badge-l {
+    color: #bb44ff; font-size: 18px;
+    text-shadow: 0 0 10px #bb44ff;
+  }
+
+  @keyframes gaugeGlow {
+    0%, 100% { opacity: 1; box-shadow: 0 0 14px #00ff80, 0 0 28px rgba(0,255,128,0.40); }
+    50%       { opacity: 0.80; box-shadow: 0 0 22px #00ff80, 0 0 44px rgba(0,255,128,0.60); }
+  }
+  @keyframes timerFlash { 0%, 100% { opacity: 1; } 50% { opacity: 0.40; } }
+
+  /* ── Zone B ── */
+  .zone-b {
+    display: flex; flex-direction: row;
+    align-items: center; justify-content: space-between;
+    gap: 10px; width: 100%;
+  }
+  @media (orientation: landscape) {
+    .zone-b {
+      flex-direction: column; align-items: center;
+      justify-content: flex-start;
+      height: 100%; padding: 4px 0;
+    }
+  }
+
+  .hud-stats {
+    display: flex; flex-direction: row; gap: 10px; align-items: center;
+  }
+  @media (orientation: landscape) {
+    .hud-stats { flex-direction: column; gap: 6px; align-items: center; }
+  }
+
+  .hud-level { font-size: 12px; letter-spacing: 3px; font-weight: 700; }
+  .hud-falls {
+    color: rgba(255,255,255,0.65);
+    font-size: 11px; letter-spacing: 2px;
+    font-family: 'Courier New', monospace;
+  }
+
+  /* ── Capsule pause button ── */
+  .pause-capsule {
+    background: rgba(0,200,255,0.08);
+    border: 1.5px solid #00c8ff; color: #00c8ff;
+    width: 54px; height: 30px; border-radius: 15px;
+    font-size: 14px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    text-shadow: 0 0 8px #00c8ff;
+    box-shadow: 0 0 10px rgba(0,200,255,0.20);
+    font-family: inherit; flex-shrink: 0;
+  }
+  .pause-capsule:active { background: rgba(0,200,255,0.22); }
+  @media (orientation: landscape) {
+    .pause-capsule { margin-top: auto; }
+  }
+
+  /* Countdown */
   .countdown-overlay {
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
@@ -803,48 +976,7 @@
     to   { transform: scale(1);   opacity: 1; }
   }
 
-  /* HUD - Zone B */
-  .zone-b {
-    display: flex; flex-direction: row;
-    align-items: center; justify-content: space-around;
-    gap: 10px; flex-wrap: wrap;
-  }
-  @media (orientation: landscape) {
-    .zone-b { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 14px; height: 100%; padding-top: 4px; }
-  }
-
-  .hud-timer { display: flex; flex-direction: column; align-items: flex-start; }
-  .hud-timer.alert .chrono {
-    color: #ff5555; text-shadow: 0 0 14px #ff5555, 0 0 5px #ff5555;
-    animation: timerFlash 0.6s ease-in-out infinite;
-  }
-  @keyframes timerFlash { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
-
-  .chrono {
-    color: #ffe040; font-size: clamp(22px, 3.5vw, 36px);
-    font-weight: 700; letter-spacing: 3px;
-    text-shadow: 0 0 14px #ffe040, 0 0 5px #ffe040; line-height: 1;
-  }
-  .hud-label {
-    color: rgba(255,224,64,0.65);
-    font-size: 8px; letter-spacing: 4px;
-    font-family: 'Courier New', monospace; margin-top: 1px;
-  }
-  .hud-zen { color: #bb44ff; font-size: 13px; letter-spacing: 5px; text-shadow: 0 0 10px #bb44ff; }
-  .hud-level { font-size: 12px; letter-spacing: 3px; font-weight: 700; }
-  .hud-btns  { display: flex; gap: 8px; }
-  @media (orientation: landscape) { .hud-btns { margin-top: auto; } }
-
-  .icon-btn {
-    background: rgba(0,200,255,0.08); border: 1.5px solid #00c8ff; color: #00c8ff;
-    width: 34px; height: 34px; border-radius: 6px; font-size: 14px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    text-shadow: 0 0 8px #00c8ff; box-shadow: 0 0 10px rgba(0,200,255,0.20);
-    font-family: inherit;
-  }
-  .icon-btn:active { background: rgba(0,200,255,0.22); }
-
-  /* In-game settings overlay — z-index 300 so it appears above the pause panel (200) */
+  /* In-game settings overlay */
   .cfg-overlay {
     position: fixed; inset: 0; z-index: 300;
     background: rgba(0,2,15,0.88);
@@ -884,7 +1016,6 @@
   .neon-btn--green:active { background: rgba(0,255,128,0.13); }
   .neon-btn--amber { border-color:#ffb300; color:#ffcc44; text-shadow:0 0 8px #ffb300; box-shadow:0 0 10px rgba(255,179,0,0.20); }
   .neon-btn--amber:active { background: rgba(255,179,0,0.13); }
-.neon-btn--dim   { border-color:rgba(0,200,255,0.30); color:rgba(255,255,255,0.55); text-shadow:none; box-shadow:none; }
+  .neon-btn--dim   { border-color:rgba(0,200,255,0.30); color:rgba(255,255,255,0.55); text-shadow:none; box-shadow:none; }
   .neon-btn--dim:active   { background: rgba(0,200,255,0.06); }
-
 </style>
