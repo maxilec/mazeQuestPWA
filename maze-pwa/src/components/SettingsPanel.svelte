@@ -1,10 +1,17 @@
 <script>
   import { settings } from '../stores.js';
+  import { createEventDispatcher } from 'svelte';
 
   const hasHaptic = typeof navigator !== 'undefined' && 'vibrate' in navigator;
+  const dispatch = createEventDispatcher();
 
   export let showClose = false;
   export let onClose = () => {};
+
+  function enableGyro() {
+    $settings.controlMode = 'gyro';
+    dispatch('gyro-enable');
+  }
 </script>
 
 <div class="sp-wrap">
@@ -30,16 +37,15 @@
       </div>
     </div>
 
-    {#if !$settings.muted}
-      <label class="sp-row">
-        <span class="sp-lbl">Volume</span>
-        <div class="sp-right">
-          <input type="range" min="0" max="1" step="0.05"
-            bind:value={$settings.volume} />
-          <span class="sp-val">{Math.round($settings.volume * 100)}%</span>
-        </div>
-      </label>
-    {/if}
+    <label class="sp-row" class:sp-disabled={$settings.muted}>
+      <span class="sp-lbl">Volume</span>
+      <div class="sp-right">
+        <input type="range" min="0" max="1" step="0.05"
+          bind:value={$settings.volume}
+          disabled={$settings.muted} />
+        <span class="sp-val">{Math.round($settings.volume * 100)}%</span>
+      </div>
+    </label>
   </div>
 
   <!-- Gyroscope section -->
@@ -49,7 +55,7 @@
       <button
         class="sp-toggle-btn"
         class:active={$settings.controlMode === 'gyro'}
-        on:click={() => $settings.controlMode = 'gyro'}>
+        on:click={enableGyro}>
         ON
       </button>
       <button
@@ -61,17 +67,16 @@
     </div>
   </div>
 
-  <!-- Sensitivity (only when gyro ON) -->
-  {#if $settings.controlMode === 'gyro'}
-    <label class="sp-row">
-      <span class="sp-lbl">Sensibilité</span>
-      <div class="sp-right">
-        <input type="range" min="0.1" max="1.5" step="0.05"
-          bind:value={$settings.sensitivity} />
-        <span class="sp-val">{$settings.sensitivity.toFixed(2)}</span>
-      </div>
-    </label>
-  {/if}
+  <!-- Sensitivity -->
+  <label class="sp-row" class:sp-disabled={$settings.controlMode !== 'gyro'}>
+    <span class="sp-lbl">Sensibilité</span>
+    <div class="sp-right">
+      <input type="range" min="0.1" max="1.5" step="0.05"
+        bind:value={$settings.sensitivity}
+        disabled={$settings.controlMode !== 'gyro'} />
+      <span class="sp-val">{$settings.sensitivity.toFixed(2)}</span>
+    </div>
+  </label>
 
   {#if hasHaptic}
     <div class="sp-row sp-row--toggle">
@@ -133,6 +138,9 @@
     flex: 1; accent-color: #00c8ff; cursor: pointer; min-width: 80px;
   }
   .sp-val { color: #00c8ff; font-size: 11px; min-width: 36px; text-align: right; }
+  .sp-right input[type=range]:disabled { opacity: 0.35; cursor: not-allowed; }
+  .sp-disabled .sp-lbl { opacity: 0.35; }
+  .sp-disabled .sp-val { opacity: 0.35; }
 
   .sp-onoff { display: flex; gap: 6px; }
   .sp-toggle-btn {

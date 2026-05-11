@@ -39,6 +39,8 @@
   $: controlMode = $settings.controlMode;
   $: sensitivity = $settings.sensitivity;
   $: hapticsOn   = $settings.haptics;
+  // When switching to joystick, clear any residual gyro tilt immediately
+  $: if (controlMode === 'joystick') { tilt = { x: 0, y: 0 }; }
 
   const MODE_DURATION = 120;
   const currentMode   = $gameMode;  // snapshot — won't change mid-run
@@ -340,6 +342,23 @@
     }
   }
 
+  // Called when "Gyroscope ON" is tapped in SettingsPanel — runs in gesture context.
+  async function handleGyroEnable() {
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        const res = await DeviceOrientationEvent.requestPermission();
+        if (res === 'granted') { gyroOk = true; hint = 'gyro'; }
+        else { settings.update(s => ({ ...s, controlMode: 'joystick' })); }
+      } catch {
+        settings.update(s => ({ ...s, controlMode: 'joystick' }));
+      }
+    } else {
+      // Non-iOS: gyro access is automatic
+      gyroPermissionRequested = true;
+    }
+  }
+
   // ── Mount ────────────────────────────────────────────────────────────────────
   onMount(() => {
     const s = $settings;
@@ -375,9 +394,10 @@
       const dt = Math.min((ts - last) / 16.67, 3);
       last = ts;
 
-      // Smooth board tilt (parallax: use raw gyro when available, otherwise joystick tilt)
-      const ptx = gyroOk ? gyroParallaxX : tilt.x;
-      const pty = gyroOk ? gyroParallaxY : tilt.y;
+      // Smooth board tilt (parallax: gyro when in gyro mode, joystick tilt otherwise)
+      const useGyroParallax = gyroOk && controlMode === 'gyro';
+      const ptx = useGyroParallax ? gyroParallaxX : tilt.x;
+      const pty = useGyroParallax ? gyroParallaxY : tilt.y;
       boardTiltX += (ptx - boardTiltX) * 0.08;
       boardTiltY += (pty - boardTiltY) * 0.08;
 
@@ -726,7 +746,8 @@
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="cfg-overlay" on:click|self={() => showCfg = false}>
     <div class="cfg-panel">
-      <SettingsPanel showClose={true} onClose={() => showCfg = false} />
+      <SettingsPanel showClose={true} onClose={() => showCfg = false}
+        on:gyro-enable={handleGyroEnable} />
     </div>
   </div>
 {/if}
@@ -779,7 +800,6 @@
       padding-right: max(10px, env(safe-area-inset-right));
     }
     .zone-a    { order: 0; width: 80px;  min-width: 60px; align-self: stretch; display: flex; flex-direction: column; justify-content: center; }
-    .gauge-p   { display: none; }
     .world-rotate { order: 1; }
     .zone-b    { order: 2; width: 110px; min-width: 90px; align-self: stretch; }
   }
@@ -817,11 +837,9 @@
     cursor: pointer;
   }
 
-  /* ── Portrait gauge ── */
-  .gauge-p {
-    display: flex; align-items: center; justify-content: center;
-    padding: 0 12px;
-  }
+  /* ── Portrait gauge (hidden by default, shown only in portrait) ── */
+  .gauge-p { display: none; align-items: center; justify-content: center; padding: 0 12px; }
+  @media (orientation: portrait) { .gauge-p { display: flex; } }
   .gauge-wrap-p {
     display: flex; flex-direction: column; align-items: center; gap: 4px;
     width: 100%;
