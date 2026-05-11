@@ -800,7 +800,7 @@
       padding-right: max(10px, env(safe-area-inset-right));
     }
     .zone-a    { order: 0; width: 80px;  min-width: 60px; align-self: stretch; display: flex; flex-direction: column; justify-content: center; }
-    .world-rotate { order: 1; }
+    .world-rotate { order: 1; flex-grow: 1; }
     .zone-b    { order: 2; width: 110px; min-width: 90px; align-self: stretch; }
   }
 
