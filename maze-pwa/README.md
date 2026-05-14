@@ -137,10 +137,41 @@ maze-pwa/
 │       └── icon-512.png    # Généré par gen-icons.mjs
 └── src/
     ├── main.js             # Bootstrap Svelte
-    ├── App.svelte          # Composant principal (canvas + UI)
+    ├── App.svelte          # Composant racine (orchestration)
     └── lib/
-        └── maze.js         # Algorithme DFS de génération
+        ├── constants.js    # Constantes physique / gameplay
+        ├── maze.js         # Algorithme DFS de génération
+        ├── maze-utils.js   # Helpers grille (voisins, distance, etc.)
+        ├── physics.js      # Intégration bille + collisions
+        ├── render.js       # Dessin canvas (plateau, bille, FX)
+        └── audio.js        # Gestion WebAudio (musique + SFX)
 ```
+
+---
+
+## 🧱 Refactor UI en cours — branche `claude/refactor-game-ui-wFfsk`
+
+L'interface est en cours de modularisation. Objectifs :
+
+- **Découper `App.svelte`** (≈850 lignes) en composants Svelte ciblés.
+- **Factoriser** les motifs récurrents de l'UI (HUD, boutons, overlays, menus).
+- **Réutiliser** les briques entre écrans (pause, fin de niveau, paramètres…).
+- **Isoler** la logique gameplay (déjà sortie dans `lib/`) de la couche présentation.
+
+### Composants visés
+
+| Composant | Rôle |
+|---|---|
+| `GameCanvas.svelte` | Canvas + boucle de rendu, expose les events haut-niveau |
+| `Hud.svelte` | Affichage niveau / chrono / essais |
+| `Joystick.svelte` | Joystick virtuel tactile |
+| `PauseMenu.svelte` | Overlay pause + actions |
+| `SettingsPanel.svelte` | Réglages (grille, sensibilité, volume) |
+| `RotateOverlay.svelte` | Invite à passer en paysage |
+| `IconButton.svelte` | Bouton icône réutilisable (son, pause, etc.) |
+| `Slider.svelte` | Slider stylé (sensibilité, volume…) |
+
+> Note : les noms ci-dessus sont indicatifs et peuvent évoluer au fil du refactor.
 
 ---
 
