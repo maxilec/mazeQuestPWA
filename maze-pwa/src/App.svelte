@@ -7,6 +7,14 @@
   import { createAudioManager }                      from './lib/audio.js';
   import { generateNebula, draw }                    from './lib/render.js';
 
+  import Logo             from './components/Logo.svelte';
+  import Hint             from './components/Hint.svelte';
+  import Hud              from './components/Hud.svelte';
+  import SettingsPanel    from './components/SettingsPanel.svelte';
+  import PauseMenu        from './components/PauseMenu.svelte';
+  import RotateOverlay    from './components/RotateOverlay.svelte';
+  import CountdownOverlay from './components/CountdownOverlay.svelte';
+
   // ── Reactive state ────────────────────────────────────────────────────────
   let lvl           = 1;
   let chrono        = '0:00';
@@ -43,6 +51,7 @@
   let boardTiltY    = 0;
   let nebulaCanvas  = null;
   let audioMgr      = null;
+  let primaryRgb    = '0, 200, 255';
 
   // ── Small helpers ─────────────────────────────────────────────────────────
   function wallThickness(cw, ch) {
@@ -71,6 +80,10 @@
     if (!G) return;
     if (G.pauseAt) { G.pausedMs += performance.now() - G.pauseAt; G.pauseAt = 0; }
     paused = false;
+  }
+
+  function togglePause() {
+    if (paused) resumeGame(); else pauseGame();
   }
 
   function toggleSound() {
@@ -249,6 +262,10 @@
     isPortrait = window.innerHeight > window.innerWidth;
     try { screen.orientation.lock('landscape').catch(() => {}); } catch {}
 
+    // Read theme tokens once so JS-applied glow colors track the theme
+    const rootStyles = getComputedStyle(document.documentElement);
+    primaryRgb = rootStyles.getPropertyValue('--color-primary-rgb').trim() || primaryRgb;
+
     // Wake lock
     let wakeLock = null;
     const acquireWakeLock = async () => {
@@ -298,7 +315,7 @@
         boardWrap.style.transform =
           `perspective(700px) rotateX(${-boardTiltY * MAX_DEG}deg) rotateY(${boardTiltX * MAX_DEG}deg)`;
         boardWrap.style.boxShadow =
-          `0 0 45px rgba(0,200,255,0.22), ${boardTiltX * 22}px ${boardTiltY * 22 + 8}px 50px rgba(0,0,0,0.92)`;
+          `0 0 45px rgba(${primaryRgb}, 0.22), ${boardTiltX * 22}px ${boardTiltY * 22 + 8}px 50px rgba(0,0,0,0.92)`;
       }
 
       // Resize sync
@@ -468,22 +485,15 @@
       window.removeEventListener('orientationchange', onRotate);
     };
   });
-
-  const hints = {
-    gyro:     "📱 Inclinez l'appareil",
-    mouse:    '🖱 Déplacez la souris',
-    keys:     '⌨ Touches fléchées',
-    joystick: '🕹 Glissez pour diriger',
-  };
 </script>
 
 <!-- ── Markup ─────────────────────────────────────────────────────────────── -->
 <div class="container">
 
-  <!-- Zone A : logo + hint -->
+  <!-- Zone A : logo + hint + iOS permission CTA -->
   <div class="zone-a">
-    <div class="logo">MazeBall</div>
-    <p class="hint">{hints[hint]}</p>
+    <Logo />
+    <Hint mode={hint} />
     {#if iosBtn && controlMode === 'gyro'}
       <button class="gyro-btn" on:click={requestGyroIOS}>Activer le gyroscope</button>
     {/if}
@@ -492,100 +502,59 @@
   <!-- Board -->
   <div class="board-wrap" bind:this={boardWrap}>
     <canvas bind:this={canvas} on:click={handleCanvasTap}></canvas>
-
-    {#if countdownText}
-      <div class="countdown-overlay">
-        {#if iosBtn}
-          <button class="neon-btn ios-start-btn" on:click={requestGyroIOS}>
-            ▶ ACTIVER &amp; JOUER
-          </button>
-        {:else}
-          {#key countdownText}
-            <div class="countdown-text">{countdownText}</div>
-          {/key}
-        {/if}
-      </div>
-    {/if}
+    <CountdownOverlay
+      text={countdownText}
+      showIosButton={iosBtn}
+      on:requestGyro={requestGyroIOS}
+    />
   </div>
 
-  <!-- Zone B : HUD -->
+  <!-- Zone B : HUD + settings -->
   <div class="zone-b">
-    <div class="hud-timer">
-      <div class="chrono">{chrono}</div>
-      <div class="hud-label">TEMPS</div>
-    </div>
-    <div class="hud-level">NVL {lvl}</div>
-    <div class="hud-btns">
-      <button class="icon-btn" on:click={() => paused ? resumeGame() : pauseGame()} aria-label="Pause">
-        {paused ? '▶' : '⏸'}
-      </button>
-      <button class="icon-btn" on:click={() => showCfg = !showCfg} aria-label="Paramètres">⚙</button>
-    </div>
-    {#if showCfg}
-      <div class="config">
-        <label class="cfg-label">
-          Sensibilité
-          <input type="range" min="0.1" max="1.5" step="0.05" bind:value={sensitivity} />
-          <span class="cfg-val">{sensitivity.toFixed(2)}</span>
-        </label>
-        <label class="cfg-label">
-          Volume
-          <input type="range" min="0" max="1" step="0.05" bind:value={musicVolume} />
-          <span class="cfg-val">{Math.round(musicVolume * 100)}%</span>
-        </label>
-      </div>
-    {/if}
+    <Hud
+      {lvl}
+      {chrono}
+      {paused}
+      on:togglePause={togglePause}
+      on:toggleSettings={() => (showCfg = !showCfg)}
+    >
+      {#if showCfg}
+        <SettingsPanel
+          slot="settings"
+          bind:sensitivity
+          bind:musicVolume
+        />
+      {/if}
+    </Hud>
   </div>
 
 </div>
 
-<!-- ── Portrait overlay ───────────────────────────────────────────────────── -->
 {#if isPortrait}
-  <div class="rotate-overlay">
-    <div class="rotate-icon">⟳</div>
-    <div class="rotate-msg">Tournez votre appareil</div>
-    <div class="rotate-sub">MazeBall se joue en mode paysage</div>
-  </div>
+  <RotateOverlay />
 {/if}
 
-<!-- ── Pause menu ─────────────────────────────────────────────────────────── -->
 {#if paused}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="pause-overlay" on:click|self={resumeGame}>
-    <div class="pause-panel">
-      <div class="pause-title">PAUSE</div>
-      <div class="pause-info">NVL {lvl} · {chrono}</div>
-      <button class="neon-btn" on:click={resumeGame}>▶&nbsp; REPRENDRE</button>
-      <button class="neon-btn neon-btn--green" on:click={restartLevel}>↺&nbsp; RECOMMENCER</button>
-      <button class="neon-btn neon-btn--amber" on:click={toggleControlMode}>
-        {controlMode === 'gyro' ? '🕹 MODE JOYSTICK' : '📡 MODE GYROSCOPE'}
-      </button>
-      <button class="neon-btn neon-btn--sound" on:click={toggleSound}>
-        {soundEnabled ? '🔊 SON ACTIVÉ' : '🔇 SON COUPÉ'}
-      </button>
-    </div>
-  </div>
+  <PauseMenu
+    {lvl}
+    {chrono}
+    {controlMode}
+    {soundEnabled}
+    on:resume={resumeGame}
+    on:restart={restartLevel}
+    on:toggleControl={toggleControlMode}
+    on:toggleSound={toggleSound}
+  />
 {/if}
 
-<!-- ── Styles ─────────────────────────────────────────────────────────────── -->
 <style>
-  :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
-  :global(html, body) {
-    width: 100%; height: 100%;
-    background: #000;
-    overflow: hidden;
-    touch-action: none;
-    user-select: none;
-  }
-
   .container {
     width: 100vw; height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     gap: 8px;
     padding-top:    max(8px, env(safe-area-inset-top));
     padding-bottom: max(8px, env(safe-area-inset-bottom));
@@ -593,9 +562,9 @@
     padding-right:  env(safe-area-inset-right);
   }
 
-  .zone-a    { order: 0; width: 100%; max-width: 460px; }
+  .zone-a     { order: 0; width: 100%; max-width: 460px; }
   .board-wrap { order: 1; flex-shrink: 0; }
-  .zone-b    { order: 2; width: 100%; max-width: 460px; }
+  .zone-b     { order: 2; width: 100%; max-width: 460px; }
 
   @media (orientation: landscape) {
     .container {
@@ -606,98 +575,26 @@
       padding-left:  max(12px, env(safe-area-inset-left));
       padding-right: max(12px, env(safe-area-inset-right));
     }
-    .zone-a    { order: 0; width: 90px;  min-width: 70px;  max-width: 110px; flex-shrink: 0; }
+    .zone-a     { order: 0; width: 90px;  min-width: 70px;  max-width: 110px; flex-shrink: 0; }
     .board-wrap { order: 1; }
-    .zone-b    { order: 2; width: 150px; min-width: 130px; max-width: 170px; flex-shrink: 0; }
+    .zone-b     { order: 2; width: 150px; min-width: 130px; max-width: 170px; flex-shrink: 0; }
   }
 
   .zone-a {
-    display: flex; flex-direction: column; align-items: center;
-    gap: 10px; justify-content: center;
-  }
-
-  .logo {
-    font-family: 'Courier New', monospace;
-    font-weight: bold;
-    font-size: clamp(12px, 2.2vw, 20px);
-    color: #00c8ff;
-    letter-spacing: 2px;
-    text-shadow: 0 0 18px #00c8ff, 0 0 6px #00c8ff;
-    text-align: center;
-  }
-
-  @media (orientation: landscape) {
-    .logo {
-      writing-mode: vertical-rl;
-      text-orientation: mixed;
-      transform: rotate(180deg);
-      font-size: clamp(14px, 1.8vh, 22px);
-      letter-spacing: 4px;
-    }
-    .hint {
-      writing-mode: vertical-rl;
-      text-orientation: mixed;
-      transform: rotate(180deg);
-      font-size: 9px;
-    }
-  }
-
-  .hint {
-    color: rgba(0,200,255,0.35);
-    font-size: 10px;
-    text-align: center;
-    letter-spacing: .5px;
-  }
-
-  .gyro-btn {
-    padding: 6px 10px;
-    background: rgba(0,200,255,0.08);
-    border: 1.5px solid #00c8ff; color: #00c8ff;
-    border-radius: 5px; font-size: 10px; cursor: pointer;
-    font-family: inherit; text-shadow: 0 0 8px #00c8ff;
-  }
-  .gyro-btn:active { opacity: .85; }
-
-  .board-wrap {
-    position: relative;
-    border-radius: 4px;
-    box-shadow: 0 0 50px rgba(0,200,255,0.18), 0 10px 50px rgba(0,0,0,0.95);
-  }
-
-  canvas {
-    display: block;
-    border-radius: 3px;
-    border: 1.5px solid rgba(0,200,255,0.30);
-    box-shadow: 0 0 30px rgba(0,200,255,0.10);
-    cursor: pointer;
-  }
-
-  .countdown-overlay {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,10,0.55);
-    border-radius: 3px;
-    pointer-events: none;
-  }
-
-  .countdown-text {
-    font-size: clamp(36px, 14vw, 72px);
-    font-weight: bold;
-    letter-spacing: 4px;
-    color: #00c8ff;
-    text-shadow: 0 0 40px #00c8ff, 0 0 14px #00c8ff, 0 0 4px #fff;
-    animation: cdPulse 0.72s cubic-bezier(.2,.8,.4,1) both;
-  }
-
-  @keyframes cdPulse {
-    from { transform: scale(2.2); opacity: 0; }
-    to   { transform: scale(1);   opacity: 1; }
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    justify-content: center;
   }
 
   .zone-b {
-    display: flex; flex-direction: row;
-    align-items: center; justify-content: space-around;
-    gap: 8px; flex-wrap: wrap;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-around;
+    gap: 8px;
+    flex-wrap: wrap;
   }
 
   @media (orientation: landscape) {
@@ -711,136 +608,34 @@
     }
   }
 
-  .hud-timer { display: flex; flex-direction: column; align-items: flex-start; }
-
-  .chrono {
-    color: #ffe040;
-    font-family: 'Courier New', monospace;
-    font-size: clamp(20px, 3vw, 32px);
-    font-weight: bold;
-    letter-spacing: 3px;
-    text-shadow: 0 0 14px #ffe040, 0 0 5px #ffe040;
-    line-height: 1;
+  .board-wrap {
+    position: relative;
+    border-radius: var(--radius-xs);
+    box-shadow:
+      0 0 50px rgba(var(--color-primary-rgb), 0.18),
+      0 10px 50px rgba(0, 0, 0, 0.95);
   }
 
-  .hud-label {
-    color: rgba(255,224,64,0.40);
-    font-size: 8px;
-    letter-spacing: 4px;
-    font-family: 'Courier New', monospace;
-    margin-top: 1px;
+  canvas {
+    display: block;
+    border-radius: var(--radius-xs);
+    border: 1.5px solid rgba(var(--color-primary-rgb), 0.30);
+    box-shadow: 0 0 30px rgba(var(--color-primary-rgb), 0.10);
+    cursor: pointer;
   }
 
-  .hud-level {
-    color: rgba(0,200,255,0.50);
-    font-size: 11px;
-    letter-spacing: 3px;
-    font-family: 'Courier New', monospace;
+  /* Inline iOS gyro CTA (zone-a). Kept here because it's tightly coupled to
+     the side panel layout; promote to a component if it gets reused. */
+  .gyro-btn {
+    padding: 6px 10px;
+    background: rgba(var(--color-primary-rgb), 0.08);
+    border: 1.5px solid var(--color-primary);
+    color: var(--color-primary);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    cursor: pointer;
+    text-shadow: var(--glow-soft) var(--color-primary);
   }
-
-  .hud-btns { display: flex; gap: 6px; }
-
-  @media (orientation: landscape) {
-    .hud-btns { margin-top: auto; }
-  }
-
-  .icon-btn {
-    background: transparent;
-    border: 1px solid #00c8ff;
-    color: #00c8ff;
-    width: 30px; height: 30px;
-    border-radius: 5px;
-    font-size: 12px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    text-shadow: 0 0 6px #00c8ff;
-    box-shadow: 0 0 8px rgba(0,200,255,0.20);
-    font-family: inherit;
-  }
-  .icon-btn:active { background: rgba(0,200,255,0.15); }
-
-  .config {
-    background: rgba(0,5,20,0.97);
-    border: 1px solid #00c8ff;
-    border-radius: 6px;
-    padding: 10px 12px;
-    display: flex; flex-direction: column; gap: 10px;
-    font-size: 11px; color: #00c8ff; font-family: inherit;
-    box-shadow: 0 0 20px rgba(0,200,255,0.18);
-    margin-top: 4px;
-  }
-  .cfg-label {
-    display: flex; flex-direction: column; gap: 4px;
-    color: rgba(0,200,255,0.80);
-  }
-  .cfg-label input[type=range] { width: 100%; accent-color: #00c8ff; cursor: pointer; }
-  .cfg-val { color: #00c8ff; font-size: 10px; letter-spacing: 1px; text-shadow: 0 0 6px #00c8ff; }
-
-  .pause-overlay {
-    position: fixed; inset: 0;
-    background: rgba(0,0,10,0.85);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 200;
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-  }
-
-  .pause-panel {
-    background: rgba(0,5,20,0.98);
-    border: 1.5px solid #00c8ff; border-radius: 14px;
-    padding: 28px 32px;
-    display: flex; flex-direction: column; align-items: center; gap: 14px;
-    min-width: 220px;
-    box-shadow: 0 0 50px rgba(0,200,255,0.30), inset 0 0 30px rgba(0,0,80,0.35);
-  }
-
-  .pause-title {
-    color: #00c8ff; font-size: 24px; letter-spacing: 8px;
-    text-shadow: 0 0 20px #00c8ff, 0 0 8px #00c8ff;
-  }
-
-  .pause-info { color: rgba(0,200,255,0.55); font-size: 12px; letter-spacing: 2px; margin-top: -4px; }
-
-  .neon-btn {
-    border: 1.5px solid #00c8ff; background: transparent; color: #00c8ff;
-    padding: 10px 16px; border-radius: 7px;
-    font-family: inherit; font-size: 12px; cursor: pointer;
-    letter-spacing: 2px; text-shadow: 0 0 8px #00c8ff;
-    box-shadow: 0 0 10px rgba(0,200,255,0.20); width: 100%;
-  }
-  .neon-btn:active { background: rgba(0,200,255,0.13); }
-
-  .neon-btn--green {
-    border-color: #00ff80; color: #00ff80;
-    text-shadow: 0 0 8px #00ff80; box-shadow: 0 0 10px rgba(0,255,128,0.20);
-  }
-  .neon-btn--green:active { background: rgba(0,255,128,0.13); }
-
-  .neon-btn--amber {
-    border-color: #ffb300; color: #ffcc44;
-    text-shadow: 0 0 8px #ffb300; box-shadow: 0 0 10px rgba(255,179,0,0.20);
-  }
-  .neon-btn--amber:active { background: rgba(255,179,0,0.13); }
-
-  .neon-btn--sound {
-    border-color: #44ddaa; color: #55ffbb;
-    text-shadow: 0 0 8px #44ddaa; box-shadow: 0 0 10px rgba(68,221,170,0.20);
-  }
-  .neon-btn--sound:active { background: rgba(68,221,170,0.13); }
-
-  .ios-start-btn { font-size: 16px; letter-spacing: 4px; padding: 14px 28px; pointer-events: all; width: auto; }
-
-  .rotate-overlay {
-    position: fixed; inset: 0; z-index: 500;
-    background: #000;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 16px;
-  }
-  .rotate-icon { font-size: 72px; animation: spin90 1.8s ease-in-out infinite; display: inline-block; }
-  @keyframes spin90 {
-    0%, 40%  { transform: rotate(0deg);  opacity: 1;   }
-    60%, 100%{ transform: rotate(90deg); opacity: 0.5; }
-  }
-  .rotate-msg  { color: #00c8ff; font-size: 20px; letter-spacing: 3px; text-shadow: 0 0 20px #00c8ff; }
-  .rotate-sub  { color: rgba(0,200,255,0.45); font-size: 12px; letter-spacing: 1px; }
+  .gyro-btn:active { opacity: .85; }
 </style>

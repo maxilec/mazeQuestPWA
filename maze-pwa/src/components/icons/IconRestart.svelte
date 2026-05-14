@@ -1,0 +1,8 @@
+<script>
+  export let size = 16;
+</script>
+
+<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M3 12a9 9 0 1 0 3-6.7" />
+  <polyline points="3 4 3 9 8 9" />
+</svg>

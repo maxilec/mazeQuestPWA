@@ -1,0 +1,12 @@
+export { default as IconPlay }     from './IconPlay.svelte';
+export { default as IconPause }    from './IconPause.svelte';
+export { default as IconSettings } from './IconSettings.svelte';
+export { default as IconRestart }  from './IconRestart.svelte';
+export { default as IconSoundOn }  from './IconSoundOn.svelte';
+export { default as IconSoundOff } from './IconSoundOff.svelte';
+export { default as IconJoystick } from './IconJoystick.svelte';
+export { default as IconGyro }     from './IconGyro.svelte';
+export { default as IconRotate }   from './IconRotate.svelte';
+export { default as IconMobile }   from './IconMobile.svelte';
+export { default as IconMouse }    from './IconMouse.svelte';
+export { default as IconKeyboard } from './IconKeyboard.svelte';
