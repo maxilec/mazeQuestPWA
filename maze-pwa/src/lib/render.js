@@ -1,5 +1,33 @@
 import { N_BALL, N_HOLE } from './constants.js';
 
+// ── SVG asset loader ──────────────────────────────────────────────────────────
+// Charge les icônes SVG une fois au premier import et les met en cache comme
+// objets Image. Le rasterisé est ensuite drawImage'd sur le canvas chaque frame.
+const SVG_BASE = (typeof import.meta !== 'undefined' && import.meta.env)
+  ? `${import.meta.env.BASE_URL || '/'}assets/svg/`
+  : '/assets/svg/';
+
+const svgImages = {};
+
+function loadSvg(key, file) {
+  if (svgImages[key]) return;
+  const img = new Image();
+  img.src = SVG_BASE + file;
+  svgImages[key] = img;
+}
+
+if (typeof window !== 'undefined') {
+  loadSvg('+5s',    'bonus-5s.svg');
+  loadSvg('+10s',   'bonus-10s.svg');
+  loadSvg('+30s',   'bonus-30s.svg');
+  loadSvg('finish', 'finish.svg');
+}
+
+function svgReady(key) {
+  const img = svgImages[key];
+  return !!(img && img.complete && img.naturalWidth > 0);
+}
+
 // ── Seeded PRNG (Mulberry32) ──────────────────────────────────────────────────
 function mulberry32(seed) {
   return function () {
@@ -88,11 +116,12 @@ function getTheme(g) {
   return {
     neon, neonRgba: rgba,
     surfaceHi: '#2a2e36', surfaceMid: '#1a1d24', surfaceLo: '#0c0f15',
-    trackFloor: '#cab48a', trackHi: '#ecdbb6', trackLo: '#7a6850',
-    edgeLit:    'rgba(255,250,225,0.85)',
+    trackFloor: '#d6cebc', trackHi: '#ece5d2', trackLo: '#928876',
+    edgeLit:    'rgba(255,253,245,0.85)',
     edgeShadow: 'rgba(5,7,12,0.85)',
-    highlight:  'rgba(255,255,255,0.50)',
-    ball: '#c08050', hole: '#00ff80',
+    neonCore:   '#f4f9ff',
+    highlight:  'rgba(255,255,255,0.95)',
+    ball: '#c08050', hole: '#88ff66',
   };
 }
 
@@ -182,38 +211,40 @@ export function drawTrack(ctx, g, btx, bty, ia) {
   ctx.stroke(path);
   ctx.restore();
 
-  // 5 — Wide subtle neon halo (juste un voile coloré dans le canal)
+  // 5 — Voile coloré très subtil sur la piste (pose la teinte du niveau)
   ctx.save();
-  ctx.globalAlpha = 0.55 * ia;
+  ctx.globalAlpha = 0.30 * ia;
   ctx.shadowColor = t.neon;
-  ctx.shadowBlur  = 12;
-  ctx.strokeStyle = t.neonRgba(0.30);
-  ctx.lineWidth   = Math.max(2.5, tw * 0.10);
+  ctx.shadowBlur  = 5;
+  ctx.strokeStyle = t.neonRgba(0.18);
+  ctx.lineWidth   = Math.max(2, tw * 0.08);
   ctx.stroke(path);
   ctx.restore();
 
-  // 6 — Thin bright neon line (le trait accent qui colore le niveau)
+  // 6 — Cœur de ligne « néon glacé » : trait blanc-bleuté avec un halo
+  //     coloré DISCRET (shadowBlur faible, shadowColor = teinte du niveau).
+  //     C'est le shadowBlur qui colore le halo, le strokeStyle reste froid.
   ctx.save();
   ctx.globalAlpha = ia;
   ctx.shadowColor = t.neon;
-  ctx.shadowBlur  = 6;
-  ctx.strokeStyle = t.neonRgba(0.92);
-  ctx.lineWidth   = 1.5;
+  ctx.shadowBlur  = 5;
+  ctx.strokeStyle = t.neonCore || '#f4f9ff';
+  ctx.lineWidth   = 1.8;
   ctx.stroke(path);
   ctx.restore();
 
-  // 7 — Tiny white bloom (souffle de chaleur, très discret)
+  // 7 — Tiny bright nucleus (étincelle blanche au centre, très discrète)
   ctx.save();
-  ctx.globalAlpha = 0.65 * ia;
+  ctx.globalAlpha = 0.80 * ia;
   ctx.shadowColor = '#ffffff';
-  ctx.shadowBlur  = 3;
-  ctx.strokeStyle = t.highlight;
-  ctx.lineWidth   = 0.6;
+  ctx.shadowBlur  = 2;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth   = 0.7;
   ctx.stroke(path);
   ctx.restore();
 
-  // 8 — Petits points d'intersection (≥ 3 passages). Discrets, juste un
-  // repère subtil de point de décision.
+  // 8 — Petits points d'intersection (≥ 3 passages). Discrets — un simple
+  // repère blanc-bleuté pour marquer un point de décision.
   for (let r = 0; r < R; r++) {
     for (let c = 0; c < C; c++) {
       const ce = maze[r][c];
@@ -221,10 +252,10 @@ export function drawTrack(ctx, g, btx, bty, ia) {
       if (open < 3) continue;
       const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
       ctx.save();
-      ctx.globalAlpha = 0.45 * ia;
+      ctx.globalAlpha = 0.55 * ia;
       ctx.shadowColor = t.neon;
-      ctx.shadowBlur  = 8;
-      ctx.fillStyle   = t.neonRgba(0.55);
+      ctx.shadowBlur  = 6;
+      ctx.fillStyle   = t.neonCore || '#f4f9ff';
       ctx.beginPath(); ctx.arc(cx, cy, tw * 0.07, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
@@ -262,68 +293,46 @@ export function drawCheckpoints(ctx, g, ia) {
   }
 }
 
-// ── Exit vortex ───────────────────────────────────────────────────────────────
+// ── Exit vortex (FINISH) — rendu via SVG ─────────────────────────────────────
+// finish.svg : viewBox 220×260, centre des anneaux à (110, 110), rayon
+// extérieur 80. Le label « FINISH » est cuit dans le SVG sous le portail.
+// On counter-rotate le tout pour que les anneaux et le label restent
+// orientés correctement à l'écran quelle que soit la rotation du device.
 export function drawVortex(ctx, g, ts, ia, canvasRot = 0) {
   const { cw, ch, br, hole } = g;
-  const hx = hole.c * cw + cw / 2, hy = hole.r * ch + ch / 2;
-  const hR = br * 1.25;
-  const vt = ts * 0.001;
+  const hx = hole.c * cw + cw / 2;
+  const hy = hole.r * ch + ch / 2;
+  const img = svgImages.finish;
 
-  // Outer glow
-  const hGlow = ctx.createRadialGradient(hx, hy, hR * 0.3, hx, hy, hR * 3.5);
-  hGlow.addColorStop(0, 'rgba(0,255,128,0.20)');
-  hGlow.addColorStop(1, 'rgba(0,255,128,0)');
-  ctx.globalAlpha = ia;
-  ctx.fillStyle = hGlow;
-  ctx.beginPath(); ctx.arc(hx, hy, hR * 3.5, 0, Math.PI * 2); ctx.fill();
+  // Pulsation lente du portail
+  const pulse = 1 + Math.sin(ts * 0.003) * 0.05;
 
-  // Black void
-  ctx.fillStyle = '#000';
-  ctx.beginPath(); ctx.arc(hx, hy, hR * 1.05, 0, Math.PI * 2); ctx.fill();
+  if (svgReady('finish')) {
+    // Rayon visible du portail sur le canvas
+    const targetRingR = br * 1.6;
+    const scale       = targetRingR / 80;   // 80 = rayon dans le viewBox
+    const sw = 220 * scale;
+    const sh = 260 * scale;
+    // Anchor : on veut que le centre des anneaux (110,110 viewBox) tombe à (0,0)
+    const ax = -110 * scale;
+    const ay = -110 * scale;
 
-  // Spiral arms (3 layers, 5 arms each)
-  for (let layer = 2; layer >= 0; layer--) {
-    const r2     = hR * (0.45 + layer * 0.32);
-    const speed  = 1.6 - layer * 0.35;
-    const alpha  = layer === 2 ? 0.65 : layer === 1 ? 0.45 : 0.30;
-    const lw     = layer === 2 ? 1.5  : layer === 1 ? 2.5  : 3.5;
     ctx.save();
-    ctx.shadowColor = '#00ff80'; ctx.shadowBlur = 10 + layer * 6;
-    ctx.strokeStyle = layer === 2
-      ? 'rgba(200,255,215,0.95)'
-      : layer === 1 ? 'rgba(0,255,128,0.85)' : 'rgba(0,200,100,0.70)';
-    ctx.lineWidth = lw; ctx.lineCap = 'round';
-    for (let arm = 0; arm < 5; arm++) {
-      const baseAngle = (arm / 5) * Math.PI * 2 + vt * speed;
-      ctx.globalAlpha = alpha * ia;
-      ctx.beginPath();
-      ctx.arc(hx, hy, r2, baseAngle, baseAngle + Math.PI * 0.42);
-      ctx.stroke();
-    }
+    ctx.globalAlpha = ia;
+    ctx.translate(hx, hy);
+    ctx.rotate(canvasRot);
+    ctx.scale(pulse, pulse);
+    ctx.drawImage(img, ax, ay, sw, sh);
     ctx.restore();
+    return;
   }
 
-  // Neon ring
+  // Fallback : anneau néon simple si le SVG n'est pas encore chargé
   ctx.save();
   ctx.globalAlpha = ia;
-  ctx.shadowColor = N_HOLE; ctx.shadowBlur = 22;
+  ctx.shadowColor = N_HOLE; ctx.shadowBlur = 18;
   ctx.strokeStyle = N_HOLE; ctx.lineWidth = 2.5;
-  ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.stroke();
-  ctx.shadowBlur = 6;
-  ctx.strokeStyle = 'rgba(200,255,220,0.90)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(hx, hy, hR * 0.68, 0, Math.PI * 2); ctx.stroke();
-  ctx.restore();
-
-  // FINISH label — counter-rotated so it reads upright on screen
-  ctx.save();
-  ctx.globalAlpha = 0.78 * ia;
-  const finTx = hx, finTy = hy + hR + Math.min(cw, ch) * 0.30;
-  ctx.translate(finTx, finTy);
-  ctx.rotate(canvasRot);
-  ctx.font = `bold ${Math.min(cw, ch) * 0.22}px "Courier New"`;
-  ctx.fillStyle = N_HOLE; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.shadowColor = N_HOLE; ctx.shadowBlur = 12;
-  ctx.fillText('FINISH', 0, 0);
+  ctx.beginPath(); ctx.arc(hx, hy, br * 1.4 * pulse, 0, Math.PI * 2); ctx.stroke();
   ctx.restore();
 }
 
@@ -449,63 +458,61 @@ export function draw(ctx, g, ts, btx, bty, tilt, joy, canvasRot = 0) {
   drawFloatingTexts(ctx, g, ts, canvasRot);
 }
 
-// ── Collectibles (+5s / +10s / +30s) ─────────────────────────────────────────
+// ── Collectibles (+5s / +10s / +30s) — rendus via SVG ────────────────────────
+// Les SVG sont chargés en haut du module (svgImages). On les drawImage ici
+// counter-rotated pour que le label reste lisible quel que soit l'angle.
+const COLLECTIBLE_FALLBACK_COLORS = {
+  '+5s':  '#1ad8ff',
+  '+10s': '#9b6bff',
+  '+30s': '#ff45a8',
+};
+
 export function drawCollectibles(ctx, g, ts, ia, canvasRot = 0) {
-  const { collectibles, cw, ch, br } = g;
+  const { collectibles, br } = g;
   if (!collectibles || collectibles.length === 0) return;
-  const r = br * 0.60;
-  const COLORS = { '+5s': '#00c8ff', '+10s': '#00ff80', '+30s': '#dd44ff' };
+  const size = br * 2.8;  // taille apparente du SVG (200×200 viewBox)
 
   for (const col of collectibles) {
-    const cx = col.c * cw + cw / 2;
-    const cy = col.r * ch + ch / 2;
-    const color = COLORS[col.type] || '#00c8ff';
+    const cx = col.c * g.cw + g.cw / 2;
+    const cy = col.r * g.ch + g.ch / 2;
+    const img = svgImages[col.type];
+    const ready = svgReady(col.type);
 
+    // Phase de disparition (400 ms : grossit légèrement + s'efface)
     if (col.collected) {
-      // Disappear animation (400ms scale-down)
       const age = ts - col.collectT;
       if (age > 400) continue;
-      const sc = 1 - age / 400;
+      const t01   = age / 400;
+      const sc    = 1 + t01 * 0.45;
+      const alpha = 1 - t01;
       ctx.save();
-      ctx.globalAlpha = sc * ia;
-      ctx.shadowColor = color; ctx.shadowBlur = 20;
-      ctx.strokeStyle = color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(cx, cy, r * sc * 2.0, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = alpha * ia;
+      ctx.translate(cx, cy);
+      ctx.rotate(canvasRot);
+      ctx.scale(sc, sc);
+      if (ready) ctx.drawImage(img, -size / 2, -size / 2, size, size);
       ctx.restore();
       continue;
     }
 
-    // Pulse animation
-    const pulse = Math.sin(ts * 0.004 + col.c + col.r) * 0.12 + 0.88;
+    // Pulsation douce
+    const pulse = 1 + Math.sin(ts * 0.004 + col.c + col.r) * 0.06;
 
-    ctx.save();
-    ctx.globalAlpha = pulse * ia;
-    ctx.shadowColor = color; ctx.shadowBlur = 18;
-
-    // Outer ring
-    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(cx, cy, r * 1.35, 0, Math.PI * 2); ctx.stroke();
-
-    // Inner filled circle
-    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    grad.addColorStop(0,   `${color}cc`);
-    grad.addColorStop(0.5, `${color}66`);
-    grad.addColorStop(1,   `${color}11`);
-    ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
-
-    // Label — counter-rotated to read upright on screen
     ctx.save();
     ctx.globalAlpha = ia;
     ctx.translate(cx, cy);
     ctx.rotate(canvasRot);
-    ctx.fillStyle = '#fff';
-    ctx.shadowColor = color; ctx.shadowBlur = 8;
-    ctx.font = `bold ${Math.round(r * 0.9)}px Orbitron, Courier New`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(col.type, 0, 0);
-    ctx.restore();
+    ctx.scale(pulse, pulse);
 
+    if (ready) {
+      ctx.drawImage(img, -size / 2, -size / 2, size, size);
+    } else {
+      // Fallback (SVG pas encore chargé) — disque néon simple
+      const color = COLLECTIBLE_FALLBACK_COLORS[col.type] || '#00c8ff';
+      ctx.shadowColor = color; ctx.shadowBlur = 14;
+      ctx.strokeStyle = color; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, br * 0.7, 0, Math.PI * 2); ctx.stroke();
+    }
     ctx.restore();
   }
 }

@@ -29,14 +29,12 @@ function hexToRgb(hex) {
 // Thème complet pour le niveau courant. Le rendu (render.js) lit
 // uniquement ces tokens, jamais la palette en dur.
 //
-// Modèle visuel :
-//  - SURFACE = fond sombre (slate) entre les pistes — c'est la « table »
-//    qui supporte le labyrinthe ; remplit le canvas (drawBoard).
-//  - TRACK   = piste beige clair surélevée sur laquelle la bille roule ;
-//    dessinée en strokes (drawTrack). Bordée d'un liseré clair côté
-//    lumière (haut-gauche) et d'une ombre projetée côté sombre (bas-droit).
-//  - NEON    = trait fin coloré au centre de la piste, dans la palette
-//    du niveau (change tous les 5 niveaux, Zen = couleur utilisateur).
+// Modèle visuel — esthétique « béton & néon glacé » :
+//  - SURFACE = fond slate sombre entre les pistes (la « table »).
+//  - TRACK   = piste type béton clair, surélevée, ton froid neutre
+//    (pas chaude/jaune). Bevel net via lit edge et drop shadow.
+//  - NEON    = trait FIN au centre, **cœur blanc-bleuté** ("glacé") avec
+//    un GLOW DISCRET dans la couleur du niveau. Lumineux mais sobre.
 export function getTheme(level, mode, zenColor) {
   const neon = getNeonColor(level, mode, zenColor);
   const { r, g, b } = hexToRgb(neon);
@@ -49,16 +47,17 @@ export function getTheme(level, mode, zenColor) {
     surfaceHi:   '#2a2e36',                // côté lumière (top-left)
     surfaceMid:  '#1a1d24',                // ton médian
     surfaceLo:   '#0c0f15',                // côté ombre (bot-right)
-    // Track — piste beige clair surélevée
-    trackFloor:  '#cab48a',                // beige principal (corps de la piste)
-    trackHi:     '#ecdbb6',                // crème clair (cœur lit)
-    trackLo:     '#7a6850',                // beige sombre (ombre sous-jacente)
+    // Track — piste béton clair (tonalité froide, peu saturée)
+    trackFloor:  '#d6cebc',                // corps de la piste (concrete beige)
+    trackHi:     '#ece5d2',                // crème clair lit (cœur)
+    trackLo:     '#928876',                // ombre douce (épaule)
     // Bevel (transition piste / surface)
-    edgeLit:     'rgba(255,250,225,0.85)', // liseré clair sur le bord lit
-    edgeShadow:  'rgba(5,7,12,0.85)',      // ombre projetée côté sombre
-    // Accents
-    highlight:   'rgba(255,255,255,0.50)', // tiny white bloom (discret)
+    edgeLit:     'rgba(255,253,245,0.85)', // liseré clair quasi-blanc
+    edgeShadow:  'rgba(5,7,12,0.85)',      // ombre profonde côté sombre
+    // Neon glacé — cœur blanc bleuté + glow discret en couleur du niveau
+    neonCore:    '#f4f9ff',                // cœur de la ligne (presque blanc)
+    highlight:   'rgba(255,255,255,0.95)', // nucleus tiny bright
     ball:        '#c08050',                // bille bronze/cuivre
-    hole:        '#00ff80',                // sortie
+    hole:        '#88ff66',                // sortie (FINISH)
   };
 }
