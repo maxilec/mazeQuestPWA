@@ -3,6 +3,12 @@
 Jeu de labyrinthe procédural contrôlé par gyroscope.
 Stack : **Svelte 4 + Vite 5 + vite-plugin-pwa**.
 
+> **Branche en cours :** `claude/refactor-game-ui-JacOS`
+> Refonte progressive de l'interface graphique : on continue de **factoriser**
+> ce qui peut l'être et de **découper en composants Svelte** réutilisables
+> (HUD, boutons, panneaux, jauges…). Voir la section
+> [Architecture & refactoring](#-architecture--refactoring).
+
 ---
 
 ## ⚡ Installation rapide
@@ -35,7 +41,8 @@ npm run dev
 Ouvre `http://localhost:5173` dans ton navigateur.
 
 > **Note gyroscope en dev** : le gyroscope nécessite HTTPS.
-> Sur desktop, utilise la souris (déplacer sur le plateau = incliner).
+> Sur desktop, utilise la souris (déplacer sur le plateau = incliner)
+> ou le joystick virtuel (réglages → mode de contrôle).
 > Sur mobile, utilise `npm run preview` après un build, ou déploie.
 
 ### 4. Builder pour la production
@@ -101,22 +108,34 @@ npm run build
 | Appareil | Contrôle |
 |---|---|
 | Mobile (gyroscope) | Inclinez physiquement l'appareil |
+| Mobile (joystick)  | Joystick virtuel à l'écran (réglages) |
 | Desktop | Déplacez la souris sur le plateau |
 | Clavier | Touches fléchées ← ↑ → ↓ |
 
 ---
 
+## 🕹️ Modes de jeu
+
+- **Survie** — niveaux successifs, compteur de chutes, jauge de temps.
+- **Hardcore** — une seule chute autorisée.
+- **Zen** — pas de chrono, exploration libre, couleur personnalisable.
+
+---
+
 ## ⚙ Personnalisation
 
-Clique sur **⚙ Grille** dans l'app pour changer :
-- **Rangs** : 3–16 (hauteur du labyrinthe)
-- **Cols** : 3–12 (largeur du labyrinthe)
+Le panneau **Réglages** permet d'ajuster :
+- Volume / muet
+- Sensibilité du contrôle
+- Mode de contrôle (gyro ↔ joystick virtuel)
+- Retour haptique (vibration)
+- Couleur du mode Zen
 
-Modifie les constantes dans `src/App.svelte` :
+Constantes physiques côté code → `src/lib/constants.js` :
 ```js
-const FRICTION = 0.93;  // frottement (0-1, plus haut = plus lent)
-const GRAVITY  = 0.40;  // sensibilité à l'inclinaison
-const BOUNCE   = 0.22;  // rebond sur les murs (0 = aucun, 1 = élastique)
+export const FRICTION = 0.93;  // frottement (0-1, plus haut = plus lent)
+export const GRAVITY  = 0.40;  // sensibilité à l'inclinaison
+export const BOUNCE   = 0.22;  // rebond sur les murs (0 = aucun, 1 = élastique)
 ```
 
 ---
@@ -125,22 +144,65 @@ const BOUNCE   = 0.22;  // rebond sur les murs (0 = aucun, 1 = élastique)
 
 ```
 maze-pwa/
-├── index.html              # Point d'entrée HTML
+├── index.html                  # Point d'entrée HTML
 ├── package.json
-├── vite.config.js          # Vite + plugin PWA
+├── vite.config.js              # Vite + plugin PWA
 ├── scripts/
-│   └── gen-icons.mjs       # Génération icônes PNG (Node natif)
+│   └── gen-icons.mjs           # Génération icônes PNG (Node natif)
 ├── public/
-│   └── icons/
-│       ├── icon.svg        # Icône SVG (fallback)
-│       ├── icon-192.png    # Généré par gen-icons.mjs
-│       └── icon-512.png    # Généré par gen-icons.mjs
+│   ├── assets/                 # Musique, sons, SVG
+│   └── icons/                  # Icônes PWA
 └── src/
-    ├── main.js             # Bootstrap Svelte
-    ├── App.svelte          # Composant principal (canvas + UI)
-    └── lib/
-        └── maze.js         # Algorithme DFS de génération
+    ├── main.js                 # Bootstrap Svelte
+    ├── App.svelte              # Aiguillage écran (title / game / gameover)
+    ├── stores.js               # État global (Svelte stores + persistance)
+    ├── components/             # Composants UI
+    │   ├── TitleScreen.svelte
+    │   ├── Game.svelte         # ⚠️ gros composant — cible de découpage
+    │   ├── GameOver.svelte
+    │   └── SettingsPanel.svelte
+    └── lib/                    # Logique pure (sans Svelte)
+        ├── constants.js        # Constantes physiques et de jeu
+        ├── maze.js             # Génération DFS du labyrinthe
+        ├── maze-utils.js       # Helpers maze (distance, solution…)
+        ├── physics.js          # Intégration bille (friction, rebonds)
+        ├── render.js           # Dessin canvas
+        └── audio.js            # Gestionnaire audio (musique + SFX)
 ```
+
+---
+
+## 🏗️ Architecture & refactoring
+
+Cette branche poursuit deux objectifs :
+
+### 1. Modularité
+La logique métier vit dans `src/lib/` sous forme de **modules JS purs**
+(aucune dépendance Svelte). Cela rend chaque brique testable, remplaçable
+et réutilisable hors du composant.
+
+### 2. Composants réutilisables
+L'écran de jeu (`Game.svelte`, ~1000 lignes) reste le plus gros morceau
+à éclater. Cibles de découpage à venir :
+
+- **HUD** — niveau, chutes, jauge de temps, mode courant
+- **Boutons d'action** — pause, settings, retour (style commun)
+- **Jauges** — composant générique (temps, énergie, etc.)
+- **Overlay pause / permission gyro** — modales réutilisables
+- **Joystick virtuel** — composant isolé
+- **Panneau de réglages** — déjà extrait, à affiner
+
+Règle générale : **dès qu'un bloc visuel est utilisé à 2 endroits
+ou dépasse ~80 lignes**, on en fait un composant dans `src/components/`.
+
+### 3. État partagé
+`src/stores.js` centralise :
+- `screen` — écran actif (`title` / `game` / `gameover`)
+- `gameMode` — mode courant
+- `runStats` — stats de la partie en cours
+- `settings` — préférences persistées (`localStorage`)
+- `highScores` — meilleurs scores persistés
+- `audioMgrStore` — instance partagée du gestionnaire audio
 
 ---
 
