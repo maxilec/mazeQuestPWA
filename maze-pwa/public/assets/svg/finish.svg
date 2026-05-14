@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 220 260"
+     role="img"
+     aria-label="Portail d'arrivée FINISH">
+  <title>Finish portal</title>
+  <desc>Anneaux verts concentriques + label FINISH, style néon</desc>
+  <defs>
+    <filter id="glow-finish" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="7"   result="halo"/>
+      <feGaussianBlur stdDeviation="2.5" result="bloom"/>
+      <feMerge>
+        <feMergeNode in="halo"/>
+        <feMergeNode in="halo"/>
+        <feMergeNode in="bloom"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Disque translucide pour donner du corps -->
+  <circle cx="110" cy="110" r="80" fill="#88ff66" fill-opacity="0.06"/>
+
+  <g filter="url(#glow-finish)">
+    <!-- Anneau extérieur -->
+    <circle cx="110" cy="110" r="80" fill="none" stroke="#88ff66" stroke-width="5"/>
+    <!-- Anneau intermédiaire -->
+    <circle cx="110" cy="110" r="62" fill="none" stroke="#88ff66" stroke-width="2.2" stroke-opacity="0.65"/>
+    <!-- Anneau cible -->
+    <circle cx="110" cy="110" r="30" fill="none" stroke="#88ff66" stroke-width="4"/>
+    <!-- Cœur (point central) -->
+    <circle cx="110" cy="110" r="14" fill="#c8ffa8"/>
+  </g>
+
+  <!-- Label FINISH sous le portail -->
+  <text x="110" y="240"
+        text-anchor="middle"
+        font-family="Orbitron, 'Courier New', monospace"
+        font-weight="700" font-size="34"
+        fill="#88ff66"
+        letter-spacing="3"
+        filter="url(#glow-finish)">FINISH</text>
+</svg>
