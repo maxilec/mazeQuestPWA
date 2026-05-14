@@ -79,7 +79,16 @@ export function generateNebula(w, h, seed = 42) {
 // ── Track (metallic neon) ─────────────────────────────────────────────────────
 export function drawTrack(ctx, g, btx, bty, ia) {
   const { maze, cw, ch, R, C, trackRatio, W, H } = g;
+  const tc = g.trackColor || '#00c8ff';   // neon colour (changes every 5 levels)
   const tw = Math.min(cw, ch) * trackRatio;
+
+  // Derive rgba helper from hex colour
+  function tcRgba(a) {
+    const r = parseInt(tc.slice(1,3), 16);
+    const gv = parseInt(tc.slice(3,5), 16);
+    const b = parseInt(tc.slice(5,7), 16);
+    return `rgba(${r},${gv},${b},${a})`;
+  }
 
   ctx.save();
   ctx.translate(btx * -4, bty * -4);
@@ -132,8 +141,8 @@ export function drawTrack(ctx, g, btx, bty, ia) {
   ctx.save();
   ctx.translate(btx * 20, bty * 20);
   ctx.globalAlpha = 0.22 * ia;
-  ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 18;
-  ctx.strokeStyle = 'rgba(0,180,255,0.65)';
+  ctx.shadowColor = tc; ctx.shadowBlur = 18;
+  ctx.strokeStyle = tcRgba(0.65);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.lineWidth = tw * 1.15;
   buildPath(); ctx.stroke();
@@ -185,8 +194,8 @@ export function drawTrack(ctx, g, btx, bty, ia) {
   // Wide neon glow
   ctx.save();
   ctx.globalAlpha = ia;
-  ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 18;
-  ctx.strokeStyle = 'rgba(0,180,255,0.55)';
+  ctx.shadowColor = tc; ctx.shadowBlur = 18;
+  ctx.strokeStyle = tcRgba(0.55);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.lineWidth = tw * 0.18;
   buildPath(); ctx.stroke();
@@ -211,12 +220,12 @@ export function drawTrack(ctx, g, btx, bty, ia) {
         const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
         ctx.save();
         ctx.globalAlpha = 0.50 * ia;
-        ctx.shadowColor = '#00c8ff'; ctx.shadowBlur = 26;
-        ctx.fillStyle = 'rgba(0,200,255,0.38)';
+        ctx.shadowColor = tc; ctx.shadowBlur = 26;
+        ctx.fillStyle = tcRgba(0.38);
         ctx.beginPath(); ctx.arc(cx, cy, tw * 0.48, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 0.80 * ia;
         ctx.shadowBlur = 8;
-        ctx.fillStyle = 'rgba(160,235,255,0.78)';
+        ctx.fillStyle = tcRgba(0.78);
         ctx.beginPath(); ctx.arc(cx, cy, tw * 0.10, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       }
@@ -226,8 +235,8 @@ export function drawTrack(ctx, g, btx, bty, ia) {
   // Maze border
   ctx.save();
   ctx.globalAlpha = 0.72 * ia;
-  ctx.shadowColor = '#0044ff'; ctx.shadowBlur = 22;
-  ctx.strokeStyle = 'rgba(0,55,215,0.80)';
+  ctx.shadowColor = tc; ctx.shadowBlur = 22;
+  ctx.strokeStyle = tcRgba(0.80);
   ctx.lineWidth = 3; ctx.lineCap = 'square';
   ctx.strokeRect(2, 2, W - 4, H - 4);
   ctx.restore();
@@ -265,7 +274,7 @@ export function drawCheckpoints(ctx, g, ia) {
 }
 
 // ── Exit vortex ───────────────────────────────────────────────────────────────
-export function drawVortex(ctx, g, ts, ia) {
+export function drawVortex(ctx, g, ts, ia, canvasRot = 0) {
   const { cw, ch, br, hole } = g;
   const hx = hole.c * cw + cw / 2, hy = hole.r * ch + ch / 2;
   const hR = br * 1.25;
@@ -316,13 +325,16 @@ export function drawVortex(ctx, g, ts, ia) {
   ctx.beginPath(); ctx.arc(hx, hy, hR * 0.68, 0, Math.PI * 2); ctx.stroke();
   ctx.restore();
 
-  // FINISH label
+  // FINISH label — counter-rotated so it reads upright on screen
   ctx.save();
   ctx.globalAlpha = 0.78 * ia;
+  const finTx = hx, finTy = hy + hR + Math.min(cw, ch) * 0.30;
+  ctx.translate(finTx, finTy);
+  ctx.rotate(canvasRot);
   ctx.font = `bold ${Math.min(cw, ch) * 0.22}px "Courier New"`;
-  ctx.fillStyle = N_HOLE; ctx.textAlign = 'center';
+  ctx.fillStyle = N_HOLE; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.shadowColor = N_HOLE; ctx.shadowBlur = 12;
-  ctx.fillText('FINISH', hx, hy + hR + Math.min(cw, ch) * 0.30);
+  ctx.fillText('FINISH', 0, 0);
   ctx.restore();
 }
 
@@ -349,19 +361,22 @@ export function drawTrail(ctx, g, ia) {
 }
 
 // ── Ball ──────────────────────────────────────────────────────────────────────
-export function drawBall(ctx, g, ts, tilt, ia) {
+export function drawBall(ctx, g, ts, tilt, ia, canvasRot = 0) {
   const { ball, br, phase, fallT } = g;
   const el  = phase === 'falling' ? ts - fallT : 0;
   const sc2 = phase === 'falling' ? Math.max(0, 1 - el / 480) : 1;
   const rbr = br * sc2;
   if (rbr < 1.5) return;
 
+  // Screen-down offset rotated to canvas space
+  const sdx = -Math.sin(canvasRot) * rbr * 0.45;
+  const sdy =  Math.cos(canvasRot) * rbr * 0.45;
   // Shadow
   ctx.save();
   ctx.globalAlpha = 0.45 * ia * sc2;
   ctx.fillStyle = '#000';
   ctx.beginPath();
-  ctx.ellipse(ball.x + tilt.x * br * 0.55, ball.y + tilt.y * br * 0.55 + rbr * 0.45,
+  ctx.ellipse(ball.x + tilt.x * br * 0.55 + sdx, ball.y + tilt.y * br * 0.55 + sdy,
     rbr * 0.85, rbr * 0.22, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
@@ -382,16 +397,19 @@ export function drawBall(ctx, g, ts, tilt, ia) {
   ctx.fillStyle = bg; ctx.fill();
   ctx.restore();
 
-  // Specular
+  // Specular — rotate highlight to always appear screen-upper-left
+  const bhx = -rbr * 0.36, bhy = -rbr * 0.42;
+  const rhx = bhx * Math.cos(canvasRot) - bhy * Math.sin(canvasRot);
+  const rhy = bhx * Math.sin(canvasRot) + bhy * Math.cos(canvasRot);
   ctx.save();
   ctx.globalAlpha = 0.55 * ia;
   const sp = ctx.createRadialGradient(
-    ball.x - rbr * 0.36, ball.y - rbr * 0.42, 0,
-    ball.x - rbr * 0.36, ball.y - rbr * 0.42, rbr * 0.38);
+    ball.x + rhx, ball.y + rhy, 0,
+    ball.x + rhx, ball.y + rhy, rbr * 0.38);
   sp.addColorStop(0,   'rgba(255,255,255,0.92)');
   sp.addColorStop(0.6, 'rgba(255,255,255,0.15)');
   sp.addColorStop(1,   'rgba(255,255,255,0)');
-  ctx.beginPath(); ctx.arc(ball.x - rbr * 0.36, ball.y - rbr * 0.42, rbr * 0.38, 0, Math.PI * 2);
+  ctx.beginPath(); ctx.arc(ball.x + rhx, ball.y + rhy, rbr * 0.38, 0, Math.PI * 2);
   ctx.fillStyle = sp; ctx.fill();
   ctx.restore();
 }
@@ -418,27 +436,109 @@ export function drawJoystick(ctx, joy) {
 }
 
 // ── Main draw ─────────────────────────────────────────────────────────────────
-export function draw(ctx, g, ts, btx, bty, nebulaCanvas, tilt, joy) {
+export function draw(ctx, g, ts, btx, bty, tilt, joy, canvasRot = 0) {
   const { W, H, introT } = g;
   const ia = Math.min(1, (ts - introT) / 300);
 
-  // Nebula background
+  // Transparent canvas — full-screen nebula is rendered in the HTML background
   ctx.globalAlpha = 1;
-  if (nebulaCanvas) {
-    ctx.drawImage(nebulaCanvas, 0, 0, W, H);
-  } else {
-    ctx.fillStyle = '#03000f';
-    ctx.fillRect(0, 0, W, H);
-  }
+  ctx.clearRect(0, 0, W, H);
 
   ctx.globalAlpha = ia;
 
   drawTrack(ctx, g, btx, bty, ia);
   drawCheckpoints(ctx, g, ia);
-  drawVortex(ctx, g, ts, ia);
+  drawCollectibles(ctx, g, ts, ia, canvasRot);
+  drawVortex(ctx, g, ts, ia, canvasRot);
   drawTrail(ctx, g, ia);
-  drawBall(ctx, g, ts, tilt, ia);
+  drawBall(ctx, g, ts, tilt, ia, canvasRot);
 
   ctx.globalAlpha = 1;
   drawJoystick(ctx, { ...joy, phase: g.phase });
+  drawFloatingTexts(ctx, g, ts, canvasRot);
+}
+
+// ── Collectibles (+5s / +10s / +30s) ─────────────────────────────────────────
+export function drawCollectibles(ctx, g, ts, ia, canvasRot = 0) {
+  const { collectibles, cw, ch, br } = g;
+  if (!collectibles || collectibles.length === 0) return;
+  const r = br * 0.60;
+  const COLORS = { '+5s': '#00c8ff', '+10s': '#00ff80', '+30s': '#dd44ff' };
+
+  for (const col of collectibles) {
+    const cx = col.c * cw + cw / 2;
+    const cy = col.r * ch + ch / 2;
+    const color = COLORS[col.type] || '#00c8ff';
+
+    if (col.collected) {
+      // Disappear animation (400ms scale-down)
+      const age = ts - col.collectT;
+      if (age > 400) continue;
+      const sc = 1 - age / 400;
+      ctx.save();
+      ctx.globalAlpha = sc * ia;
+      ctx.shadowColor = color; ctx.shadowBlur = 20;
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, r * sc * 2.0, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+      continue;
+    }
+
+    // Pulse animation
+    const pulse = Math.sin(ts * 0.004 + col.c + col.r) * 0.12 + 0.88;
+
+    ctx.save();
+    ctx.globalAlpha = pulse * ia;
+    ctx.shadowColor = color; ctx.shadowBlur = 18;
+
+    // Outer ring
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, cy, r * 1.35, 0, Math.PI * 2); ctx.stroke();
+
+    // Inner filled circle
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    grad.addColorStop(0,   `${color}cc`);
+    grad.addColorStop(0.5, `${color}66`);
+    grad.addColorStop(1,   `${color}11`);
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+
+    // Label — counter-rotated to read upright on screen
+    ctx.save();
+    ctx.globalAlpha = ia;
+    ctx.translate(cx, cy);
+    ctx.rotate(canvasRot);
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = color; ctx.shadowBlur = 8;
+    ctx.font = `bold ${Math.round(r * 0.9)}px Orbitron, Courier New`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(col.type, 0, 0);
+    ctx.restore();
+
+    ctx.restore();
+  }
+}
+
+// ── Floating texts (+Xs animation) ───────────────────────────────────────────
+export function drawFloatingTexts(ctx, g, ts, canvasRot = 0) {
+  if (!g.floatingTexts || g.floatingTexts.length === 0) return;
+  g.floatingTexts = g.floatingTexts.filter(ft => ts - ft.startT < 1200);
+  for (const ft of g.floatingTexts) {
+    const age   = (ts - ft.startT) / 1200;
+    const alpha = 1 - age;
+    // Rise direction tracks world-up (counter-rotate the offset vector)
+    const rise  = age * 70;
+    const rx = -Math.sin(canvasRot) * rise;
+    const ry = -Math.cos(canvasRot) * rise;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(ft.x + rx, ft.y - ry);
+    ctx.rotate(canvasRot);
+    ctx.fillStyle   = ft.color;
+    ctx.shadowColor = ft.color; ctx.shadowBlur = 14;
+    ctx.font = `bold 18px Orbitron, Courier New`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(ft.text, 0, 0);
+    ctx.restore();
+  }
 }
