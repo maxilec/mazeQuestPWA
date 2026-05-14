@@ -29,10 +29,11 @@ function hexToRgb(hex) {
 // Thème complet pour le niveau courant. Le rendu (render.js) lit
 // uniquement ces tokens, jamais la palette en dur.
 //
-// Plateau (surface du plan de jeu) : slate clair — assez clair pour qu'on
-// sente la surface bombée (et pas un fond de void), assez neutre pour ne
-// pas lutter avec le néon coloré qui court dans la rainure.
-// La rainure est carved DANS le plateau (plus sombre, ombre interne).
+// Le plateau est une surface **crème / beige** éclairée par le haut-gauche
+// (cf. référence visuelle). Les rainures sont des **canaux gris-slate**
+// creusés dedans. Le néon n'est plus un large glow dominant mais un
+// **trait fin** au centre du canal — il colore le niveau sans étouffer
+// la lisibilité de la surface du plateau.
 export function getTheme(level, mode, zenColor) {
   const neon = getNeonColor(level, mode, zenColor);
   const { r, g, b } = hexToRgb(neon);
@@ -41,15 +42,19 @@ export function getTheme(level, mode, zenColor) {
   return {
     neon,                                  // couleur principale du niveau
     neonRgba:    rgba,                     // helper pour générer des rgba()
-    plateauHi:   '#3a3252',                // côté lumière (haut-gauche)
-    plateauMid:  '#241d38',                // ton médian
-    plateauLo:   '#120c22',                // côté ombre (bas-droit)
-    grooveDeep:  '#04020a',                // fond du sillon (presque noir)
-    grooveInner: '#1a0a30',                // accent intérieur du sillon
-    highlight:   'rgba(220,250,255,0.92)', // bloom central blanc
-    edgeLit:     'rgba(255,255,255,0.18)', // liseré clair (lumière en haut-g.)
-    edgeShadow:  'rgba(0,0,5,0.75)',       // liseré sombre (ombre en bas-d.)
-    ball:        '#ffe040',                // bille
+    // Plateau (surface crème, éclairée du haut-gauche)
+    plateauHi:   '#ecdbb6',                // côté lumière (lit cream)
+    plateauMid:  '#c8b48a',                // ton médian (warm beige)
+    plateauLo:   '#7a6850',                // côté ombre (shadowed)
+    // Rainure (canal gris-slate creusé dans le plateau)
+    grooveDeep:  '#393d46',                // sol du canal
+    grooveInner: '#2a2c34',                // accent intérieur (plus sombre)
+    // Bevel (transition plateau ↔ rainure)
+    edgeLit:     'rgba(255,245,215,0.75)', // liseré crème sur le bord lit
+    edgeShadow:  'rgba(15,18,25,0.70)',    // ombre portée côté sombre
+    // Accents
+    highlight:   'rgba(220,250,255,0.55)', // bloom central blanc (discret)
+    ball:        '#c08050',                // bille bronze/cuivre (réf)
     hole:        '#00ff80',                // sortie
   };
 }

@@ -87,12 +87,12 @@ function getTheme(g) {
   const rgba = (a) => `rgba(${r},${gv},${b},${a})`;
   return {
     neon, neonRgba: rgba,
-    plateauHi: '#3a3252', plateauMid: '#241d38', plateauLo: '#120c22',
-    grooveDeep: '#04020a', grooveInner: '#1a0a30',
-    highlight: 'rgba(220,250,255,0.92)',
-    edgeLit:    'rgba(255,255,255,0.18)',
-    edgeShadow: 'rgba(0,0,5,0.75)',
-    ball: '#ffe040', hole: '#00ff80',
+    plateauHi: '#ecdbb6', plateauMid: '#c8b48a', plateauLo: '#7a6850',
+    grooveDeep: '#393d46', grooveInner: '#2a2c34',
+    highlight: 'rgba(220,250,255,0.55)',
+    edgeLit:    'rgba(255,245,215,0.75)',
+    edgeShadow: 'rgba(15,18,25,0.70)',
+    ball: '#c08050', hole: '#00ff80',
   };
 }
 
@@ -180,38 +180,38 @@ export function drawTrack(ctx, g, btx, bty, ia) {
   ctx.stroke(path);
   ctx.restore();
 
-  // 5 — Wide neon halo (the "rivière de lumière" inside the groove)
+  // 5 — Wide subtle neon halo (juste un voile coloré dans le canal)
   ctx.save();
-  ctx.globalAlpha = ia;
+  ctx.globalAlpha = 0.55 * ia;
   ctx.shadowColor = t.neon;
-  ctx.shadowBlur  = 22;
-  ctx.strokeStyle = t.neonRgba(0.48);
-  ctx.lineWidth   = tw * 0.30;
+  ctx.shadowBlur  = 12;
+  ctx.strokeStyle = t.neonRgba(0.30);
+  ctx.lineWidth   = Math.max(2.5, tw * 0.10);
   ctx.stroke(path);
   ctx.restore();
 
-  // 6 — Bright neon core
+  // 6 — Thin bright neon line (le trait accent qui colore le niveau)
   ctx.save();
   ctx.globalAlpha = ia;
   ctx.shadowColor = t.neon;
-  ctx.shadowBlur  = 10;
-  ctx.strokeStyle = t.neonRgba(0.95);
-  ctx.lineWidth   = tw * 0.11;
-  ctx.stroke(path);
-  ctx.restore();
-
-  // 7 — Hot white bloom in the centre of the stream
-  ctx.save();
-  ctx.globalAlpha = ia;
-  ctx.shadowColor = '#ffffff';
-  ctx.shadowBlur  = 5;
-  ctx.strokeStyle = t.highlight;
+  ctx.shadowBlur  = 6;
+  ctx.strokeStyle = t.neonRgba(0.92);
   ctx.lineWidth   = 1.5;
   ctx.stroke(path);
   ctx.restore();
 
-  // 8 — Bright intersections (3+ open passages get a glowing junction dot).
-  // Helps navigation by marking decision points clearly.
+  // 7 — Tiny white bloom (souffle de chaleur, très discret)
+  ctx.save();
+  ctx.globalAlpha = 0.65 * ia;
+  ctx.shadowColor = '#ffffff';
+  ctx.shadowBlur  = 3;
+  ctx.strokeStyle = t.highlight;
+  ctx.lineWidth   = 0.6;
+  ctx.stroke(path);
+  ctx.restore();
+
+  // 8 — Petits points d'intersection (≥ 3 passages). Discrets, juste un
+  // repère subtil de point de décision.
   for (let r = 0; r < R; r++) {
     for (let c = 0; c < C; c++) {
       const ce = maze[r][c];
@@ -219,11 +219,11 @@ export function drawTrack(ctx, g, btx, bty, ia) {
       if (open < 3) continue;
       const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
       ctx.save();
-      ctx.globalAlpha = 0.55 * ia;
+      ctx.globalAlpha = 0.45 * ia;
       ctx.shadowColor = t.neon;
-      ctx.shadowBlur  = 18;
-      ctx.fillStyle   = t.neonRgba(0.42);
-      ctx.beginPath(); ctx.arc(cx, cy, tw * 0.16, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur  = 8;
+      ctx.fillStyle   = t.neonRgba(0.55);
+      ctx.beginPath(); ctx.arc(cx, cy, tw * 0.07, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
   }
