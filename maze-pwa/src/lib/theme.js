@@ -29,8 +29,9 @@ function hexToRgb(hex) {
 // Thème complet pour le niveau courant. Le rendu (render.js) lit
 // uniquement ces tokens, jamais la palette en dur.
 //
-// Plateau (surface du plan de jeu) : dark gray-purple — pose une base
-// stable qui ne lutte pas avec le néon coloré qui court dans la rainure.
+// Plateau (surface du plan de jeu) : slate clair — assez clair pour qu'on
+// sente la surface bombée (et pas un fond de void), assez neutre pour ne
+// pas lutter avec le néon coloré qui court dans la rainure.
 // La rainure est carved DANS le plateau (plus sombre, ombre interne).
 export function getTheme(level, mode, zenColor) {
   const neon = getNeonColor(level, mode, zenColor);
@@ -40,12 +41,14 @@ export function getTheme(level, mode, zenColor) {
   return {
     neon,                                  // couleur principale du niveau
     neonRgba:    rgba,                     // helper pour générer des rgba()
-    plateauHi:   '#1f1830',                // surface du plateau (côté lumière)
-    plateauLo:   '#0a0612',                // surface du plateau (côté ombre)
-    grooveDeep:  '#06030c',                // fond du sillon (le plus sombre)
+    plateauHi:   '#3a3252',                // côté lumière (haut-gauche)
+    plateauMid:  '#241d38',                // ton médian
+    plateauLo:   '#120c22',                // côté ombre (bas-droit)
+    grooveDeep:  '#04020a',                // fond du sillon (presque noir)
     grooveInner: '#1a0a30',                // accent intérieur du sillon
     highlight:   'rgba(220,250,255,0.92)', // bloom central blanc
-    plateauEdge: rgba(0.18),               // liseré subtil du plateau
+    edgeLit:     'rgba(255,255,255,0.18)', // liseré clair (lumière en haut-g.)
+    edgeShadow:  'rgba(0,0,5,0.75)',       // liseré sombre (ombre en bas-d.)
     ball:        '#ffe040',                // bille
     hole:        '#00ff80',                // sortie
   };

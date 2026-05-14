@@ -120,6 +120,11 @@
       : [];
 
     const theme = getTheme(levelNum, currentMode, $settings.zenColor);
+    // Propagate the level's neon color to the UI so menus / borders track
+    // the palette change every 5 levels (and the Zen choice).
+    if (typeof document !== 'undefined') {
+      document.documentElement.style.setProperty('--neon-color', theme.neon);
+    }
 
     // Carry remaining time + bonus at level completion.
     const initialTime = (levelNum > 1 && G?.remainingAtComplete != null)
@@ -499,7 +504,7 @@
   }
   .cfg-panel {
     background: rgba(0,5,25,0.98);
-    border: 1.5px solid rgba(0,200,255,0.55);
+    border: 1.5px solid var(--neon-color, #00c8ff);
     border-radius: 14px; padding: 28px 28px;
     box-shadow: 0 0 40px rgba(0,200,255,0.22);
   }

@@ -46,7 +46,8 @@
 
   canvas {
     display: block; border-radius: 3px;
-    border: 1.5px solid rgba(0,200,255,0.35);
+    border: 1.5px solid var(--neon-color, #00c8ff);
+    opacity: 1;
     cursor: pointer;
   }
 
@@ -58,8 +59,10 @@
   .countdown-rot { display: flex; align-items: center; justify-content: center; }
   .countdown-text {
     font-size: clamp(36px, 14vw, 72px); font-weight: 900; letter-spacing: 4px;
-    color: #00c8ff;
-    text-shadow: 0 0 40px #00c8ff, 0 0 14px #00c8ff, 0 0 4px #fff;
+    color: var(--neon-color, #00c8ff);
+    text-shadow: 0 0 40px var(--neon-color, #00c8ff),
+                 0 0 14px var(--neon-color, #00c8ff),
+                 0 0 4px #fff;
     animation: cdPulse 0.72s cubic-bezier(.2,.8,.4,1) both;
   }
   @keyframes cdPulse {

@@ -87,10 +87,11 @@ function getTheme(g) {
   const rgba = (a) => `rgba(${r},${gv},${b},${a})`;
   return {
     neon, neonRgba: rgba,
-    plateauHi: '#1f1830', plateauLo: '#0a0612',
-    grooveDeep: '#06030c', grooveInner: '#1a0a30',
+    plateauHi: '#3a3252', plateauMid: '#241d38', plateauLo: '#120c22',
+    grooveDeep: '#04020a', grooveInner: '#1a0a30',
     highlight: 'rgba(220,250,255,0.92)',
-    plateauEdge: rgba(0.18),
+    edgeLit:    'rgba(255,255,255,0.18)',
+    edgeShadow: 'rgba(0,0,5,0.75)',
     ball: '#ffe040', hole: '#00ff80',
   };
 }
@@ -104,14 +105,14 @@ export function drawBoard(ctx, g, ia) {
 
   ctx.save();
   ctx.globalAlpha = ia;
-  // Radial gradient — slight light bias towards upper-left to suggest a
-  // soft top-light hitting the plateau.
+  // Radial gradient — light bias towards upper-left simulates a top-left
+  // light source. The plateau reads as a lit physical surface.
   const grad = ctx.createRadialGradient(
-    W * 0.30, H * 0.25, Math.min(W, H) * 0.05,
-    W * 0.55, H * 0.65, Math.max(W, H) * 0.85
+    W * 0.28, H * 0.22, Math.min(W, H) * 0.05,
+    W * 0.58, H * 0.70, Math.max(W, H) * 0.90
   );
   grad.addColorStop(0,    t.plateauHi);
-  grad.addColorStop(0.55, '#15102a');
+  grad.addColorStop(0.55, t.plateauMid);
   grad.addColorStop(1,    t.plateauLo);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
@@ -145,21 +146,21 @@ export function drawTrack(ctx, g, btx, bty, ia) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // 1 — Drop shadow (carved depression effect)
+  // 1 — Drop shadow (carved depression — strong bottom-right shadow)
   ctx.save();
-  ctx.translate(2, 3);
-  ctx.globalAlpha = 0.55 * ia;
-  ctx.strokeStyle = 'rgba(0,0,5,0.7)';
-  ctx.lineWidth = tw + 1;
+  ctx.translate(2.5, 3.5);
+  ctx.globalAlpha = 0.85 * ia;
+  ctx.strokeStyle = t.edgeShadow;
+  ctx.lineWidth = tw + 2;
   ctx.stroke(path);
   ctx.restore();
 
-  // 2 — Top-left lit edge (faint highlight along the rim of the groove)
+  // 2 — Top-left lit edge (bright rim where the plateau is lit)
   ctx.save();
-  ctx.translate(-1, -1);
-  ctx.globalAlpha = 0.35 * ia;
-  ctx.strokeStyle = t.plateauEdge;
-  ctx.lineWidth = tw + 1;
+  ctx.translate(-1.5, -1.5);
+  ctx.globalAlpha = 0.85 * ia;
+  ctx.strokeStyle = t.edgeLit;
+  ctx.lineWidth = tw + 1.5;
   ctx.stroke(path);
   ctx.restore();
 

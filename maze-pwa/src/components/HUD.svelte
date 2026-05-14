@@ -25,7 +25,13 @@
     joystick: '🕹 Glissez pour diriger',
   };
 
-  const modeColor = { survie: '#00c8ff', hardcore: '#ff5555', zen: '#bb44ff' };
+  // Hardcore garde son rouge identitaire ; survie et zen suivent la palette
+  // néon courante (via la CSS variable --neon-color exposée par Game.svelte).
+  const modeColor = {
+    survie:   'var(--neon-color, #00c8ff)',
+    hardcore: '#ff5555',
+    zen:      'var(--neon-color, #bb44ff)',
+  };
 
   $: gaugeOverflow = timeLeft > 120;
   $: gaugeAlert    = timeLeft <= 10 && timeLeft > 0;
@@ -131,8 +137,9 @@
   /* Zone A — logo & hint */
   .logo {
     font-weight: 900; font-size: clamp(14px, 2.4vw, 20px);
-    color: #00c8ff; letter-spacing: 2px;
-    text-shadow: 0 0 18px #00c8ff, 0 0 6px #00c8ff;
+    color: var(--neon-color, #00c8ff); letter-spacing: 2px;
+    text-shadow: 0 0 18px var(--neon-color, #00c8ff),
+                 0 0 6px  var(--neon-color, #00c8ff);
     text-align: center;
   }
   .hint {

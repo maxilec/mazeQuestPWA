@@ -23,13 +23,16 @@
 </button>
 
 <style>
-  /* Forme par défaut : pilule */
+  /* Forme par défaut : pilule (variante cyan suit --neon-color) */
   .neon-btn {
-    border: 1.5px solid #00c8ff; background: transparent; color: #00c8ff;
+    border: 1.5px solid var(--neon-color, #00c8ff);
+    background: transparent;
+    color: var(--neon-color, #00c8ff);
     padding: 10px 16px; border-radius: 7px;
     font-family: 'Orbitron', monospace;
     font-size: 11px; cursor: pointer;
-    letter-spacing: 2px; text-shadow: 0 0 8px #00c8ff;
+    letter-spacing: 2px;
+    text-shadow: 0 0 8px var(--neon-color, #00c8ff);
     box-shadow: 0 0 10px rgba(0,200,255,0.20);
     width: 100%;
   }
@@ -70,11 +73,15 @@
   .neon-btn.capsule {
     width: 54px; height: 30px;
     padding: 0; border-radius: 15px;
-    background: rgba(0,200,255,0.08);
+    background: rgba(0,200,255,0.08);  /* fallback navigateurs anciens */
+    background: color-mix(in srgb, var(--neon-color, #00c8ff) 8%, transparent);
     font-size: 14px;
     letter-spacing: 0;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
-  .neon-btn.capsule:active { background: rgba(0,200,255,0.22); }
+  .neon-btn.capsule:active {
+    background: rgba(0,200,255,0.22);
+    background: color-mix(in srgb, var(--neon-color, #00c8ff) 22%, transparent);
+  }
 </style>

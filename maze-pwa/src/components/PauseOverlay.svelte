@@ -37,15 +37,15 @@
   }
   .panel {
     background: rgba(0,5,20,0.98);
-    border: 1.5px solid #00c8ff; border-radius: 14px;
+    border: 1.5px solid var(--neon-color, #00c8ff); border-radius: 14px;
     padding: 28px 32px;
     display: flex; flex-direction: column; align-items: center; gap: 14px;
     min-width: 220px;
     box-shadow: 0 0 50px rgba(0,200,255,0.28), inset 0 0 30px rgba(0,0,80,0.35);
   }
   .title {
-    color: #00c8ff; font-size: 22px; letter-spacing: 8px;
-    text-shadow: 0 0 20px #00c8ff;
+    color: var(--neon-color, #00c8ff); font-size: 22px; letter-spacing: 8px;
+    text-shadow: 0 0 20px var(--neon-color, #00c8ff);
   }
   .info {
     color: rgba(255,255,255,0.65);
