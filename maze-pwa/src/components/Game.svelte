@@ -1,11 +1,11 @@
 <script>
   import { onMount }                              from 'svelte';
   import { makeMaze }                             from '../lib/maze.js';
-  import { getTrackColor }                        from '../lib/constants.js';
   import { getTrackRatio, bfsPath,
            computeCheckpoints, computeCollectibles } from '../lib/maze-utils.js';
   import { stepPhysics, checkWallFall }           from '../lib/physics.js';
   import { draw }                                 from '../lib/render.js';
+  import { getTheme }                             from '../lib/theme.js';
   import { screen as appScreen, gameMode,
            runStats, settings, audioMgrStore }    from '../stores.js';
   import { createInputManager, JOY_RADIUS }       from '../lib/input.js';
@@ -114,14 +114,12 @@
     inputMgr?.resetGyroOffset();
 
     const path         = bfsPath(maze, R, C, sc, { r: hr, c: hc });
-    const checkpoints  = computeCheckpoints(path);
+    const checkpoints  = computeCheckpoints(path, maze);
     const collectibles = currentMode !== 'zen'
       ? computeCollectibles(path, maze, R, C, checkpoints)
       : [];
 
-    const trackColor = currentMode === 'zen'
-      ? ($settings.zenColor || '#00c8ff')
-      : getTrackColor(levelNum);
+    const theme = getTheme(levelNum, currentMode, $settings.zenColor);
 
     // Carry remaining time + bonus at level completion.
     const initialTime = (levelNum > 1 && G?.remainingAtComplete != null)
@@ -130,7 +128,8 @@
 
     const now = performance.now();
     G = {
-      W, H, cw, ch, br, wt, maze, lvl: levelNum, R, C, trackRatio, trackColor,
+      W, H, cw, ch, br, wt, maze, lvl: levelNum, R, C, trackRatio, theme,
+      trackColor: theme.neon,  // legacy alias used by some render passes
       spawn: { ...sc },
       ball: { x: sc.c * cw + cw / 2, y: sc.r * ch + ch / 2, vx: 0, vy: 0 },
       hole: { r: hr, c: hc },

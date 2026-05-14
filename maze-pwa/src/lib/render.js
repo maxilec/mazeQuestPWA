@@ -76,170 +76,156 @@ export function generateNebula(w, h, seed = 42) {
   return off;
 }
 
-// ── Track (metallic neon) ─────────────────────────────────────────────────────
+// ── Theme helpers ─────────────────────────────────────────────────────────────
+// Fallback theme when g.theme is missing (legacy / safety net).
+function getTheme(g) {
+  if (g.theme) return g.theme;
+  const neon = g.trackColor || '#00c8ff';
+  const r = parseInt(neon.slice(1, 3), 16);
+  const gv = parseInt(neon.slice(3, 5), 16);
+  const b = parseInt(neon.slice(5, 7), 16);
+  const rgba = (a) => `rgba(${r},${gv},${b},${a})`;
+  return {
+    neon, neonRgba: rgba,
+    plateauHi: '#1f1830', plateauLo: '#0a0612',
+    grooveDeep: '#06030c', grooveInner: '#1a0a30',
+    highlight: 'rgba(220,250,255,0.92)',
+    plateauEdge: rgba(0.18),
+    ball: '#ffe040', hole: '#00ff80',
+  };
+}
+
+// ── Plateau (board surface) ───────────────────────────────────────────────────
+// Fills the canvas with the playing board. The groove (drawTrack) is then
+// rendered as a recessed channel carved into this surface.
+export function drawBoard(ctx, g, ia) {
+  const { W, H } = g;
+  const t = getTheme(g);
+
+  ctx.save();
+  ctx.globalAlpha = ia;
+  // Radial gradient — slight light bias towards upper-left to suggest a
+  // soft top-light hitting the plateau.
+  const grad = ctx.createRadialGradient(
+    W * 0.30, H * 0.25, Math.min(W, H) * 0.05,
+    W * 0.55, H * 0.65, Math.max(W, H) * 0.85
+  );
+  grad.addColorStop(0,    t.plateauHi);
+  grad.addColorStop(0.55, '#15102a');
+  grad.addColorStop(1,    t.plateauLo);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+// ── Track (carved groove + neon) ──────────────────────────────────────────────
+// Path topology unchanged — still drawn as line segments between adjacent open
+// cells. The visual style is a recessed channel (dark) with a neon stream
+// running through it.
 export function drawTrack(ctx, g, btx, bty, ia) {
-  const { maze, cw, ch, R, C, trackRatio, W, H } = g;
-  const tc = g.trackColor || '#00c8ff';   // neon colour (changes every 5 levels)
+  const { maze, cw, ch, R, C, trackRatio } = g;
+  const t  = getTheme(g);
   const tw = Math.min(cw, ch) * trackRatio;
 
-  // Derive rgba helper from hex colour
-  function tcRgba(a) {
-    const r = parseInt(tc.slice(1,3), 16);
-    const gv = parseInt(tc.slice(3,5), 16);
-    const b = parseInt(tc.slice(5,7), 16);
-    return `rgba(${r},${gv},${b},${a})`;
-  }
-
-  ctx.save();
-  ctx.translate(btx * -4, bty * -4);
-
-  // Subtle hex grid in the void
-  ctx.save();
-  ctx.globalAlpha = 0.048 * ia;
-  ctx.strokeStyle = '#003399';
-  ctx.lineWidth = 0.5;
-  const hSize = Math.min(cw, ch) * 0.24;
-  const hexCols = Math.ceil(W / (hSize * 1.732)) + 2;
-  const hexRows = Math.ceil(H / (hSize * 1.5)) + 2;
-  for (let hr = -1; hr < hexRows; hr++) {
-    for (let hc2 = -1; hc2 < hexCols; hc2++) {
-      const hx = hc2 * hSize * 1.732 + (((hr % 2) + 2) % 2) * hSize * 0.866;
-      const hy = hr * hSize * 1.5;
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = (Math.PI / 3) * i - Math.PI / 6;
-        const px = hx + hSize * Math.cos(a), py = hy + hSize * Math.sin(a);
-        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-      }
-      ctx.closePath(); ctx.stroke();
+  // Build the maze path once, reuse across passes (Path2D is widely supported).
+  const path = new Path2D();
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < C; c++) {
+      const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
+      const ce = maze[r][c];
+      if (c < C - 1 && !ce.R) { path.moveTo(cx, cy); path.lineTo(cx + cw, cy); }
+      if (r < R - 1 && !ce.B) { path.moveTo(cx, cy); path.lineTo(cx, cy + ch); }
     }
   }
+
+  ctx.save();
+  // Subtle parallax — the groove appears to "sit inside" the plateau when
+  // the board tilts. CSS handles the actual 3D tilt; this just adds depth cue.
+  ctx.translate(btx * -2, bty * -2);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // 1 — Drop shadow (carved depression effect)
+  ctx.save();
+  ctx.translate(2, 3);
+  ctx.globalAlpha = 0.55 * ia;
+  ctx.strokeStyle = 'rgba(0,0,5,0.7)';
+  ctx.lineWidth = tw + 1;
+  ctx.stroke(path);
   ctx.restore();
 
-  function buildPath() {
-    ctx.beginPath();
-    for (let r = 0; r < R; r++) {
-      for (let c = 0; c < C; c++) {
-        const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
-        const ce = maze[r][c];
-        if (c < C - 1 && !ce.R) { ctx.moveTo(cx, cy); ctx.lineTo(cx + cw, cy); }
-        if (r < R - 1 && !ce.B) { ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + ch); }
-      }
-    }
-  }
-
-  function drawNodes(radius) {
-    for (let r = 0; r < R; r++) {
-      for (let c = 0; c < C; c++) {
-        const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
-        ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-  }
-
-  // Parallax side glow (strong offset → depth illusion)
+  // 2 — Top-left lit edge (faint highlight along the rim of the groove)
   ctx.save();
-  ctx.translate(btx * 20, bty * 20);
-  ctx.globalAlpha = 0.22 * ia;
-  ctx.shadowColor = tc; ctx.shadowBlur = 18;
-  ctx.strokeStyle = tcRgba(0.65);
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = tw * 1.15;
-  buildPath(); ctx.stroke();
+  ctx.translate(-1, -1);
+  ctx.globalAlpha = 0.35 * ia;
+  ctx.strokeStyle = t.plateauEdge;
+  ctx.lineWidth = tw + 1;
+  ctx.stroke(path);
   ctx.restore();
 
-  // Drop shadow (parallax)
+  // 3 — Groove floor (the dark recessed channel)
   ctx.save();
-  ctx.translate(btx * 9, bty * 9);
-  ctx.globalAlpha = 0.22 * ia;
-  ctx.strokeStyle = 'rgba(0,5,40,0.85)';
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.globalAlpha = ia;
+  ctx.strokeStyle = t.grooveDeep;
   ctx.lineWidth = tw;
-  buildPath(); ctx.stroke();
+  ctx.stroke(path);
   ctx.restore();
 
-  // Chrome border
+  // 4 — Inner shadow tint (subtle gradient inside the groove)
+  ctx.save();
+  ctx.globalAlpha = 0.45 * ia;
+  ctx.strokeStyle = t.grooveInner;
+  ctx.lineWidth = tw * 0.78;
+  ctx.stroke(path);
+  ctx.restore();
+
+  // 5 — Wide neon halo (the "rivière de lumière" inside the groove)
   ctx.save();
   ctx.globalAlpha = ia;
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = 'rgba(155,205,235,0.88)';
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = tw;
-  buildPath(); ctx.stroke();
-  ctx.fillStyle = 'rgba(155,205,235,0.88)';
-  drawNodes(tw / 2);
+  ctx.shadowColor = t.neon;
+  ctx.shadowBlur  = 22;
+  ctx.strokeStyle = t.neonRgba(0.48);
+  ctx.lineWidth   = tw * 0.30;
+  ctx.stroke(path);
   ctx.restore();
 
-  // Dark metallic surface
+  // 6 — Bright neon core
   ctx.save();
   ctx.globalAlpha = ia;
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = '#05001a';
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = tw * 0.80;
-  buildPath(); ctx.stroke();
-  ctx.fillStyle = '#05001a';
-  drawNodes(tw * 0.40);
+  ctx.shadowColor = t.neon;
+  ctx.shadowBlur  = 10;
+  ctx.strokeStyle = t.neonRgba(0.95);
+  ctx.lineWidth   = tw * 0.11;
+  ctx.stroke(path);
   ctx.restore();
 
-  // Brushed metal reflection
-  ctx.save();
-  ctx.globalAlpha = 0.32 * ia;
-  ctx.strokeStyle = 'rgba(30,65,130,1)';
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = tw * 0.58;
-  buildPath(); ctx.stroke();
-  ctx.restore();
-
-  // Wide neon glow
+  // 7 — Hot white bloom in the centre of the stream
   ctx.save();
   ctx.globalAlpha = ia;
-  ctx.shadowColor = tc; ctx.shadowBlur = 18;
-  ctx.strokeStyle = tcRgba(0.55);
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = tw * 0.18;
-  buildPath(); ctx.stroke();
+  ctx.shadowColor = '#ffffff';
+  ctx.shadowBlur  = 5;
+  ctx.strokeStyle = t.highlight;
+  ctx.lineWidth   = 1.5;
+  ctx.stroke(path);
   ctx.restore();
 
-  // Bright centre line
-  ctx.save();
-  ctx.globalAlpha = ia;
-  ctx.shadowColor = '#a8e8ff'; ctx.shadowBlur = 5;
-  ctx.strokeStyle = 'rgba(205,245,255,0.95)';
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = 1.5;
-  buildPath(); ctx.stroke();
-  ctx.restore();
-
-  // Bright intersections (≥3 open passages)
+  // 8 — Bright intersections (3+ open passages get a glowing junction dot).
+  // Helps navigation by marking decision points clearly.
   for (let r = 0; r < R; r++) {
     for (let c = 0; c < C; c++) {
       const ce = maze[r][c];
       const open = (!ce.T?1:0) + (!ce.B?1:0) + (!ce.L?1:0) + (!ce.R?1:0);
-      if (open >= 3) {
-        const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
-        ctx.save();
-        ctx.globalAlpha = 0.50 * ia;
-        ctx.shadowColor = tc; ctx.shadowBlur = 26;
-        ctx.fillStyle = tcRgba(0.38);
-        ctx.beginPath(); ctx.arc(cx, cy, tw * 0.48, 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = 0.80 * ia;
-        ctx.shadowBlur = 8;
-        ctx.fillStyle = tcRgba(0.78);
-        ctx.beginPath(); ctx.arc(cx, cy, tw * 0.10, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
-      }
+      if (open < 3) continue;
+      const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
+      ctx.save();
+      ctx.globalAlpha = 0.55 * ia;
+      ctx.shadowColor = t.neon;
+      ctx.shadowBlur  = 18;
+      ctx.fillStyle   = t.neonRgba(0.42);
+      ctx.beginPath(); ctx.arc(cx, cy, tw * 0.16, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
     }
   }
-
-  // Maze border
-  ctx.save();
-  ctx.globalAlpha = 0.72 * ia;
-  ctx.shadowColor = tc; ctx.shadowBlur = 22;
-  ctx.strokeStyle = tcRgba(0.80);
-  ctx.lineWidth = 3; ctx.lineCap = 'square';
-  ctx.strokeRect(2, 2, W - 4, H - 4);
-  ctx.restore();
 
   ctx.restore();
 }
@@ -440,12 +426,14 @@ export function draw(ctx, g, ts, btx, bty, tilt, joy, canvasRot = 0) {
   const { W, H, introT } = g;
   const ia = Math.min(1, (ts - introT) / 300);
 
-  // Transparent canvas — full-screen nebula is rendered in the HTML background
+  // Plateau fills the canvas — the nebula remains visible only OUTSIDE the
+  // canvas (around the board in the HTML background).
   ctx.globalAlpha = 1;
   ctx.clearRect(0, 0, W, H);
 
-  ctx.globalAlpha = ia;
+  drawBoard(ctx, g, ia);
 
+  ctx.globalAlpha = ia;
   drawTrack(ctx, g, btx, bty, ia);
   drawCheckpoints(ctx, g, ia);
   drawCollectibles(ctx, g, ts, ia, canvasRot);
