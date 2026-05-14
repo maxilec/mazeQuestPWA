@@ -29,11 +29,14 @@ function hexToRgb(hex) {
 // Thème complet pour le niveau courant. Le rendu (render.js) lit
 // uniquement ces tokens, jamais la palette en dur.
 //
-// Le plateau est une surface **crème / beige** éclairée par le haut-gauche
-// (cf. référence visuelle). Les rainures sont des **canaux gris-slate**
-// creusés dedans. Le néon n'est plus un large glow dominant mais un
-// **trait fin** au centre du canal — il colore le niveau sans étouffer
-// la lisibilité de la surface du plateau.
+// Modèle visuel :
+//  - SURFACE = fond sombre (slate) entre les pistes — c'est la « table »
+//    qui supporte le labyrinthe ; remplit le canvas (drawBoard).
+//  - TRACK   = piste beige clair surélevée sur laquelle la bille roule ;
+//    dessinée en strokes (drawTrack). Bordée d'un liseré clair côté
+//    lumière (haut-gauche) et d'une ombre projetée côté sombre (bas-droit).
+//  - NEON    = trait fin coloré au centre de la piste, dans la palette
+//    du niveau (change tous les 5 niveaux, Zen = couleur utilisateur).
 export function getTheme(level, mode, zenColor) {
   const neon = getNeonColor(level, mode, zenColor);
   const { r, g, b } = hexToRgb(neon);
@@ -42,19 +45,20 @@ export function getTheme(level, mode, zenColor) {
   return {
     neon,                                  // couleur principale du niveau
     neonRgba:    rgba,                     // helper pour générer des rgba()
-    // Plateau (surface crème, éclairée du haut-gauche)
-    plateauHi:   '#ecdbb6',                // côté lumière (lit cream)
-    plateauMid:  '#c8b48a',                // ton médian (warm beige)
-    plateauLo:   '#7a6850',                // côté ombre (shadowed)
-    // Rainure (canal gris-slate creusé dans le plateau)
-    grooveDeep:  '#393d46',                // sol du canal
-    grooveInner: '#2a2c34',                // accent intérieur (plus sombre)
-    // Bevel (transition plateau ↔ rainure)
-    edgeLit:     'rgba(255,245,215,0.75)', // liseré crème sur le bord lit
-    edgeShadow:  'rgba(15,18,25,0.70)',    // ombre portée côté sombre
+    // Surface — fond sombre slate qui remplit le canvas
+    surfaceHi:   '#2a2e36',                // côté lumière (top-left)
+    surfaceMid:  '#1a1d24',                // ton médian
+    surfaceLo:   '#0c0f15',                // côté ombre (bot-right)
+    // Track — piste beige clair surélevée
+    trackFloor:  '#cab48a',                // beige principal (corps de la piste)
+    trackHi:     '#ecdbb6',                // crème clair (cœur lit)
+    trackLo:     '#7a6850',                // beige sombre (ombre sous-jacente)
+    // Bevel (transition piste / surface)
+    edgeLit:     'rgba(255,250,225,0.85)', // liseré clair sur le bord lit
+    edgeShadow:  'rgba(5,7,12,0.85)',      // ombre projetée côté sombre
     // Accents
-    highlight:   'rgba(220,250,255,0.55)', // bloom central blanc (discret)
-    ball:        '#c08050',                // bille bronze/cuivre (réf)
+    highlight:   'rgba(255,255,255,0.50)', // tiny white bloom (discret)
+    ball:        '#c08050',                // bille bronze/cuivre
     hole:        '#00ff80',                // sortie
   };
 }

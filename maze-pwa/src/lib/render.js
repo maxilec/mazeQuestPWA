@@ -87,18 +87,19 @@ function getTheme(g) {
   const rgba = (a) => `rgba(${r},${gv},${b},${a})`;
   return {
     neon, neonRgba: rgba,
-    plateauHi: '#ecdbb6', plateauMid: '#c8b48a', plateauLo: '#7a6850',
-    grooveDeep: '#393d46', grooveInner: '#2a2c34',
-    highlight: 'rgba(220,250,255,0.55)',
-    edgeLit:    'rgba(255,245,215,0.75)',
-    edgeShadow: 'rgba(15,18,25,0.70)',
+    surfaceHi: '#2a2e36', surfaceMid: '#1a1d24', surfaceLo: '#0c0f15',
+    trackFloor: '#cab48a', trackHi: '#ecdbb6', trackLo: '#7a6850',
+    edgeLit:    'rgba(255,250,225,0.85)',
+    edgeShadow: 'rgba(5,7,12,0.85)',
+    highlight:  'rgba(255,255,255,0.50)',
     ball: '#c08050', hole: '#00ff80',
   };
 }
 
-// ── Plateau (board surface) ───────────────────────────────────────────────────
-// Fills the canvas with the playing board. The groove (drawTrack) is then
-// rendered as a recessed channel carved into this surface.
+// ── Surface (dark base) ───────────────────────────────────────────────────────
+// Remplit le canvas avec le fond sombre — la table sur laquelle reposent
+// les pistes. Les pistes (drawTrack) sont dessinées comme des strokes
+// surélevés au-dessus de cette surface.
 export function drawBoard(ctx, g, ia) {
   const { W, H } = g;
   const t = getTheme(g);
@@ -106,14 +107,14 @@ export function drawBoard(ctx, g, ia) {
   ctx.save();
   ctx.globalAlpha = ia;
   // Radial gradient — light bias towards upper-left simulates a top-left
-  // light source. The plateau reads as a lit physical surface.
+  // light source on the slate surface.
   const grad = ctx.createRadialGradient(
     W * 0.28, H * 0.22, Math.min(W, H) * 0.05,
     W * 0.58, H * 0.70, Math.max(W, H) * 0.90
   );
-  grad.addColorStop(0,    t.plateauHi);
-  grad.addColorStop(0.55, t.plateauMid);
-  grad.addColorStop(1,    t.plateauLo);
+  grad.addColorStop(0,    t.surfaceHi);
+  grad.addColorStop(0.55, t.surfaceMid);
+  grad.addColorStop(1,    t.surfaceLo);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
   ctx.restore();
@@ -146,7 +147,8 @@ export function drawTrack(ctx, g, btx, bty, ia) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // 1 — Drop shadow (carved depression — strong bottom-right shadow)
+  // 1 — Drop shadow (la piste surélevée projette une ombre sur la surface
+  //     vers le bas-droit ; donne la sensation de relief)
   ctx.save();
   ctx.translate(2.5, 3.5);
   ctx.globalAlpha = 0.85 * ia;
@@ -155,28 +157,28 @@ export function drawTrack(ctx, g, btx, bty, ia) {
   ctx.stroke(path);
   ctx.restore();
 
-  // 2 — Top-left lit edge (bright rim where the plateau is lit)
+  // 2 — Lit edge (le bord haut-gauche de la piste capte la lumière)
   ctx.save();
   ctx.translate(-1.5, -1.5);
-  ctx.globalAlpha = 0.85 * ia;
+  ctx.globalAlpha = 0.90 * ia;
   ctx.strokeStyle = t.edgeLit;
   ctx.lineWidth = tw + 1.5;
   ctx.stroke(path);
   ctx.restore();
 
-  // 3 — Groove floor (the dark recessed channel)
+  // 3 — Piste — couche d'épaule légèrement sombre pour adoucir le bord
   ctx.save();
   ctx.globalAlpha = ia;
-  ctx.strokeStyle = t.grooveDeep;
-  ctx.lineWidth = tw;
+  ctx.strokeStyle = t.trackLo;
+  ctx.lineWidth = tw + 0.5;
   ctx.stroke(path);
   ctx.restore();
 
-  // 4 — Inner shadow tint (subtle gradient inside the groove)
+  // 4 — Piste — sol beige (corps principal de la piste)
   ctx.save();
-  ctx.globalAlpha = 0.45 * ia;
-  ctx.strokeStyle = t.grooveInner;
-  ctx.lineWidth = tw * 0.78;
+  ctx.globalAlpha = ia;
+  ctx.strokeStyle = t.trackFloor;
+  ctx.lineWidth = tw;
   ctx.stroke(path);
   ctx.restore();
 
