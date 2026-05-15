@@ -113,8 +113,8 @@
   .sp-title {
     font-family: 'Orbitron', monospace;
     font-size: 13px; letter-spacing: 6px;
-    color: #00c8ff;
-    text-shadow: 0 0 12px #00c8ff;
+    color: var(--neon-color, #00c8ff);
+    text-shadow: 0 0 12px var(--neon-color, #00c8ff);
     text-align: center; margin-bottom: 4px;
   }
 
@@ -135,9 +135,9 @@
 
   .sp-right { display: flex; align-items: center; gap: 8px; flex: 1; }
   .sp-right input[type=range] {
-    flex: 1; accent-color: #00c8ff; cursor: pointer; min-width: 80px;
+    flex: 1; accent-color: var(--neon-color, #00c8ff); cursor: pointer; min-width: 80px;
   }
-  .sp-val { color: #00c8ff; font-size: 11px; min-width: 36px; text-align: right; }
+  .sp-val { color: var(--neon-color, #00c8ff); font-size: 11px; min-width: 36px; text-align: right; }
   .sp-right input[type=range]:disabled { opacity: 0.35; cursor: not-allowed; }
   .sp-disabled .sp-lbl { opacity: 0.35; }
   .sp-disabled .sp-val { opacity: 0.35; }
@@ -147,26 +147,33 @@
     padding: 5px 14px;
     background: transparent;
     border: 1px solid rgba(0,200,255,0.30);
+    border: 1px solid color-mix(in srgb, var(--neon-color, #00c8ff) 30%, transparent);
     color: rgba(255,255,255,0.45);
     font-family: 'Courier New', monospace;
     font-size: 10px; letter-spacing: 1px; cursor: pointer;
     border-radius: 5px; transition: all 0.15s;
   }
   .sp-toggle-btn.active {
-    border-color: #00c8ff; color: #fff;
+    border-color: var(--neon-color, #00c8ff); color: #fff;
     background: rgba(0,200,255,0.12);
-    text-shadow: 0 0 6px #00c8ff;
+    background: color-mix(in srgb, var(--neon-color, #00c8ff) 12%, transparent);
+    text-shadow: 0 0 6px var(--neon-color, #00c8ff);
   }
-  .sp-toggle-btn:active { background: rgba(0,200,255,0.20); }
+  .sp-toggle-btn:active {
+    background: rgba(0,200,255,0.20);
+    background: color-mix(in srgb, var(--neon-color, #00c8ff) 20%, transparent);
+  }
 
   .sp-close {
     align-self: center; margin-top: 4px;
-    background: transparent; border: 1px solid rgba(0,200,255,0.35);
+    background: transparent;
+    border: 1px solid rgba(0,200,255,0.35);
+    border: 1px solid color-mix(in srgb, var(--neon-color, #00c8ff) 35%, transparent);
     color: rgba(255,255,255,0.60);
     font-family: 'Courier New', monospace;
     font-size: 11px; letter-spacing: 2px; cursor: pointer;
     padding: 8px 22px; border-radius: 5px;
     transition: all 0.15s;
   }
-  .sp-close:active { color: #fff; border-color: #00c8ff; }
+  .sp-close:active { color: #fff; border-color: var(--neon-color, #00c8ff); }
 </style>

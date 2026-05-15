@@ -32,21 +32,30 @@ export function bfsPath(maze, R, C, spawn, hole) {
   return path;
 }
 
-function isStraight(path, i) {
+// A path cell is "straight through" when:
+//  1. the path geometry goes straight (same direction in/out)
+//  2. the cell itself has no side passage — exactly 2 openings (in + out).
+// Without (2), a checkpoint or collectible placed on the cell can be
+// bypassed by taking the side passage instead.
+function isStraight(path, i, maze) {
   if (i <= 0 || i >= path.length - 1) return false;
   const a = path[i - 1], b = path[i], c = path[i + 1];
-  return (b.r - a.r) === (c.r - b.r) && (b.c - a.c) === (c.c - b.c);
+  if ((b.r - a.r) !== (c.r - b.r) || (b.c - a.c) !== (c.c - b.c)) return false;
+  if (!maze) return true;  // legacy callers without maze still get the geometric check
+  const ce = maze[b.r][b.c];
+  const opens = (ce.T ? 0 : 1) + (ce.B ? 0 : 1) + (ce.L ? 0 : 1) + (ce.R ? 0 : 1);
+  return opens === 2;
 }
 
-export function computeCheckpoints(path) {
+export function computeCheckpoints(path, maze) {
   if (path.length < 4) return [];
   const candidates = [];
   for (const frac of [0.33, 0.67]) {
     const base = Math.round(frac * (path.length - 1));
     let found = -1;
     for (let d = 0; d < path.length; d++) {
-      if (base + d < path.length - 1 && isStraight(path, base + d)) { found = base + d; break; }
-      if (d > 0 && base - d > 0 && isStraight(path, base - d))     { found = base - d; break; }
+      if (base + d < path.length - 1 && isStraight(path, base + d, maze)) { found = base + d; break; }
+      if (d > 0 && base - d > 0 && isStraight(path, base - d, maze))     { found = base - d; break; }
     }
     if (found < 0) continue;
     const cell = path[found], prev = path[found - 1];
@@ -106,7 +115,7 @@ export function computeCollectibles(path, maze, R, C, checkpoints) {
   const end   = Math.floor(path.length * 0.85);
   const onPath = [];
   for (let i = start; i < end; i++) {
-    if (!isStraight(path, i)) continue;
+    if (!isStraight(path, i, maze)) continue;
     const { r, c } = path[i];
     if (cpSet.has(`${r},${c}`)) continue;
     onPath.push({ r, c });

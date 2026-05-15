@@ -1,5 +1,72 @@
 import { N_BALL, N_HOLE } from './constants.js';
 
+// ── SVG asset loader ──────────────────────────────────────────────────────────
+// Charge les icônes SVG une fois au premier import. Une fois chargées, elles
+// sont rastérisées dans un canvas offscreen (taille de référence haute déf).
+// Chaque frame, on blit ce bitmap au lieu de re-rasteriser le SVG via drawImage
+// — qui coûterait potentiellement une rasterization quand `scale(pulse)`
+// fait varier la taille de destination chaque frame.
+const SVG_BASE = (typeof import.meta !== 'undefined' && import.meta.env)
+  ? `${import.meta.env.BASE_URL || '/'}assets/svg/`
+  : '/assets/svg/';
+
+// Tailles de rasterization de référence — assez grandes pour rester nettes
+// sur écrans HiDPI au format final visible, et préservent les ratios des
+// viewBox SVG (200×200 pour les bonus, 220×260 pour le finish).
+const SVG_RASTER_SIZES = {
+  '+5s':    { w: 256, h: 256 },
+  '+10s':   { w: 256, h: 256 },
+  '+30s':   { w: 256, h: 256 },
+  'finish': { w: 256, h: 303 },  // 220/260 ≈ 0.846 → 256 / 0.846 ≈ 303
+};
+
+const svgImages       = {};   // Image() en cours / chargées
+const svgCanvasCache  = {};   // <canvas> offscreen avec le bitmap rasterisé
+
+function rasterizeSvg(key) {
+  if (svgCanvasCache[key]) return;
+  const img = svgImages[key];
+  if (!img || !img.complete || img.naturalWidth === 0) return;
+  const size = SVG_RASTER_SIZES[key];
+  if (!size || typeof document === 'undefined') return;
+  const off = document.createElement('canvas');
+  off.width  = size.w;
+  off.height = size.h;
+  off.getContext('2d').drawImage(img, 0, 0, size.w, size.h);
+  svgCanvasCache[key] = off;
+}
+
+function loadSvg(key, file) {
+  if (svgImages[key]) return;
+  const img = new Image();
+  img.onload = () => rasterizeSvg(key);
+  img.src = SVG_BASE + file;
+  svgImages[key] = img;
+  // Race condition : l'image peut être déjà en cache HTTP — onload ne refire
+  // pas. On retente la rasterization au prochain tick.
+  if (img.complete && img.naturalWidth > 0) rasterizeSvg(key);
+}
+
+if (typeof window !== 'undefined') {
+  loadSvg('+5s',    'bonus-5s.svg');
+  loadSvg('+10s',   'bonus-10s.svg');
+  loadSvg('+30s',   'bonus-30s.svg');
+  loadSvg('finish', 'finish.svg');
+}
+
+// Renvoie la source à dessiner : le canvas cache si dispo (rapide), sinon
+// l'Image directement (le navigateur rasterise à chaque appel), sinon null.
+function getSvgSource(key) {
+  if (svgCanvasCache[key]) return svgCanvasCache[key];
+  const img = svgImages[key];
+  if (img && img.complete && img.naturalWidth > 0) return img;
+  return null;
+}
+
+function svgReady(key) {
+  return getSvgSource(key) !== null;
+}
+
 // ── Seeded PRNG (Mulberry32) ──────────────────────────────────────────────────
 function mulberry32(seed) {
   return function () {
@@ -76,170 +143,162 @@ export function generateNebula(w, h, seed = 42) {
   return off;
 }
 
-// ── Track (metallic neon) ─────────────────────────────────────────────────────
+// ── Theme helpers ─────────────────────────────────────────────────────────────
+// Fallback theme when g.theme is missing (legacy / safety net).
+function getTheme(g) {
+  if (g.theme) return g.theme;
+  const neon = g.trackColor || '#00c8ff';
+  const r = parseInt(neon.slice(1, 3), 16);
+  const gv = parseInt(neon.slice(3, 5), 16);
+  const b = parseInt(neon.slice(5, 7), 16);
+  const rgba = (a) => `rgba(${r},${gv},${b},${a})`;
+  return {
+    neon, neonRgba: rgba,
+    surfaceHi: '#2a2e36', surfaceMid: '#1a1d24', surfaceLo: '#0c0f15',
+    trackFloor: '#d6cebc', trackHi: '#ece5d2', trackLo: '#928876',
+    edgeLit:    'rgba(255,253,245,0.85)',
+    edgeShadow: 'rgba(5,7,12,0.85)',
+    neonCore:   '#f4f9ff',
+    highlight:  'rgba(255,255,255,0.95)',
+    ball: '#c08050', hole: '#88ff66',
+  };
+}
+
+// ── Surface (dark base) ───────────────────────────────────────────────────────
+// Remplit le canvas avec le fond sombre — la table sur laquelle reposent
+// les pistes. Les pistes (drawTrack) sont dessinées comme des strokes
+// surélevés au-dessus de cette surface.
+export function drawBoard(ctx, g, ia) {
+  const { W, H } = g;
+  const t = getTheme(g);
+
+  ctx.save();
+  ctx.globalAlpha = ia;
+  // Radial gradient — light bias towards upper-left simulates a top-left
+  // light source on the slate surface.
+  const grad = ctx.createRadialGradient(
+    W * 0.28, H * 0.22, Math.min(W, H) * 0.05,
+    W * 0.58, H * 0.70, Math.max(W, H) * 0.90
+  );
+  grad.addColorStop(0,    t.surfaceHi);
+  grad.addColorStop(0.55, t.surfaceMid);
+  grad.addColorStop(1,    t.surfaceLo);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+// ── Track (carved groove + neon) ──────────────────────────────────────────────
+// Path topology unchanged — still drawn as line segments between adjacent open
+// cells. The visual style is a recessed channel (dark) with a neon stream
+// running through it.
 export function drawTrack(ctx, g, btx, bty, ia) {
-  const { maze, cw, ch, R, C, trackRatio, W, H } = g;
-  const tc = g.trackColor || '#00c8ff';   // neon colour (changes every 5 levels)
+  const { maze, cw, ch, R, C, trackRatio } = g;
+  const t  = getTheme(g);
   const tw = Math.min(cw, ch) * trackRatio;
 
-  // Derive rgba helper from hex colour
-  function tcRgba(a) {
-    const r = parseInt(tc.slice(1,3), 16);
-    const gv = parseInt(tc.slice(3,5), 16);
-    const b = parseInt(tc.slice(5,7), 16);
-    return `rgba(${r},${gv},${b},${a})`;
-  }
-
-  ctx.save();
-  ctx.translate(btx * -4, bty * -4);
-
-  // Subtle hex grid in the void
-  ctx.save();
-  ctx.globalAlpha = 0.048 * ia;
-  ctx.strokeStyle = '#003399';
-  ctx.lineWidth = 0.5;
-  const hSize = Math.min(cw, ch) * 0.24;
-  const hexCols = Math.ceil(W / (hSize * 1.732)) + 2;
-  const hexRows = Math.ceil(H / (hSize * 1.5)) + 2;
-  for (let hr = -1; hr < hexRows; hr++) {
-    for (let hc2 = -1; hc2 < hexCols; hc2++) {
-      const hx = hc2 * hSize * 1.732 + (((hr % 2) + 2) % 2) * hSize * 0.866;
-      const hy = hr * hSize * 1.5;
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = (Math.PI / 3) * i - Math.PI / 6;
-        const px = hx + hSize * Math.cos(a), py = hy + hSize * Math.sin(a);
-        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-      }
-      ctx.closePath(); ctx.stroke();
+  // Build the maze path once, reuse across passes (Path2D is widely supported).
+  const path = new Path2D();
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < C; c++) {
+      const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
+      const ce = maze[r][c];
+      if (c < C - 1 && !ce.R) { path.moveTo(cx, cy); path.lineTo(cx + cw, cy); }
+      if (r < R - 1 && !ce.B) { path.moveTo(cx, cy); path.lineTo(cx, cy + ch); }
     }
   }
+
+  ctx.save();
+  // Subtle parallax — the groove appears to "sit inside" the plateau when
+  // the board tilts. CSS handles the actual 3D tilt; this just adds depth cue.
+  ctx.translate(btx * -2, bty * -2);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // 1 — Drop shadow (la piste surélevée projette une ombre sur la surface
+  //     vers le bas-droit ; donne la sensation de relief)
+  ctx.save();
+  ctx.translate(2.5, 3.5);
+  ctx.globalAlpha = 0.85 * ia;
+  ctx.strokeStyle = t.edgeShadow;
+  ctx.lineWidth = tw + 2;
+  ctx.stroke(path);
   ctx.restore();
 
-  function buildPath() {
-    ctx.beginPath();
-    for (let r = 0; r < R; r++) {
-      for (let c = 0; c < C; c++) {
-        const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
-        const ce = maze[r][c];
-        if (c < C - 1 && !ce.R) { ctx.moveTo(cx, cy); ctx.lineTo(cx + cw, cy); }
-        if (r < R - 1 && !ce.B) { ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + ch); }
-      }
-    }
-  }
-
-  function drawNodes(radius) {
-    for (let r = 0; r < R; r++) {
-      for (let c = 0; c < C; c++) {
-        const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
-        ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-  }
-
-  // Parallax side glow (strong offset → depth illusion)
+  // 2 — Lit edge (le bord haut-gauche de la piste capte la lumière)
   ctx.save();
-  ctx.translate(btx * 20, bty * 20);
-  ctx.globalAlpha = 0.22 * ia;
-  ctx.shadowColor = tc; ctx.shadowBlur = 18;
-  ctx.strokeStyle = tcRgba(0.65);
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = tw * 1.15;
-  buildPath(); ctx.stroke();
+  ctx.translate(-1.5, -1.5);
+  ctx.globalAlpha = 0.90 * ia;
+  ctx.strokeStyle = t.edgeLit;
+  ctx.lineWidth = tw + 1.5;
+  ctx.stroke(path);
   ctx.restore();
 
-  // Drop shadow (parallax)
+  // 3 — Piste — couche d'épaule légèrement sombre pour adoucir le bord
   ctx.save();
-  ctx.translate(btx * 9, bty * 9);
-  ctx.globalAlpha = 0.22 * ia;
-  ctx.strokeStyle = 'rgba(0,5,40,0.85)';
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.globalAlpha = ia;
+  ctx.strokeStyle = t.trackLo;
+  ctx.lineWidth = tw + 0.5;
+  ctx.stroke(path);
+  ctx.restore();
+
+  // 4 — Piste — sol beige (corps principal de la piste)
+  ctx.save();
+  ctx.globalAlpha = ia;
+  ctx.strokeStyle = t.trackFloor;
   ctx.lineWidth = tw;
-  buildPath(); ctx.stroke();
+  ctx.stroke(path);
   ctx.restore();
 
-  // Chrome border
+  // 5 — Voile coloré très subtil sur la piste (pose la teinte du niveau)
+  ctx.save();
+  ctx.globalAlpha = 0.30 * ia;
+  ctx.shadowColor = t.neon;
+  ctx.shadowBlur  = 5;
+  ctx.strokeStyle = t.neonRgba(0.18);
+  ctx.lineWidth   = Math.max(2, tw * 0.08);
+  ctx.stroke(path);
+  ctx.restore();
+
+  // 6 — Cœur de ligne « néon glacé » : trait blanc-bleuté avec un halo
+  //     coloré DISCRET (shadowBlur faible, shadowColor = teinte du niveau).
+  //     C'est le shadowBlur qui colore le halo, le strokeStyle reste froid.
   ctx.save();
   ctx.globalAlpha = ia;
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = 'rgba(155,205,235,0.88)';
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = tw;
-  buildPath(); ctx.stroke();
-  ctx.fillStyle = 'rgba(155,205,235,0.88)';
-  drawNodes(tw / 2);
+  ctx.shadowColor = t.neon;
+  ctx.shadowBlur  = 5;
+  ctx.strokeStyle = t.neonCore || '#f4f9ff';
+  ctx.lineWidth   = 1.8;
+  ctx.stroke(path);
   ctx.restore();
 
-  // Dark metallic surface
+  // 7 — Tiny bright nucleus (étincelle blanche au centre, très discrète)
   ctx.save();
-  ctx.globalAlpha = ia;
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = '#05001a';
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = tw * 0.80;
-  buildPath(); ctx.stroke();
-  ctx.fillStyle = '#05001a';
-  drawNodes(tw * 0.40);
+  ctx.globalAlpha = 0.80 * ia;
+  ctx.shadowColor = '#ffffff';
+  ctx.shadowBlur  = 2;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth   = 0.7;
+  ctx.stroke(path);
   ctx.restore();
 
-  // Brushed metal reflection
-  ctx.save();
-  ctx.globalAlpha = 0.32 * ia;
-  ctx.strokeStyle = 'rgba(30,65,130,1)';
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = tw * 0.58;
-  buildPath(); ctx.stroke();
-  ctx.restore();
-
-  // Wide neon glow
-  ctx.save();
-  ctx.globalAlpha = ia;
-  ctx.shadowColor = tc; ctx.shadowBlur = 18;
-  ctx.strokeStyle = tcRgba(0.55);
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = tw * 0.18;
-  buildPath(); ctx.stroke();
-  ctx.restore();
-
-  // Bright centre line
-  ctx.save();
-  ctx.globalAlpha = ia;
-  ctx.shadowColor = '#a8e8ff'; ctx.shadowBlur = 5;
-  ctx.strokeStyle = 'rgba(205,245,255,0.95)';
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.lineWidth = 1.5;
-  buildPath(); ctx.stroke();
-  ctx.restore();
-
-  // Bright intersections (≥3 open passages)
+  // 8 — Petits points d'intersection (≥ 3 passages). Discrets — un simple
+  // repère blanc-bleuté pour marquer un point de décision.
   for (let r = 0; r < R; r++) {
     for (let c = 0; c < C; c++) {
       const ce = maze[r][c];
       const open = (!ce.T?1:0) + (!ce.B?1:0) + (!ce.L?1:0) + (!ce.R?1:0);
-      if (open >= 3) {
-        const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
-        ctx.save();
-        ctx.globalAlpha = 0.50 * ia;
-        ctx.shadowColor = tc; ctx.shadowBlur = 26;
-        ctx.fillStyle = tcRgba(0.38);
-        ctx.beginPath(); ctx.arc(cx, cy, tw * 0.48, 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = 0.80 * ia;
-        ctx.shadowBlur = 8;
-        ctx.fillStyle = tcRgba(0.78);
-        ctx.beginPath(); ctx.arc(cx, cy, tw * 0.10, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
-      }
+      if (open < 3) continue;
+      const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
+      ctx.save();
+      ctx.globalAlpha = 0.55 * ia;
+      ctx.shadowColor = t.neon;
+      ctx.shadowBlur  = 6;
+      ctx.fillStyle   = t.neonCore || '#f4f9ff';
+      ctx.beginPath(); ctx.arc(cx, cy, tw * 0.07, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
     }
   }
-
-  // Maze border
-  ctx.save();
-  ctx.globalAlpha = 0.72 * ia;
-  ctx.shadowColor = tc; ctx.shadowBlur = 22;
-  ctx.strokeStyle = tcRgba(0.80);
-  ctx.lineWidth = 3; ctx.lineCap = 'square';
-  ctx.strokeRect(2, 2, W - 4, H - 4);
-  ctx.restore();
 
   ctx.restore();
 }
@@ -273,68 +332,46 @@ export function drawCheckpoints(ctx, g, ia) {
   }
 }
 
-// ── Exit vortex ───────────────────────────────────────────────────────────────
+// ── Exit vortex (FINISH) — rendu via SVG ─────────────────────────────────────
+// finish.svg : viewBox 220×260, centre des anneaux à (110, 110), rayon
+// extérieur 80. Le label « FINISH » est cuit dans le SVG sous le portail.
+// On counter-rotate le tout pour que les anneaux et le label restent
+// orientés correctement à l'écran quelle que soit la rotation du device.
 export function drawVortex(ctx, g, ts, ia, canvasRot = 0) {
   const { cw, ch, br, hole } = g;
-  const hx = hole.c * cw + cw / 2, hy = hole.r * ch + ch / 2;
-  const hR = br * 1.25;
-  const vt = ts * 0.001;
+  const hx = hole.c * cw + cw / 2;
+  const hy = hole.r * ch + ch / 2;
+  const src = getSvgSource('finish');
 
-  // Outer glow
-  const hGlow = ctx.createRadialGradient(hx, hy, hR * 0.3, hx, hy, hR * 3.5);
-  hGlow.addColorStop(0, 'rgba(0,255,128,0.20)');
-  hGlow.addColorStop(1, 'rgba(0,255,128,0)');
-  ctx.globalAlpha = ia;
-  ctx.fillStyle = hGlow;
-  ctx.beginPath(); ctx.arc(hx, hy, hR * 3.5, 0, Math.PI * 2); ctx.fill();
+  // Pulsation lente du portail
+  const pulse = 1 + Math.sin(ts * 0.003) * 0.05;
 
-  // Black void
-  ctx.fillStyle = '#000';
-  ctx.beginPath(); ctx.arc(hx, hy, hR * 1.05, 0, Math.PI * 2); ctx.fill();
+  if (src) {
+    // Rayon visible du portail sur le canvas
+    const targetRingR = br * 1.6;
+    const scale       = targetRingR / 80;   // 80 = rayon dans le viewBox SVG
+    const sw = 220 * scale;
+    const sh = 260 * scale;
+    // Anchor : on veut que le centre des anneaux (110,110 viewBox) tombe à (0,0)
+    const ax = -110 * scale;
+    const ay = -110 * scale;
 
-  // Spiral arms (3 layers, 5 arms each)
-  for (let layer = 2; layer >= 0; layer--) {
-    const r2     = hR * (0.45 + layer * 0.32);
-    const speed  = 1.6 - layer * 0.35;
-    const alpha  = layer === 2 ? 0.65 : layer === 1 ? 0.45 : 0.30;
-    const lw     = layer === 2 ? 1.5  : layer === 1 ? 2.5  : 3.5;
     ctx.save();
-    ctx.shadowColor = '#00ff80'; ctx.shadowBlur = 10 + layer * 6;
-    ctx.strokeStyle = layer === 2
-      ? 'rgba(200,255,215,0.95)'
-      : layer === 1 ? 'rgba(0,255,128,0.85)' : 'rgba(0,200,100,0.70)';
-    ctx.lineWidth = lw; ctx.lineCap = 'round';
-    for (let arm = 0; arm < 5; arm++) {
-      const baseAngle = (arm / 5) * Math.PI * 2 + vt * speed;
-      ctx.globalAlpha = alpha * ia;
-      ctx.beginPath();
-      ctx.arc(hx, hy, r2, baseAngle, baseAngle + Math.PI * 0.42);
-      ctx.stroke();
-    }
+    ctx.globalAlpha = ia;
+    ctx.translate(hx, hy);
+    ctx.rotate(canvasRot);
+    ctx.scale(pulse, pulse);
+    ctx.drawImage(src, ax, ay, sw, sh);
     ctx.restore();
+    return;
   }
 
-  // Neon ring
+  // Fallback : anneau néon simple si le SVG n'est pas encore chargé
   ctx.save();
   ctx.globalAlpha = ia;
-  ctx.shadowColor = N_HOLE; ctx.shadowBlur = 22;
+  ctx.shadowColor = N_HOLE; ctx.shadowBlur = 18;
   ctx.strokeStyle = N_HOLE; ctx.lineWidth = 2.5;
-  ctx.beginPath(); ctx.arc(hx, hy, hR, 0, Math.PI * 2); ctx.stroke();
-  ctx.shadowBlur = 6;
-  ctx.strokeStyle = 'rgba(200,255,220,0.90)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(hx, hy, hR * 0.68, 0, Math.PI * 2); ctx.stroke();
-  ctx.restore();
-
-  // FINISH label — counter-rotated so it reads upright on screen
-  ctx.save();
-  ctx.globalAlpha = 0.78 * ia;
-  const finTx = hx, finTy = hy + hR + Math.min(cw, ch) * 0.30;
-  ctx.translate(finTx, finTy);
-  ctx.rotate(canvasRot);
-  ctx.font = `bold ${Math.min(cw, ch) * 0.22}px "Courier New"`;
-  ctx.fillStyle = N_HOLE; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.shadowColor = N_HOLE; ctx.shadowBlur = 12;
-  ctx.fillText('FINISH', 0, 0);
+  ctx.beginPath(); ctx.arc(hx, hy, br * 1.4 * pulse, 0, Math.PI * 2); ctx.stroke();
   ctx.restore();
 }
 
@@ -440,12 +477,14 @@ export function draw(ctx, g, ts, btx, bty, tilt, joy, canvasRot = 0) {
   const { W, H, introT } = g;
   const ia = Math.min(1, (ts - introT) / 300);
 
-  // Transparent canvas — full-screen nebula is rendered in the HTML background
+  // Plateau fills the canvas — the nebula remains visible only OUTSIDE the
+  // canvas (around the board in the HTML background).
   ctx.globalAlpha = 1;
   ctx.clearRect(0, 0, W, H);
 
-  ctx.globalAlpha = ia;
+  drawBoard(ctx, g, ia);
 
+  ctx.globalAlpha = ia;
   drawTrack(ctx, g, btx, bty, ia);
   drawCheckpoints(ctx, g, ia);
   drawCollectibles(ctx, g, ts, ia, canvasRot);
@@ -458,63 +497,60 @@ export function draw(ctx, g, ts, btx, bty, tilt, joy, canvasRot = 0) {
   drawFloatingTexts(ctx, g, ts, canvasRot);
 }
 
-// ── Collectibles (+5s / +10s / +30s) ─────────────────────────────────────────
+// ── Collectibles (+5s / +10s / +30s) — rendus via SVG ────────────────────────
+// Les SVG sont chargés en haut du module (svgImages). On les drawImage ici
+// counter-rotated pour que le label reste lisible quel que soit l'angle.
+const COLLECTIBLE_FALLBACK_COLORS = {
+  '+5s':  '#1ad8ff',
+  '+10s': '#9b6bff',
+  '+30s': '#ff45a8',
+};
+
 export function drawCollectibles(ctx, g, ts, ia, canvasRot = 0) {
-  const { collectibles, cw, ch, br } = g;
+  const { collectibles, br } = g;
   if (!collectibles || collectibles.length === 0) return;
-  const r = br * 0.60;
-  const COLORS = { '+5s': '#00c8ff', '+10s': '#00ff80', '+30s': '#dd44ff' };
+  const size = br * 2.8;  // taille apparente du SVG (200×200 viewBox)
 
   for (const col of collectibles) {
-    const cx = col.c * cw + cw / 2;
-    const cy = col.r * ch + ch / 2;
-    const color = COLORS[col.type] || '#00c8ff';
+    const cx = col.c * g.cw + g.cw / 2;
+    const cy = col.r * g.ch + g.ch / 2;
+    const src = getSvgSource(col.type);  // canvas cache ou Image, sinon null
 
+    // Phase de disparition (400 ms : grossit légèrement + s'efface)
     if (col.collected) {
-      // Disappear animation (400ms scale-down)
       const age = ts - col.collectT;
       if (age > 400) continue;
-      const sc = 1 - age / 400;
+      const t01   = age / 400;
+      const sc    = 1 + t01 * 0.45;
+      const alpha = 1 - t01;
       ctx.save();
-      ctx.globalAlpha = sc * ia;
-      ctx.shadowColor = color; ctx.shadowBlur = 20;
-      ctx.strokeStyle = color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(cx, cy, r * sc * 2.0, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = alpha * ia;
+      ctx.translate(cx, cy);
+      ctx.rotate(canvasRot);
+      ctx.scale(sc, sc);
+      if (src) ctx.drawImage(src, -size / 2, -size / 2, size, size);
       ctx.restore();
       continue;
     }
 
-    // Pulse animation
-    const pulse = Math.sin(ts * 0.004 + col.c + col.r) * 0.12 + 0.88;
+    // Pulsation douce
+    const pulse = 1 + Math.sin(ts * 0.004 + col.c + col.r) * 0.06;
 
-    ctx.save();
-    ctx.globalAlpha = pulse * ia;
-    ctx.shadowColor = color; ctx.shadowBlur = 18;
-
-    // Outer ring
-    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(cx, cy, r * 1.35, 0, Math.PI * 2); ctx.stroke();
-
-    // Inner filled circle
-    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    grad.addColorStop(0,   `${color}cc`);
-    grad.addColorStop(0.5, `${color}66`);
-    grad.addColorStop(1,   `${color}11`);
-    ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
-
-    // Label — counter-rotated to read upright on screen
     ctx.save();
     ctx.globalAlpha = ia;
     ctx.translate(cx, cy);
     ctx.rotate(canvasRot);
-    ctx.fillStyle = '#fff';
-    ctx.shadowColor = color; ctx.shadowBlur = 8;
-    ctx.font = `bold ${Math.round(r * 0.9)}px Orbitron, Courier New`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(col.type, 0, 0);
-    ctx.restore();
+    ctx.scale(pulse, pulse);
 
+    if (src) {
+      ctx.drawImage(src, -size / 2, -size / 2, size, size);
+    } else {
+      // Fallback (SVG pas encore chargé) — disque néon simple
+      const color = COLLECTIBLE_FALLBACK_COLORS[col.type] || '#00c8ff';
+      ctx.shadowColor = color; ctx.shadowBlur = 14;
+      ctx.strokeStyle = color; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, br * 0.7, 0, Math.PI * 2); ctx.stroke();
+    }
     ctx.restore();
   }
 }

@@ -147,11 +147,14 @@
   .logo-block { text-align: center; }
   .logo-text {
     font-size: clamp(32px, 8vw, 56px); font-weight: 900;
-    color: #00c8ff; letter-spacing: 6px;
-    text-shadow: 0 0 30px #00c8ff, 0 0 10px #00c8ff;
+    color: var(--neon-color, #00c8ff); letter-spacing: 6px;
+    text-shadow: 0 0 30px var(--neon-color, #00c8ff),
+                 0 0 10px var(--neon-color, #00c8ff);
   }
   .logo-sub {
-    font-size: clamp(9px, 2vw, 11px); color: rgba(0,200,255,0.50);
+    font-size: clamp(9px, 2vw, 11px);
+    color: rgba(0,200,255,0.50);
+    color: color-mix(in srgb, var(--neon-color, #00c8ff) 50%, transparent);
     letter-spacing: 6px; margin-top: 4px;
     font-family: 'Courier New', monospace;
   }
@@ -244,7 +247,9 @@
   .cfg-panel {
     background: rgba(0,5,25,0.98);
     border: 1.5px solid rgba(0,200,255,0.50);
+    border: 1.5px solid color-mix(in srgb, var(--neon-color, #00c8ff) 50%, transparent);
     border-radius: 14px; padding: 28px 28px;
     box-shadow: 0 0 40px rgba(0,200,255,0.20);
+    box-shadow: 0 0 40px color-mix(in srgb, var(--neon-color, #00c8ff) 20%, transparent);
   }
 </style>

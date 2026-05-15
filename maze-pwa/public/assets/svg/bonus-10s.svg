@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 200 200"
+     role="img"
+     aria-label="Bonus +10 secondes">
+  <title>Bonus +10s</title>
+  <defs>
+    <filter id="glow-10s" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="6"   result="halo"/>
+      <feGaussianBlur stdDeviation="1.8" result="bloom"/>
+      <feMerge>
+        <feMergeNode in="halo"/>
+        <feMergeNode in="halo"/>
+        <feMergeNode in="bloom"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <circle cx="100" cy="100" r="72" fill="#9b6bff" fill-opacity="0.18"/>
+
+  <g filter="url(#glow-10s)">
+    <circle cx="100" cy="100" r="72" fill="none" stroke="#9b6bff" stroke-width="6"/>
+  </g>
+
+  <text x="100" y="100"
+        text-anchor="middle" dominant-baseline="central"
+        font-family="Orbitron, 'Courier New', monospace"
+        font-weight="700" font-size="34"
+        fill="#ffffff" letter-spacing="1">+10s</text>
+</svg>
