@@ -21,10 +21,8 @@
   // (capturé par inputMgr).
 
   import { onMount, onDestroy } from 'svelte';
-  import { tweened }            from 'svelte/motion';
-  import { cubicOut }           from 'svelte/easing';
   import { Canvas, T }          from '@threlte/core';
-  import { CanvasTexture, SRGBColorSpace } from 'three';
+  import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap } from 'three';
   import { getSvgSource, svgReady } from '../lib/render.js';
 
   export let G            = null;
@@ -57,17 +55,14 @@
   $: visibleH    = G ? (isLandscape ? G.W : G.H) : 660;
   $: cameraDist  = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.05;
 
-  // Élévation dynamique : tiltMag clamped 0..1 sur la magnitude du joystick.
-  // camY = sin(elev), camZ = cos(elev). Au repos (tiltMag=0) : camera dead-on.
-  // En tilt max : ~12° d'élévation, on voit les côtés des murs s'incliner.
-  //
-  // Lot 6.1 : tweened pour absorber les variations rapides → pas de rebond
-  // au relâchement du joystick.
-  const camElevTw = tweened(0, { duration: 220, easing: cubicOut });
-  $: tiltMag = Math.min(Math.hypot(boardTiltX, boardTiltY), 1);
-  $: camElevTw.set(tiltMag * CAM_MAX_ELEV_DEG * DEG);
-  $: camY    = Math.sin($camElevTw) * cameraDist;
-  $: camZ    = Math.cos($camElevTw) * cameraDist;
+  // Lot 6.2 — retour caméra dead-on PERMANENT. L'utilisateur reportait
+  // un « rebond » : avec l'élévation dynamique, l'origine restait centrée
+  // mais le centre visuel de la maze (qui n'est pas le même point que
+  // l'origine 3D pour une projection perspective tilted) se décalait
+  // vers le bas. Avec dead-on, pas de shift. Le relief 3D vient
+  // désormais des shadows (cf. <Canvas shadows={...}>).
+  $: camY    = 0;
+  $: camZ    = cameraDist;
   // cameraZ utilisé pour le `far` plane (compat avec d'autres calculs).
   $: cameraZ     = cameraDist;
 
@@ -199,17 +194,29 @@
 </script>
 
 <div class="threlte-host" bind:this={host}>
-  <Canvas>
+  <Canvas shadows={PCFSoftShadowMap}>
     <T.PerspectiveCamera bind:ref={cameraRef} makeDefault
                          position={[0, camY, camZ]}
                          fov={FOV} near={1} far={cameraZ * 3} />
 
-    <!-- Lot 6 — lighting zen : ratio ambient/directional plus doux,
-         le rendu se veut diffus comme une lumière studio sur papier
-         crème. Plus de contraste agressif vs Lot 5. -->
-    <T.AmbientLight intensity={0.55} />
-    <T.DirectionalLight position={[200, 500, 800]} intensity={0.75} />
-    <T.DirectionalLight position={[-200, -300, 400]} intensity={0.25} />
+    <!-- Lighting (Lot 6.2) — key directional inclinée + ambient
+         conservé. La key cast shadows pour que les murs projettent
+         leur silhouette sur le sol — c'est ce qui rend l'extrusion
+         3D visible depuis une vue top-down dead-on. -->
+    <T.AmbientLight intensity={0.50} />
+    <T.DirectionalLight position={[G ? G.W * 0.35 : 200, G ? G.H * 0.20 : 100, (G ? Math.min(G.cw, G.ch) : 80) * 6]}
+                        intensity={0.85}
+                        castShadow
+                        shadow.mapSize.width={1024}
+                        shadow.mapSize.height={1024}
+                        shadow.camera.left={G ? -G.W : -500}
+                        shadow.camera.right={G ? G.W : 500}
+                        shadow.camera.top={G ? G.H : 800}
+                        shadow.camera.bottom={G ? -G.H : -800}
+                        shadow.camera.near={1}
+                        shadow.camera.far={(G ? Math.min(G.cw, G.ch) : 80) * 15}
+                        shadow.bias={-0.002} />
+    <T.DirectionalLight position={[-150, -200, 400]} intensity={0.20} />
 
     <!-- World-lock root group -->
     <T.Group rotation.z={worldLockZ}>
@@ -217,9 +224,10 @@
       <T.Group rotation.x={tiltX} rotation.y={tiltY}>
 
         <!-- Sol (track) — texture clear : beige uniforme + ligne néon
-             visible. Mat papier (rough 0.92, metal 0). -->
+             visible. Mat papier (rough 0.92, metal 0). Reçoit les
+             ombres projetées par les murs (Lot 6.2). -->
         {#if G}
-          <T.Mesh position={[0, 0, 0]}>
+          <T.Mesh position={[0, 0, 0]} receiveShadow>
             <T.PlaneGeometry args={[G.W, G.H]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
@@ -236,7 +244,8 @@
              extrusion visible en vue top-down. wallT ajouté à la longueur
              pour overlap aux jonctions (pas de gap visible). -->
         {#each walls as wall, i (i)}
-          <T.Mesh position={[wall.x, wall.y, wallH / 2]}>
+          <T.Mesh position={[wall.x, wall.y, wallH / 2]}
+                  castShadow receiveShadow>
             <T.BoxGeometry args={
               wall.type === 'h'
                 ? [wall.length + wallT, wallT, wallH]
@@ -271,45 +280,44 @@
           {/each}
         {/if}
 
-        <!-- Cadre néon (Lot 6) — 4 segments émissifs dans theme.neon,
-             posés au-dessus des murs. emissiveIntensity haut +
-             toneMapped:false → glow visible sans bloom post-process. -->
+        <!-- Cadre néon (Lot 6, ajusté 6.2) — 4 segments émissifs dans
+             theme.neon, posés au-dessus des murs. Épaisseur calée sur
+             la border 2D (1.5-3 px). Placé À L'INTÉRIEUR du rect du
+             maze pour ne pas déborder de la zone clip de Scene3D. -->
         {#if G}
-          {@const frT  = Math.min(G.cw, G.ch) * 0.10}
-          {@const frH  = Math.min(G.cw, G.ch) * 0.10}
-          {@const frZ  = wallH * 0.95}
-          {@const fw   = G.W + frT * 2}
-          {@const fh   = G.H + frT * 2}
-          <!-- top -->
-          <T.Mesh position={[0, G.H / 2 + frT / 2, frZ]}>
-            <T.BoxGeometry args={[fw, frT, frH]} />
+          {@const frT  = 2.5}
+          {@const frH  = wallH * 0.20}
+          {@const frZ  = wallH * 1.05}
+          <!-- top : edge à G.H/2, frame inside vers Y descendant -->
+          <T.Mesh position={[0, G.H / 2 - frT / 2, frZ]}>
+            <T.BoxGeometry args={[G.W, frT, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
-                                    emissiveIntensity={1.5}
+                                    emissiveIntensity={1.6}
                                     toneMapped={false} />
           </T.Mesh>
           <!-- bottom -->
-          <T.Mesh position={[0, -G.H / 2 - frT / 2, frZ]}>
-            <T.BoxGeometry args={[fw, frT, frH]} />
+          <T.Mesh position={[0, -G.H / 2 + frT / 2, frZ]}>
+            <T.BoxGeometry args={[G.W, frT, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
-                                    emissiveIntensity={1.5}
+                                    emissiveIntensity={1.6}
                                     toneMapped={false} />
           </T.Mesh>
           <!-- left -->
-          <T.Mesh position={[-G.W / 2 - frT / 2, 0, frZ]}>
-            <T.BoxGeometry args={[frT, fh, frH]} />
+          <T.Mesh position={[-G.W / 2 + frT / 2, 0, frZ]}>
+            <T.BoxGeometry args={[frT, G.H - frT * 2, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
-                                    emissiveIntensity={1.5}
+                                    emissiveIntensity={1.6}
                                     toneMapped={false} />
           </T.Mesh>
           <!-- right -->
-          <T.Mesh position={[G.W / 2 + frT / 2, 0, frZ]}>
-            <T.BoxGeometry args={[frT, fh, frH]} />
+          <T.Mesh position={[G.W / 2 - frT / 2, 0, frZ]}>
+            <T.BoxGeometry args={[frT, G.H - frT * 2, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
-                                    emissiveIntensity={1.5}
+                                    emissiveIntensity={1.6}
                                     toneMapped={false} />
           </T.Mesh>
         {/if}
@@ -355,23 +363,13 @@
           </T.Sprite>
         {/if}
 
-        <!-- Ball shadow — disque sombre dans le tilt group, suit la
-             pente du plateau. Scale + opacity réduits pendant la chute. -->
-        {#if G && ballVisible}
-          <T.Mesh position={[ballX, ballY, G.br * 0.05]}
-                  scale={[fallScale, fallScale, 1]}>
-            <T.CircleGeometry args={[ballR * 1.3, 24]} />
-            <T.MeshBasicMaterial color="#000000" transparent={true}
-                                 opacity={0.30 * fallScale}
-                                 depthWrite={false} />
-          </T.Mesh>
-        {/if}
-
-        <!-- Bille — bronze brillant (Lot 6.1 : couleur lumineuse +
-             emissive subtil pour pop sur fond beige clair). -->
+        <!-- Bille — bronze brillant. Cast shadows désormais (Lot 6.2 :
+             ShadowMap activée), l'ombre noire fake CircleGeometry est
+             retirée — la vraie ombre suffit. -->
         {#if G && ballVisible}
           <T.Mesh position={[ballX, ballY, ballR * fallScale]}
-                  scale={[fallScale, fallScale, fallScale]}>
+                  scale={[fallScale, fallScale, fallScale]}
+                  castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
             <T.MeshStandardMaterial color="#e0a060"
                                     emissive="#3a1f08"
