@@ -26,4 +26,5 @@ export const settings = persist('mbSettings', {
   controlMode: 'gyro',   // 'gyro' | 'joystick'
   haptics:     true,
   zenColor:    '#00c8ff',
+  engine3D:    false,    // bascule expérimentale vers la scène Threlte
 });

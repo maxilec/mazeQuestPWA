@@ -57,15 +57,23 @@
     }
   }
 
-  // ── Engine flag : ?engine=3d active la scène Threlte par-dessus le
-  //    canvas 2D. Le canvas 2D reste en DOM pour capturer les touch events
-  //    (inputMgr), mais on skip son draw() pour économiser le CPU. Scene3D
-  //    est chargée dynamiquement → bundle initial inchangé en mode 2D.
-  const engine = (typeof window !== 'undefined')
+  // ── Engine flag : la scène Threlte se monte par-dessus le canvas 2D
+  //    quand activée. Deux sources d'activation :
+  //      - $settings.engine3D (toggle UI dans les paramètres, persistant)
+  //      - ?engine=3d (override URL session-only, utile en dev)
+  //    Le canvas 2D reste en DOM pour capturer les touch events (inputMgr),
+  //    son draw() est court-circuité pour économiser le CPU.
+  const urlEngineFlag = (typeof window !== 'undefined')
     ? new URLSearchParams(window.location.search).get('engine')
     : null;
-  const is3D = engine === '3d';
+  $: is3D = $settings.engine3D || urlEngineFlag === '3d';
   let Scene3DComponent = null;
+
+  // Lazy-load à la volée : la première fois que is3D devient true, on
+  // fetch le chunk Threlte/three. Aucun coût bundle en mode 2D.
+  $: if (is3D && !Scene3DComponent && typeof window !== 'undefined') {
+    import('./Scene3D.svelte').then(mod => { Scene3DComponent = mod.default; });
+  }
 
   // ── Refs DOM & état non-réactif ────────────────────────────────────────────
   let canvas, boardWrap, worldRotateEl;
@@ -294,12 +302,6 @@
   // ── Mount / Game loop ──────────────────────────────────────────────────────
   onMount(() => {
     hint = $settings.controlMode === 'joystick' ? 'joystick' : 'mouse';
-
-    // Lazy-load la scène 3D si le flag est actif. Chunk Threlte/three
-    // isolé par Vite — pas de coût sur le bundle initial en mode 2D.
-    if (is3D) {
-      import('./Scene3D.svelte').then(mod => { Scene3DComponent = mod.default; });
-    }
 
     // Wake lock — empêche l'écran de s'éteindre pendant le jeu
     let wakeLock = null;
@@ -540,6 +542,15 @@
   });
 </script>
 
+<!-- Scène 3D Threlte — montée AVANT HUD dans le DOM pour que la HUD
+     reste peinte par-dessus (même z-index, le second DOM gagne).
+     pointer-events: none côté Scene3D → les touches tombent sur le canvas
+     2D dessous, qu'inputMgr écoute déjà. -->
+{#if is3D && Scene3DComponent}
+  <svelte:component this={Scene3DComponent}
+    {G} {deviceAngle} {boardTiltX} {boardTiltY} />
+{/if}
+
 <HUD {lvl} {chrono} {attempts} {paused} mode={currentMode} {hint} {timeLeft}
      onTogglePause={togglePause}
      on:click={handleContainerTap}>
@@ -552,14 +563,6 @@
     hidden={is3D}
     on:click={handleCanvasTap} />
 </HUD>
-
-<!-- Scène 3D Threlte (Lot 2) — superposée au canvas 2D quand ?engine=3d.
-     pointer-events: none côté Scene3D → les touches tombent sur le canvas
-     2D dessous, qu'inputMgr écoute déjà. -->
-{#if is3D && Scene3DComponent}
-  <svelte:component this={Scene3DComponent}
-    {G} {deviceAngle} {boardTiltX} {boardTiltY} />
-{/if}
 
 {#if showCfg}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
