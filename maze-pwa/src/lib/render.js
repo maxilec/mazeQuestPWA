@@ -56,14 +56,15 @@ if (typeof window !== 'undefined') {
 
 // Renvoie la source à dessiner : le canvas cache si dispo (rapide), sinon
 // l'Image directement (le navigateur rasterise à chaque appel), sinon null.
-function getSvgSource(key) {
+// Exporté pour que Scene3D puisse encapsuler ces canvases en CanvasTexture.
+export function getSvgSource(key) {
   if (svgCanvasCache[key]) return svgCanvasCache[key];
   const img = svgImages[key];
   if (img && img.complete && img.naturalWidth > 0) return img;
   return null;
 }
 
-function svgReady(key) {
+export function svgReady(key) {
   return getSvgSource(key) !== null;
 }
 

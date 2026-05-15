@@ -83,6 +83,11 @@
   let boardTiltX = 0;
   let boardTiltY = 0;
 
+  // En 3D : rect (top/left/width/height) de .world-rotate, mis à jour
+  // chaque frame depuis la game loop. Passé en prop à Scene3D pour qu'elle
+  // se positionne au pixel près sur la zone canvas — HUD intacte autour.
+  let scene3DRect = null;
+
   // Transition douce de la couleur néon entre niveaux (ex. lvl 5 → 6 où la
   // palette bascule). On interpole linéairement de l'ancienne à la nouvelle
   // teinte sur NEON_FADE_MS. Mis à jour chaque frame dans la game loop.
@@ -380,22 +385,37 @@
       const MAX_DEG = 12;
       const wlRot   = -deviceAngle;
       if (boardWrap) {
-        boardWrap.style.transform = [
-          'translate(-50%, -50%)',
-          `rotate(${wlRot}deg)`,
-          'perspective(700px)',
-          `rotateX(${-boardTiltY * MAX_DEG}deg)`,
-          `rotateY(${boardTiltX * MAX_DEG}deg)`,
-        ].join(' ');
-        const haloRgba = G.theme?.neonRgba ? G.theme.neonRgba(0.18) : 'rgba(0,200,255,0.18)';
-        boardWrap.style.boxShadow =
-          `0 0 50px ${haloRgba}, ${boardTiltX * 18}px ${boardTiltY * 18 + 6}px 48px rgba(0,0,0,0.90)`;
+        if (is3D) {
+          // En 3D, la scène Threlte fait son propre tilt — on n'applique
+          // que le world-lock pour que le countdown overlay (toujours dans
+          // .board-wrap, voir Canvas.svelte) reste lisible.
+          boardWrap.style.transform = `translate(-50%, -50%) rotate(${wlRot}deg)`;
+          boardWrap.style.boxShadow = '';
+        } else {
+          boardWrap.style.transform = [
+            'translate(-50%, -50%)',
+            `rotate(${wlRot}deg)`,
+            'perspective(700px)',
+            `rotateX(${-boardTiltY * MAX_DEG}deg)`,
+            `rotateY(${boardTiltX * MAX_DEG}deg)`,
+          ].join(' ');
+          const haloRgba = G.theme?.neonRgba ? G.theme.neonRgba(0.18) : 'rgba(0,200,255,0.18)';
+          boardWrap.style.boxShadow =
+            `0 0 50px ${haloRgba}, ${boardTiltX * 18}px ${boardTiltY * 18 + 6}px 48px rgba(0,0,0,0.90)`;
+        }
       }
       if (worldRotateEl) {
         const normAngle = ((deviceAngle % 360) + 360) % 360;
         const isRot = normAngle === 90 || normAngle === 270;
         worldRotateEl.style.width  = (isRot ? canvas.height : canvas.width)  + 'px';
         worldRotateEl.style.height = (isRot ? canvas.width  : canvas.height) + 'px';
+        // En 3D, on capture le rect on-screen de .world-rotate et on le
+        // passe à Scene3D pour qu'elle se cadre exactement sur cette zone
+        // (au lieu de remplir tout le viewport et de déborder sur la HUD).
+        if (is3D) {
+          const r = worldRotateEl.getBoundingClientRect();
+          scene3DRect = { top: r.top, left: r.left, width: r.width, height: r.height };
+        }
       }
 
       // Resize sync (window resized sans rotation)
@@ -553,7 +573,7 @@
      touches tombent sur le canvas 2D dessous (pour inputMgr). -->
 {#if is3D && Scene3DComponent}
   <svelte:component this={Scene3DComponent}
-    {G} {deviceAngle} {boardTiltX} {boardTiltY} />
+    {G} {deviceAngle} {boardTiltX} {boardTiltY} rect={scene3DRect} />
 {/if}
 
 <HUD {lvl} {chrono} {attempts} {paused} mode={currentMode} {hint} {timeLeft}
