@@ -6,11 +6,35 @@
   import GameOver           from './components/GameOver.svelte';
   import Game               from './components/Game.svelte';
 
+  // Flag URL ?engine=3d → bascule sur la scène Threlte (Lot 1 scaffold).
+  // Sinon, le canvas 2D historique tourne tel quel.
+  const engine = (typeof window !== 'undefined')
+    ? new URLSearchParams(window.location.search).get('engine')
+    : null;
+  const is3D = engine === '3d';
+
+  // Chargement dynamique — Scene3D et ses deps Threlte/three sont dans un
+  // chunk séparé, fetché uniquement quand le flag 3D est actif. Le bundle
+  // initial reste inchangé pour le mode 2D par défaut.
+  let Scene3DComponent = null;
+
   onMount(() => {
     const mgr = createAudioManager(import.meta.env.BASE_URL);
     mgr.init($settings.muted ? 0 : $settings.volume);
     audioMgrStore.set(mgr);
-    return () => { mgr.destroy(); audioMgrStore.set(null); };
+
+    let cancelled = false;
+    if (is3D) {
+      import('./components/Scene3D.svelte').then(mod => {
+        if (!cancelled) Scene3DComponent = mod.default;
+      });
+    }
+
+    return () => {
+      cancelled = true;
+      mgr.destroy();
+      audioMgrStore.set(null);
+    };
   });
 
   // Keep volume in sync whenever settings change
@@ -26,6 +50,12 @@
   <TitleScreen />
 {:else if $screen === 'gameover'}
   <GameOver />
+{:else if is3D}
+  {#if Scene3DComponent}
+    <svelte:component this={Scene3DComponent} />
+  {:else}
+    <div class="loading-3d">Chargement de la scène 3D…</div>
+  {/if}
 {:else}
   <Game />
 {/if}
@@ -46,5 +76,13 @@
       radial-gradient(ellipse 50% 40% at 55% 85%, rgba(190,0,110,0.13) 0%, transparent 70%),
       radial-gradient(ellipse 55% 45% at 84% 18%, rgba(0,90,220,0.15) 0%, transparent 70%),
       #03000f;
+  }
+
+  .loading-3d {
+    position: fixed; inset: 0; z-index: 1;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,0.6);
+    font-family: 'Orbitron', 'Courier New', monospace;
+    font-size: 13px; letter-spacing: 4px;
   }
 </style>
