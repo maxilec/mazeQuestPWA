@@ -42,6 +42,18 @@
 
   const currentMode = $gameMode;  // snapshot — ne change pas en cours de partie
 
+  // ── Live-update de la couleur Zen ──────────────────────────────────────────
+  // En Zen le niveau est infini : initLevel() ne se relance jamais. Sans
+  // ça, changer $settings.zenColor dans les paramètres n'a aucun effet
+  // visuel. On re-synchronise le thème et la CSS variable à la volée.
+  $: if (G && currentMode === 'zen' && $settings.zenColor) {
+    G.theme      = getTheme(G.lvl, currentMode, $settings.zenColor);
+    G.trackColor = G.theme.neon;
+    if (typeof document !== 'undefined') {
+      document.documentElement.style.setProperty('--neon-color', G.theme.neon);
+    }
+  }
+
   // ── Refs DOM & état non-réactif ────────────────────────────────────────────
   let canvas, boardWrap, worldRotateEl;
   let G          = null;
