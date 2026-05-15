@@ -5,12 +5,12 @@
            computeCheckpoints, computeCollectibles } from '../lib/maze-utils.js';
   import { stepPhysics, checkWallFall }           from '../lib/physics.js';
   import { draw }                                 from '../lib/render.js';
-  import { getTheme }                             from '../lib/theme.js';
+  import { getTheme, neonToRgba }                 from '../lib/theme.js';
   import { screen as appScreen, gameMode,
            runStats, settings, audioMgrStore }    from '../stores.js';
   import { createInputManager, JOY_RADIUS }       from '../lib/input.js';
   import { formatTime, getDeviceAngle,
-           wallThickness }                        from '../lib/utils.js';
+           wallThickness, lerpHex }               from '../lib/utils.js';
 
   import Canvas        from './Canvas.svelte';
   import HUD           from './HUD.svelte';
@@ -46,9 +46,12 @@
   // En Zen le niveau est infini : initLevel() ne se relance jamais. Sans
   // ça, changer $settings.zenColor dans les paramètres n'a aucun effet
   // visuel. On re-synchronise le thème et la CSS variable à la volée.
+  // On annule toute transition de palette en cours (pas pertinent en Zen).
   $: if (G && currentMode === 'zen' && $settings.zenColor) {
-    G.theme      = getTheme(G.lvl, currentMode, $settings.zenColor);
-    G.trackColor = G.theme.neon;
+    G.theme        = getTheme(G.lvl, currentMode, $settings.zenColor);
+    G.trackColor   = G.theme.neon;
+    prevNeon       = G.theme.neon;
+    neonTransition = null;
     if (typeof document !== 'undefined') {
       document.documentElement.style.setProperty('--neon-color', G.theme.neon);
     }
@@ -61,6 +64,13 @@
   let inputMgr   = null;
   let boardTiltX = 0;
   let boardTiltY = 0;
+
+  // Transition douce de la couleur néon entre niveaux (ex. lvl 5 → 6 où la
+  // palette bascule). On interpole linéairement de l'ancienne à la nouvelle
+  // teinte sur NEON_FADE_MS. Mis à jour chaque frame dans la game loop.
+  const NEON_FADE_MS = 400;
+  let prevNeon       = null;        // dernière neon stabilisée
+  let neonTransition = null;        // { from, to, startT } ou null
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function haptic(pattern = [30]) {
@@ -132,10 +142,20 @@
       : [];
 
     const theme = getTheme(levelNum, currentMode, $settings.zenColor);
-    // Propagate the level's neon color to the UI so menus / borders track
-    // the palette change every 5 levels (and the Zen choice).
-    if (typeof document !== 'undefined') {
-      document.documentElement.style.setProperty('--neon-color', theme.neon);
+    // Si on change de palette par rapport au niveau précédent, on déclenche
+    // une interpolation douce gérée par la game loop. Sinon, snap direct.
+    if (prevNeon && prevNeon !== theme.neon) {
+      neonTransition = { from: prevNeon, to: theme.neon, startT: performance.now() };
+      // Le départ de la transition : on garde la teinte précédente le temps
+      // que le frame d'animation prenne le relais. Pas de saut visible.
+      theme.neon     = prevNeon;
+      theme.neonRgba = neonToRgba(prevNeon);
+    } else {
+      neonTransition = null;
+      if (typeof document !== 'undefined') {
+        document.documentElement.style.setProperty('--neon-color', theme.neon);
+      }
+      prevNeon = theme.neon;
     }
 
     // Carry remaining time + bonus at level completion.
@@ -210,6 +230,9 @@
     G.initialTime = MODE_DURATION;
     attempts = 0; chrono = currentMode === 'zen' ? '∞' : '2:00';
     paused = false;
+    // Restart depuis lvl 1 : pas de transition héritée du run précédent.
+    prevNeon       = null;
+    neonTransition = null;
     initLevel(1, null);
   }
 
@@ -302,6 +325,24 @@
       if (!G) { raf = requestAnimationFrame(loop); return; }
       const dt = Math.min((ts - last) / 16.67, 3);
       last = ts;
+
+      // Transition douce de la couleur néon (lvl N → lvl N+1). On lerp
+      // chaque frame, et on propage à G.theme (rendu) et --neon-color (UI).
+      if (neonTransition) {
+        const elapsed = ts - neonTransition.startT;
+        const t01     = Math.min(1, elapsed / NEON_FADE_MS);
+        const current = lerpHex(neonTransition.from, neonTransition.to, t01);
+        G.theme.neon     = current;
+        G.theme.neonRgba = neonToRgba(current);
+        G.trackColor     = current;
+        if (typeof document !== 'undefined') {
+          document.documentElement.style.setProperty('--neon-color', current);
+        }
+        if (t01 >= 1) {
+          prevNeon       = neonTransition.to;
+          neonTransition = null;
+        }
+      }
 
       // Parallaxe : gyro (si dispo et mode gyro) sinon tilt courant (joystick/clavier/souris)
       const im = inputMgr.state;

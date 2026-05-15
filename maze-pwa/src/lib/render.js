@@ -1,19 +1,50 @@
 import { N_BALL, N_HOLE } from './constants.js';
 
 // ── SVG asset loader ──────────────────────────────────────────────────────────
-// Charge les icônes SVG une fois au premier import et les met en cache comme
-// objets Image. Le rasterisé est ensuite drawImage'd sur le canvas chaque frame.
+// Charge les icônes SVG une fois au premier import. Une fois chargées, elles
+// sont rastérisées dans un canvas offscreen (taille de référence haute déf).
+// Chaque frame, on blit ce bitmap au lieu de re-rasteriser le SVG via drawImage
+// — qui coûterait potentiellement une rasterization quand `scale(pulse)`
+// fait varier la taille de destination chaque frame.
 const SVG_BASE = (typeof import.meta !== 'undefined' && import.meta.env)
   ? `${import.meta.env.BASE_URL || '/'}assets/svg/`
   : '/assets/svg/';
 
-const svgImages = {};
+// Tailles de rasterization de référence — assez grandes pour rester nettes
+// sur écrans HiDPI au format final visible, et préservent les ratios des
+// viewBox SVG (200×200 pour les bonus, 220×260 pour le finish).
+const SVG_RASTER_SIZES = {
+  '+5s':    { w: 256, h: 256 },
+  '+10s':   { w: 256, h: 256 },
+  '+30s':   { w: 256, h: 256 },
+  'finish': { w: 256, h: 303 },  // 220/260 ≈ 0.846 → 256 / 0.846 ≈ 303
+};
+
+const svgImages       = {};   // Image() en cours / chargées
+const svgCanvasCache  = {};   // <canvas> offscreen avec le bitmap rasterisé
+
+function rasterizeSvg(key) {
+  if (svgCanvasCache[key]) return;
+  const img = svgImages[key];
+  if (!img || !img.complete || img.naturalWidth === 0) return;
+  const size = SVG_RASTER_SIZES[key];
+  if (!size || typeof document === 'undefined') return;
+  const off = document.createElement('canvas');
+  off.width  = size.w;
+  off.height = size.h;
+  off.getContext('2d').drawImage(img, 0, 0, size.w, size.h);
+  svgCanvasCache[key] = off;
+}
 
 function loadSvg(key, file) {
   if (svgImages[key]) return;
   const img = new Image();
+  img.onload = () => rasterizeSvg(key);
   img.src = SVG_BASE + file;
   svgImages[key] = img;
+  // Race condition : l'image peut être déjà en cache HTTP — onload ne refire
+  // pas. On retente la rasterization au prochain tick.
+  if (img.complete && img.naturalWidth > 0) rasterizeSvg(key);
 }
 
 if (typeof window !== 'undefined') {
@@ -23,9 +54,17 @@ if (typeof window !== 'undefined') {
   loadSvg('finish', 'finish.svg');
 }
 
-function svgReady(key) {
+// Renvoie la source à dessiner : le canvas cache si dispo (rapide), sinon
+// l'Image directement (le navigateur rasterise à chaque appel), sinon null.
+function getSvgSource(key) {
+  if (svgCanvasCache[key]) return svgCanvasCache[key];
   const img = svgImages[key];
-  return !!(img && img.complete && img.naturalWidth > 0);
+  if (img && img.complete && img.naturalWidth > 0) return img;
+  return null;
+}
+
+function svgReady(key) {
+  return getSvgSource(key) !== null;
 }
 
 // ── Seeded PRNG (Mulberry32) ──────────────────────────────────────────────────
@@ -302,15 +341,15 @@ export function drawVortex(ctx, g, ts, ia, canvasRot = 0) {
   const { cw, ch, br, hole } = g;
   const hx = hole.c * cw + cw / 2;
   const hy = hole.r * ch + ch / 2;
-  const img = svgImages.finish;
+  const src = getSvgSource('finish');
 
   // Pulsation lente du portail
   const pulse = 1 + Math.sin(ts * 0.003) * 0.05;
 
-  if (svgReady('finish')) {
+  if (src) {
     // Rayon visible du portail sur le canvas
     const targetRingR = br * 1.6;
-    const scale       = targetRingR / 80;   // 80 = rayon dans le viewBox
+    const scale       = targetRingR / 80;   // 80 = rayon dans le viewBox SVG
     const sw = 220 * scale;
     const sh = 260 * scale;
     // Anchor : on veut que le centre des anneaux (110,110 viewBox) tombe à (0,0)
@@ -322,7 +361,7 @@ export function drawVortex(ctx, g, ts, ia, canvasRot = 0) {
     ctx.translate(hx, hy);
     ctx.rotate(canvasRot);
     ctx.scale(pulse, pulse);
-    ctx.drawImage(img, ax, ay, sw, sh);
+    ctx.drawImage(src, ax, ay, sw, sh);
     ctx.restore();
     return;
   }
@@ -475,8 +514,7 @@ export function drawCollectibles(ctx, g, ts, ia, canvasRot = 0) {
   for (const col of collectibles) {
     const cx = col.c * g.cw + g.cw / 2;
     const cy = col.r * g.ch + g.ch / 2;
-    const img = svgImages[col.type];
-    const ready = svgReady(col.type);
+    const src = getSvgSource(col.type);  // canvas cache ou Image, sinon null
 
     // Phase de disparition (400 ms : grossit légèrement + s'efface)
     if (col.collected) {
@@ -490,7 +528,7 @@ export function drawCollectibles(ctx, g, ts, ia, canvasRot = 0) {
       ctx.translate(cx, cy);
       ctx.rotate(canvasRot);
       ctx.scale(sc, sc);
-      if (ready) ctx.drawImage(img, -size / 2, -size / 2, size, size);
+      if (src) ctx.drawImage(src, -size / 2, -size / 2, size, size);
       ctx.restore();
       continue;
     }
@@ -504,8 +542,8 @@ export function drawCollectibles(ctx, g, ts, ia, canvasRot = 0) {
     ctx.rotate(canvasRot);
     ctx.scale(pulse, pulse);
 
-    if (ready) {
-      ctx.drawImage(img, -size / 2, -size / 2, size, size);
+    if (src) {
+      ctx.drawImage(src, -size / 2, -size / 2, size, size);
     } else {
       // Fallback (SVG pas encore chargé) — disque néon simple
       const color = COLLECTIBLE_FALLBACK_COLORS[col.type] || '#00c8ff';

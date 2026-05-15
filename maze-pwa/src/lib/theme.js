@@ -26,6 +26,14 @@ function hexToRgb(hex) {
   return { r, g, b };
 }
 
+// Renvoie une fonction (alpha) → "rgba(r,g,b,alpha)" pour une couleur hex.
+// Exposée pour permettre à Game.svelte de reconstruire les rgba pendant les
+// transitions douces de palette (sans relancer getTheme intégral).
+export function neonToRgba(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  return (a) => `rgba(${r},${g},${b},${a})`;
+}
+
 // Thème complet pour le niveau courant. Le rendu (render.js) lit
 // uniquement ces tokens, jamais la palette en dur.
 //

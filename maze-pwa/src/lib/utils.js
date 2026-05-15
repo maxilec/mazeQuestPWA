@@ -32,3 +32,21 @@ export function screenToCanvas(vx, vy, canvasW, canvasH, deviceAngle) {
 export function clamp(v, min, max) {
   return v < min ? min : v > max ? max : v;
 }
+
+// Interpolation linéaire entre deux couleurs hex "#rrggbb".
+// t est clampé dans [0, 1]. Renvoie un nouveau "#rrggbb".
+// Utilisé pour adoucir le changement de palette néon entre niveaux.
+export function lerpHex(a, b, t) {
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const ar = parseInt(a.slice(1, 3), 16);
+  const ag = parseInt(a.slice(3, 5), 16);
+  const ab = parseInt(a.slice(5, 7), 16);
+  const br = parseInt(b.slice(1, 3), 16);
+  const bg = parseInt(b.slice(3, 5), 16);
+  const bb = parseInt(b.slice(5, 7), 16);
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bv = Math.round(ab + (bb - ab) * t);
+  const hex = (v) => v.toString(16).padStart(2, '0');
+  return '#' + hex(r) + hex(g) + hex(bv);
+}
