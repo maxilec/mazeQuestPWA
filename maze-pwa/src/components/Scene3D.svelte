@@ -204,8 +204,13 @@
 <style>
   .threlte-host {
     /* Position pilotée par Game.svelte via la prop `rect` — la 3D occupe
-       exactement la zone du canvas 2D, HUD intacte autour. */
+       exactement la zone du canvas 2D, HUD intacte autour. Les défauts
+       top/left/width/height couvrent le viewport avant que rect arrive,
+       pour que Threlte initialise son renderer avec des dims valides
+       (un mount à 0×0 ne récupère pas via ResizeObserver dans tous les cas). */
     position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
     z-index: 1;
     pointer-events: none;
     background: transparent;

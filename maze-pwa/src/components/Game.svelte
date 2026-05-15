@@ -571,7 +571,11 @@
 <!-- Scène Threlte plein écran sous la HUD. Le HUD a un z-index élevé
      pour rester au-dessus. pointer-events: none côté Scene3D → les
      touches tombent sur le canvas 2D dessous (pour inputMgr). -->
-{#if is3D && Scene3DComponent}
+<!-- Scene3D mount gated on rect being ready : Threlte initialise son
+     renderer WebGL aux dims du host AU MOMENT du mount. Si le host fait
+     0×0 (rect pas encore calculé), le renderer reste cassé. On attend
+     donc la première itération de la game loop qui pose scene3DRect. -->
+{#if is3D && Scene3DComponent && scene3DRect}
   <svelte:component this={Scene3DComponent}
     {G} {deviceAngle} {boardTiltX} {boardTiltY} rect={scene3DRect} />
 {/if}
