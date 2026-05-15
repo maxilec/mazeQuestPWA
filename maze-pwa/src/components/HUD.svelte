@@ -83,10 +83,12 @@
     width: 100vw; height: 100vh;
     display: flex; flex-direction: column;
     align-items: stretch;
-    font-family: 'Orbitron', 'Courier New', monospace;
-    gap: 10px;
-    padding-top:    max(10px, env(safe-area-inset-top));
-    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    /* Lot 6.1 — Montserrat Light pour le look papier doux du ref */
+    font-family: 'Montserrat', 'Helvetica Neue', sans-serif;
+    font-weight: 300;
+    gap: 6px;
+    padding-top:    max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
     padding-left:   max(12px, env(safe-area-inset-left));
     padding-right:  max(12px, env(safe-area-inset-right));
     box-sizing: border-box;
@@ -95,7 +97,7 @@
   /* ── Top bar ───────────────────────────────────────────────────────── */
   .top-bar {
     flex-shrink: 0;
-    display: flex; flex-direction: column; gap: 8px;
+    display: flex; flex-direction: column; gap: 4px;
     width: 100%;
   }
   .top-row {
@@ -107,15 +109,15 @@
   .top-left, .top-right {
     display: flex; flex-direction: column;
     color: #6b6f7a;
-    font-size: clamp(11px, 2.4vw, 14px);
-    line-height: 1.2;
+    font-size: clamp(10px, 2.2vw, 13px);
+    line-height: 1.15;
   }
   .top-right  { align-items: flex-end; text-align: right; }
   .top-left   { align-items: flex-start; text-align: left; }
-  .label { color: #6b6f7a; letter-spacing: 1px; font-weight: 500; }
+  .label { color: #6b6f7a; letter-spacing: 0.5px; font-weight: 300; }
   .value, .record-value {
-    color: #2d3138; font-weight: 700;
-    font-size: clamp(13px, 2.8vw, 18px);
+    color: #2d3138; font-weight: 500;
+    font-size: clamp(12px, 2.6vw, 16px);
   }
 
   .top-center {
@@ -124,14 +126,14 @@
     color: #2d3138;
   }
   .timer {
-    font-weight: 900;
-    font-size: clamp(28px, 7vw, 44px);
-    letter-spacing: 1px;
+    font-weight: 500;
+    font-size: clamp(22px, 5.5vw, 36px);
+    letter-spacing: 0;
     line-height: 1;
   }
   .timer-icon {
-    font-size: clamp(20px, 5vw, 30px);
-    opacity: 0.7;
+    font-size: clamp(16px, 4vw, 26px);
+    opacity: 0.65;
   }
 
   /* ── Progress bar (gauge horizontal) ─────────────────────────────── */
@@ -176,8 +178,9 @@
   .bottom-left {
     display: flex; align-items: center; gap: 8px;
     color: #6b6f7a;
-    font-size: clamp(12px, 2.6vw, 15px);
-    letter-spacing: 1.5px;
+    font-size: clamp(11px, 2.4vw, 14px);
+    letter-spacing: 1px;
+    font-weight: 300;
   }
   .ball-icon {
     display: inline-block; width: 18px; height: 18px;
@@ -187,16 +190,18 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.25);
     flex-shrink: 0;
   }
-  .chutes-label { color: #2d3138; font-weight: 700; }
-  .chutes-text  { color: #6b6f7a; font-weight: 500; }
+  .chutes-label { color: #2d3138; font-weight: 500; }
+  .chutes-text  { color: #6b6f7a; font-weight: 300; }
   .bottom-right { flex-shrink: 0; }
 
   /* Override : le NeonButton pill prend une largeur auto ici (pas 100%). */
   .bottom-right :global(.neon-btn) {
     width: auto; min-width: 88px;
-    padding: 10px 22px;
+    padding: 9px 22px;
+    font-family: 'Montserrat', 'Helvetica Neue', sans-serif;
+    font-weight: 500;
     font-size: 13px;
-    letter-spacing: 3px;
+    letter-spacing: 2px;
   }
 
   /* ── Landscape : on garde la même structure verticale top→board→bottom,

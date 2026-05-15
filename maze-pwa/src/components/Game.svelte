@@ -115,11 +115,13 @@
 
     let cw, ch;
     if (!isLandscape) {
-      const hudH = 160;
+      // Lot 6 HUD (top bar 3-col + progress + bottom bar avec MENU pill)
+      // prend ~200px + safe-areas iOS. 220 = marge conservatrice.
+      const hudH = 220;
       cw = Math.min(sw * 0.92, (sh - hudH) / aspect);
       ch = cw * aspect;
     } else {
-      const hudW = 260;
+      const hudW = 300;
       cw = Math.min(sh * 0.90, (sw - hudW) / aspect);
       ch = cw * aspect;
     }

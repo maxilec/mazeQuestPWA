@@ -21,6 +21,8 @@
   // (capturé par inputMgr).
 
   import { onMount, onDestroy } from 'svelte';
+  import { tweened }            from 'svelte/motion';
+  import { cubicOut }           from 'svelte/easing';
   import { Canvas, T }          from '@threlte/core';
   import { CanvasTexture, SRGBColorSpace } from 'three';
   import { getSvgSource, svgReady } from '../lib/render.js';
@@ -58,10 +60,14 @@
   // Élévation dynamique : tiltMag clamped 0..1 sur la magnitude du joystick.
   // camY = sin(elev), camZ = cos(elev). Au repos (tiltMag=0) : camera dead-on.
   // En tilt max : ~12° d'élévation, on voit les côtés des murs s'incliner.
-  $: tiltMag     = Math.min(Math.hypot(boardTiltX, boardTiltY), 1);
-  $: camElev     = tiltMag * CAM_MAX_ELEV_DEG * DEG;
-  $: camY        = Math.sin(camElev) * cameraDist;
-  $: camZ        = Math.cos(camElev) * cameraDist;
+  //
+  // Lot 6.1 : tweened pour absorber les variations rapides → pas de rebond
+  // au relâchement du joystick.
+  const camElevTw = tweened(0, { duration: 220, easing: cubicOut });
+  $: tiltMag = Math.min(Math.hypot(boardTiltX, boardTiltY), 1);
+  $: camElevTw.set(tiltMag * CAM_MAX_ELEV_DEG * DEG);
+  $: camY    = Math.sin($camElevTw) * cameraDist;
+  $: camZ    = Math.cos($camElevTw) * cameraDist;
   // cameraZ utilisé pour le `far` plane (compat avec d'autres calculs).
   $: cameraZ     = cameraDist;
 
@@ -93,8 +99,12 @@
   // R et B toujours.
   $: walls = G ? computeWalls(G) : [];
   $: wallT = G ? Math.min(G.cw, G.ch) * 0.18 : 10;
-  $: wallH = G ? Math.min(G.cw, G.ch) * 0.40 : 20;
-  $: wallColor = G?.theme?.trackHi ?? '#ece5d2';
+  // Lot 6.1 : wallH bumpé 0.40→0.55 pour relief plus visible.
+  $: wallH = G ? Math.min(G.cw, G.ch) * 0.55 : 20;
+  // Lot 6.1 : couleur de mur significativement plus claire que le sol
+  // (theme.trackFloor #d6cebc) pour rendre l'extrusion visible en
+  // vue top-down. Le theme.trackHi (#ece5d2) était trop proche.
+  const WALL_COLOR_LIGHT = '#f5ecd9';
 
   function computeWalls(g) {
     const out = [];
@@ -222,8 +232,9 @@
         {/if}
 
         <!-- Murs 3D extrudés (Lot 6) — BoxGeometry simple par segment.
-             Crème, mat, légèrement plus clair que le sol. wallT ajouté
-             à la longueur pour overlap aux jonctions (pas de gap visible). -->
+             Crème clair (Lot 6.1), mat, contraste plus marqué vs sol pour
+             extrusion visible en vue top-down. wallT ajouté à la longueur
+             pour overlap aux jonctions (pas de gap visible). -->
         {#each walls as wall, i (i)}
           <T.Mesh position={[wall.x, wall.y, wallH / 2]}>
             <T.BoxGeometry args={
@@ -231,10 +242,34 @@
                 ? [wall.length + wallT, wallT, wallH]
                 : [wallT, wall.length + wallT, wallH]
             } />
-            <T.MeshStandardMaterial color={wallColor}
+            <T.MeshStandardMaterial color={WALL_COLOR_LIGHT}
                                     roughness={0.78} metalness={0.05} />
           </T.Mesh>
         {/each}
+
+        <!-- Checkpoints (Lot 6.1) — barres émissives au centre des
+             cellules, vertes (non passées) ou jaunes (passées). Reproduit
+             le rendu de drawCheckpoints (render.js:399) en 3D. -->
+        {#if G?.checkpoints}
+          {#each G.checkpoints as cp, i (i)}
+            {@const cx      = cp.c * G.cw + G.cw / 2 - G.W / 2}
+            {@const cy      = G.H / 2 - (cp.r * G.ch + G.ch / 2)}
+            {@const cpClr   = cp.passed ? '#ffcc00' : '#00ff80'}
+            {@const cpLen   = Math.min(G.cw, G.ch) * 0.45}
+            {@const cpThick = wallT * 0.45}
+            {@const cpHigh  = wallH * 0.55}
+            <T.Mesh position={[cx, cy, cpHigh / 2 + 0.3]}>
+              <T.BoxGeometry args={
+                cp.horizontal
+                  ? [cpLen, cpThick, cpHigh]
+                  : [cpThick, cpLen, cpHigh]
+              } />
+              <T.MeshStandardMaterial color={cpClr} emissive={cpClr}
+                                      emissiveIntensity={1.4}
+                                      toneMapped={false} />
+            </T.Mesh>
+          {/each}
+        {/if}
 
         <!-- Cadre néon (Lot 6) — 4 segments émissifs dans theme.neon,
              posés au-dessus des murs. emissiveIntensity haut +
@@ -303,15 +338,18 @@
           {/each}
         {/if}
 
-        <!-- Finish portal (Lot 4) — anneaux + label FINISH baked-in -->
+        <!-- Finish portal (Lot 4) — anneaux + label FINISH baked-in.
+             Lot 6.1 : aspect-corrected (raster 256×303 → ratio 1.184)
+             pour ne pas distordre l'anneau et le label. -->
         {#if G?.hole && textures.finish}
-          {@const fx     = G.hole.c * G.cw + G.cw / 2 - G.W / 2}
-          {@const fy     = G.H / 2 - (G.hole.r * G.ch + G.ch / 2)}
-          {@const fbase  = G.br * 4}
-          {@const fpulse = 1 + Math.sin(now * 0.003) * 0.05}
-          {@const fsize  = fbase * fpulse}
+          {@const fx      = G.hole.c * G.cw + G.cw / 2 - G.W / 2}
+          {@const fy      = G.H / 2 - (G.hole.r * G.ch + G.ch / 2)}
+          {@const fbase   = G.br * 4}
+          {@const fpulse  = 1 + Math.sin(now * 0.003) * 0.05}
+          {@const fsize   = fbase * fpulse}
+          {@const fAspect = 303 / 256}
           <T.Sprite position={[fx, fy, wallH * 1.1]}
-                    scale={[fsize, fsize, 1]}>
+                    scale={[fsize, fsize * fAspect, 1]}>
             <T.SpriteMaterial map={textures.finish} transparent={true}
                               depthWrite={false} />
           </T.Sprite>
@@ -329,14 +367,15 @@
           </T.Mesh>
         {/if}
 
-        <!-- Bille — finish brass. Scale 0→1 par fallScale pendant la
-             phase 'falling' (G.phase === 'falling') sur 480 ms, puis
-             hide quand fallScale ≈ 0. Cf. render.js:422 pour le pendant 2D. -->
+        <!-- Bille — bronze brillant (Lot 6.1 : couleur lumineuse +
+             emissive subtil pour pop sur fond beige clair). -->
         {#if G && ballVisible}
           <T.Mesh position={[ballX, ballY, ballR * fallScale]}
                   scale={[fallScale, fallScale, fallScale]}>
             <T.SphereGeometry args={[ballR, 32, 16]} />
-            <T.MeshStandardMaterial color="#c08050"
+            <T.MeshStandardMaterial color="#e0a060"
+                                    emissive="#3a1f08"
+                                    emissiveIntensity={0.3}
                                     roughness={0.18} metalness={0.85} />
           </T.Mesh>
         {/if}
