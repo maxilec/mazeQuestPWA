@@ -542,15 +542,6 @@
   });
 </script>
 
-<!-- Scène 3D Threlte — montée AVANT HUD dans le DOM pour que la HUD
-     reste peinte par-dessus (même z-index, le second DOM gagne).
-     pointer-events: none côté Scene3D → les touches tombent sur le canvas
-     2D dessous, qu'inputMgr écoute déjà. -->
-{#if is3D && Scene3DComponent}
-  <svelte:component this={Scene3DComponent}
-    {G} {deviceAngle} {boardTiltX} {boardTiltY} />
-{/if}
-
 <HUD {lvl} {chrono} {attempts} {paused} mode={currentMode} {hint} {timeLeft}
      onTogglePause={togglePause}
      on:click={handleContainerTap}>
@@ -561,7 +552,16 @@
     {countdownText}
     {deviceAngle}
     hidden={is3D}
-    on:click={handleCanvasTap} />
+    on:click={handleCanvasTap}>
+    <!-- Scène Threlte placée DANS .world-rotate (sized par Game.svelte
+         aux dims du canvas 2D) → la 3D occupe la même zone visuelle que
+         le canvas 2D, sans déborder sur la HUD. pointer-events: none
+         côté Scene3D → les touches tombent sur le canvas 2D dessous. -->
+    {#if is3D && Scene3DComponent}
+      <svelte:component this={Scene3DComponent}
+        {G} {deviceAngle} {boardTiltX} {boardTiltY} />
+    {/if}
+  </Canvas>
 </HUD>
 
 {#if showCfg}

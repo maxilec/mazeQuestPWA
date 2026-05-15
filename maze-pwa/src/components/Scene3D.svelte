@@ -33,9 +33,14 @@
   const FOV          = 35;
   const WALL_H       = 12;   // épaisseur 3D des murs
 
-  // Distance caméra : framing du plateau en hauteur (G.H domine en portrait).
-  // tan(fov/2) × dist = H/2 → dist = (H/2) / tan(fov/2). +10 % de marge.
-  $: cameraZ = ((G?.H ?? 660) / 2) / Math.tan((FOV * DEG) / 2) * 1.1;
+  // Le host fillt .world-rotate qui est sized par Game.svelte aux dims
+  // du canvas 2D : portrait = (G.W, G.H), landscape = (G.H, G.W) (swap).
+  // Après world-lock rotation autour de Z (-deviceAngle), le maze pivoté
+  // a une bbox dont la hauteur visible = G.W en landscape, G.H en portrait.
+  // → cameraZ frame cette hauteur visible avec marge.
+  $: isLandscape = (deviceAngle === 90 || deviceAngle === 270);
+  $: visibleH    = G ? (isLandscape ? G.W : G.H) : 660;
+  $: cameraZ     = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.05;
 
   // World-lock : rotation Z = -deviceAngle.
   $: worldLockZ = -deviceAngle * DEG;
@@ -136,9 +141,12 @@
 
 <style>
   .threlte-host {
-    position: fixed;
+    /* Positionné dans .world-rotate (Canvas.svelte) qui est sized par
+       Game.svelte aux dims exactes du canvas 2D. Le 3D occupe donc la
+       même zone visuelle que le 2D, sans empiéter sur la HUD à côté. */
+    position: absolute;
     inset: 0;
-    z-index: 1;
+    z-index: 0;
     /* Les touch events traversent vers le canvas 2D dessous, qui est
        toujours en charge de l'input via inputMgr. */
     pointer-events: none;

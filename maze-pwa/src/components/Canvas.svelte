@@ -22,6 +22,12 @@
 </script>
 
 <div class="world-rotate" bind:this={worldRotateEl}>
+  <!-- Slot par défaut : utilisé pour superposer la scène Threlte EXACTEMENT
+       dans la même zone visuelle que le canvas 2D. Le slot est positionné
+       absolu sur .world-rotate (qui est sized par Game.svelte aux dims du
+       canvas), donc la 3D n'empiète pas sur la HUD à côté. -->
+  <slot />
+
   <div class="board-wrap" bind:this={boardWrap}>
     <canvas bind:this={canvas} class:hidden on:click></canvas>
 
