@@ -1,88 +1,77 @@
 <script>
-  // HUD : conteneur principal qui orchestre la mise en page.
-  //  - Portrait : zone-a (logo+hint) au-dessus, gauge horizontale, board, zone-b (stats+pause)
-  //  - Paysage  : zone-a à gauche, board centré, zone-b à droite avec jauge verticale
+  // HUD (Lot 6) : nouvelle structure « zen / clear ».
+  //  - Top bar : 3 colonnes [Niveau N | Timer + horloge | Record: Niveau M],
+  //              barre de progression cyan en-dessous (toute largeur).
+  //  - Maze area : <slot /> pour Canvas/Scene3D.
+  //  - Bottom bar : icône bille + « x N CHUTES » à gauche, bouton MENU à droite.
   //
-  // Le board est passé en `<slot />` pour que la HUD reste indépendante du
-  // rendu canvas. Le clic « tap container pour pauser en gyro » est forwardé
-  // via on:click — Game.svelte décide s'il pause selon le mode et l'état.
-  import Gauge      from './Gauge.svelte';
+  // Le logo MazeBall et le bouton pause iconé ont été retirés. Le bouton MENU
+  // appelle onTogglePause (qui ouvre le PauseOverlay existant : Resume /
+  // Settings / Retour titre).
+
   import NeonButton from './NeonButton.svelte';
+  import { highScores } from '../stores.js';
 
   export let lvl       = 1;
   export let chrono    = '';
   export let attempts  = 0;
   export let mode      = 'survie';
-  export let hint      = 'mouse';
   export let timeLeft  = 120;
   export let paused    = false;
   export let onTogglePause = () => {};
 
-  const hints = {
-    gyro:     "📡 Inclinez l'appareil",
-    mouse:    '🖱 Déplacez la souris',
-    keys:     '⌨ Touches fléchées',
-    joystick: '🕹 Glissez pour diriger',
-  };
+  // Record (meilleur niveau atteint dans le mode courant).
+  $: bestLvl = $highScores?.[mode]?.lvl ?? 0;
 
-  // Hardcore garde son rouge identitaire ; survie et zen suivent la palette
-  // néon courante (via la CSS variable --neon-color exposée par Game.svelte).
-  const modeColor = {
-    survie:   'var(--neon-color, #00c8ff)',
-    hardcore: '#ff5555',
-    zen:      'var(--neon-color, #bb44ff)',
-  };
-
-  $: gaugeOverflow = timeLeft > 120;
-  $: gaugeAlert    = timeLeft <= 10 && timeLeft > 0;
+  // Pourcentage de remplissage de la barre (0..1 pour ≤120s ; overflow >1
+  // si bonus pousse au-delà — clamp visuel à 1, l'overflow est rendu plus
+  // brillant). En mode zen le timer compte à l'envers, pas de gauge utile.
+  $: gaugePct = mode === 'zen' ? 1 : Math.max(0, Math.min(1, timeLeft / 120));
+  $: gaugeAlert = timeLeft <= 10 && timeLeft > 0 && mode !== 'zen';
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div class="container" on:click>
 
-  <!-- Zone A : logo + hint -->
-  <div class="zone-a">
-    <div class="logo">MazeBall</div>
-    <p class="hint">{hints[hint]}</p>
+  <!-- Top bar : Niveau / Timer / Record + gauge -->
+  <div class="top-bar">
+    <div class="top-row">
+      <div class="top-left">
+        <span class="label">Niveau</span>
+        <span class="value">{lvl}</span>
+      </div>
+      <div class="top-center">
+        <span class="timer">{chrono}</span>
+        <span class="timer-icon">⏱</span>
+      </div>
+      <div class="top-right">
+        {#if bestLvl > 0}
+          <span class="label">Record:</span>
+          <span class="record-value">Niveau {bestLvl}</span>
+        {/if}
+      </div>
+    </div>
+    <div class="progress" class:alert={gaugeAlert}>
+      <div class="progress-fill" style="width: {gaugePct * 100}%"></div>
+    </div>
   </div>
 
-  <!-- Portrait gauge -->
-  <div class="gauge-p">
-    {#if mode !== 'zen'}
-      <Gauge value={timeLeft} maxFill={120} label={chrono}
-             alert={gaugeAlert} overflow={gaugeOverflow}
-             orientation="horizontal" labelPosition="after" />
-    {:else}
-      <div class="zen-badge">∞ ZEN MODE</div>
-    {/if}
-  </div>
-
-  <!-- Board slot (Canvas.svelte goes here) -->
+  <!-- Board slot (Canvas + Scene3D montés par Game.svelte) -->
   <div class="board-area">
     <slot />
   </div>
 
-  <!-- Zone B : HUD (landscape gauge + stats + pause) -->
-  <div class="zone-b">
-    <div class="gauge-l">
-      {#if mode !== 'zen'}
-        <Gauge value={timeLeft} maxFill={120} label={chrono}
-               alert={gaugeAlert} overflow={gaugeOverflow}
-               orientation="vertical" labelPosition="before" />
-      {:else}
-        <div class="zen-badge-l">∞</div>
-      {/if}
+  <!-- Bottom bar : chutes counter à gauche, MENU à droite -->
+  <div class="bottom-bar">
+    <div class="bottom-left">
+      <span class="ball-icon"></span>
+      <span class="chutes-label">x {attempts}</span>
+      <span class="chutes-text">CHUTES</span>
     </div>
-
-    <div class="hud-stats">
-      <div class="hud-level" style="color:{modeColor[mode]}">NVL {lvl}</div>
-      <div class="hud-falls">⬇ {attempts}</div>
-    </div>
-
-    <div class="pause-slot">
-      <NeonButton shape="capsule" on:click={(e) => { e.stopPropagation(); onTogglePause(); }}>
-        {paused ? '▶' : '⏸'}
+    <div class="bottom-right">
+      <NeonButton shape="pill" on:click={(e) => { e.stopPropagation(); onTogglePause(); }}>
+        MENU
       </NeonButton>
     </div>
   </div>
@@ -93,101 +82,129 @@
     position: relative; z-index: 10;
     width: 100vw; height: 100vh;
     display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
+    align-items: stretch;
     font-family: 'Orbitron', 'Courier New', monospace;
-    gap: 8px;
-    padding-top:    max(8px, env(safe-area-inset-top));
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
-    padding-left:   env(safe-area-inset-left);
-    padding-right:  env(safe-area-inset-right);
+    gap: 10px;
+    padding-top:    max(10px, env(safe-area-inset-top));
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    padding-left:   max(12px, env(safe-area-inset-left));
+    padding-right:  max(12px, env(safe-area-inset-right));
     box-sizing: border-box;
   }
 
-  .zone-a     { order: 0; flex-shrink: 0;
-                display: flex; flex-direction: column;
-                align-items: center; gap: 6px; justify-content: center; }
-  .gauge-p    { order: 1; width: 100%; flex-shrink: 0;
-                display: none; align-items: center; justify-content: center; padding: 0 12px; }
-  .board-area { order: 2; flex-shrink: 0; position: relative;
-                display: flex; align-items: center; justify-content: center; }
-  .zone-b     { order: 3; flex-shrink: 0;
-                display: flex; flex-direction: row;
-                align-items: center; justify-content: space-between;
-                gap: 10px; width: 100%; }
-
-  @media (orientation: portrait) { .gauge-p { display: flex; } }
-
-  @media (orientation: landscape) {
-    .container {
-      flex-direction: row; gap: 10px;
-      padding-left:  max(10px, env(safe-area-inset-left));
-      padding-right: max(10px, env(safe-area-inset-right));
-    }
-    .zone-a     { order: 0; width: 80px;  min-width: 60px;
-                  align-self: stretch;
-                  display: flex; flex-direction: column; justify-content: center; }
-    .board-area { order: 1; }
-    .zone-b     { order: 2; width: 110px; min-width: 90px;
-                  align-self: stretch;
-                  flex-direction: column; align-items: center;
-                  justify-content: flex-start;
-                  height: 100%; padding: 4px 0; }
+  /* ── Top bar ───────────────────────────────────────────────────────── */
+  .top-bar {
+    flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 8px;
+    width: 100%;
+  }
+  .top-row {
+    display: grid;
+    grid-template-columns: 1fr 1.6fr 1fr;
+    align-items: center;
+    gap: 8px;
+  }
+  .top-left, .top-right {
+    display: flex; flex-direction: column;
+    color: #6b6f7a;
+    font-size: clamp(11px, 2.4vw, 14px);
+    line-height: 1.2;
+  }
+  .top-right  { align-items: flex-end; text-align: right; }
+  .top-left   { align-items: flex-start; text-align: left; }
+  .label { color: #6b6f7a; letter-spacing: 1px; font-weight: 500; }
+  .value, .record-value {
+    color: #2d3138; font-weight: 700;
+    font-size: clamp(13px, 2.8vw, 18px);
   }
 
-  /* Zone A — logo & hint */
-  .logo {
-    font-weight: 900; font-size: clamp(14px, 2.4vw, 20px);
-    color: var(--neon-color, #00c8ff); letter-spacing: 2px;
-    text-shadow: 0 0 18px var(--neon-color, #00c8ff),
-                 0 0 6px  var(--neon-color, #00c8ff);
-    text-align: center;
+  .top-center {
+    display: flex; align-items: center; justify-content: center;
+    gap: 8px;
+    color: #2d3138;
   }
-  .hint {
-    color: rgba(255,255,255,0.55);
-    font-size: 9px; text-align: center; letter-spacing: .4px;
-    font-family: 'Courier New', monospace; margin: 0;
+  .timer {
+    font-weight: 900;
+    font-size: clamp(28px, 7vw, 44px);
+    letter-spacing: 1px;
+    line-height: 1;
   }
-  @media (orientation: landscape) {
-    .logo { writing-mode: vertical-rl; text-orientation: mixed;
-            transform: rotate(180deg);
-            font-size: clamp(12px, 1.8vh, 20px); letter-spacing: 4px; }
-    .hint { writing-mode: vertical-rl; text-orientation: mixed;
-            transform: rotate(180deg); font-size: 9px; }
+  .timer-icon {
+    font-size: clamp(20px, 5vw, 30px);
+    opacity: 0.7;
   }
 
-  /* Zen badges */
-  .zen-badge {
-    font-family: 'Courier New', monospace;
-    font-size: 11px; letter-spacing: 4px; color: #bb44ff;
-    text-shadow: 0 0 10px #bb44ff;
+  /* ── Progress bar (gauge horizontal) ─────────────────────────────── */
+  .progress {
+    height: 7px;
+    width: 100%;
+    border-radius: 4px;
+    background: rgba(0,0,0,0.06);
+    overflow: hidden;
   }
-  .zen-badge-l {
-    color: #bb44ff; font-size: 18px;
-    text-shadow: 0 0 10px #bb44ff;
+  .progress-fill {
+    height: 100%;
+    background: var(--neon-color, #00c8ff);
+    box-shadow: 0 0 8px var(--neon-color, #00c8ff);
+    transition: width 200ms linear;
   }
-
-  /* Landscape gauge wrapper */
-  .gauge-l { display: none; }
-  @media (orientation: landscape) {
-    .gauge-l { display: flex; flex: 1; min-height: 0;
-               flex-direction: column; align-items: center; }
+  .progress.alert .progress-fill {
+    background: #ff5555;
+    box-shadow: 0 0 10px #ff5555;
+    animation: pulse 700ms ease-in-out infinite;
   }
-
-  /* Stats */
-  .hud-stats { display: flex; flex-direction: row; gap: 10px; align-items: center; }
-  @media (orientation: landscape) {
-    .hud-stats { flex-direction: column; gap: 6px; align-items: center; }
-  }
-  .hud-level { font-size: 12px; letter-spacing: 3px; font-weight: 700; }
-  .hud-falls {
-    color: rgba(255,255,255,0.65);
-    font-size: 11px; letter-spacing: 2px;
-    font-family: 'Courier New', monospace;
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.5; }
   }
 
-  /* The capsule pause button gets pushed to the bottom in landscape */
-  .pause-slot { display: flex; }
-  @media (orientation: landscape) {
-    .pause-slot { margin-top: auto; }
+  /* ── Board area ──────────────────────────────────────────────────── */
+  .board-area {
+    flex: 1 1 auto; min-height: 0;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ── Bottom bar ──────────────────────────────────────────────────── */
+  .bottom-bar {
+    flex-shrink: 0;
+    display: flex; flex-direction: row;
+    align-items: center; justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+  }
+  .bottom-left {
+    display: flex; align-items: center; gap: 8px;
+    color: #6b6f7a;
+    font-size: clamp(12px, 2.6vw, 15px);
+    letter-spacing: 1.5px;
+  }
+  .ball-icon {
+    display: inline-block; width: 18px; height: 18px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%,
+                                #f5d28a 0%, #c08050 55%, #7a4928 100%);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    flex-shrink: 0;
+  }
+  .chutes-label { color: #2d3138; font-weight: 700; }
+  .chutes-text  { color: #6b6f7a; font-weight: 500; }
+  .bottom-right { flex-shrink: 0; }
+
+  /* Override : le NeonButton pill prend une largeur auto ici (pas 100%). */
+  .bottom-right :global(.neon-btn) {
+    width: auto; min-width: 88px;
+    padding: 10px 22px;
+    font-size: 13px;
+    letter-spacing: 3px;
+  }
+
+  /* ── Landscape : on garde la même structure verticale top→board→bottom,
+        juste compactée (le board prend toute la place horizontale). ──── */
+  @media (orientation: landscape) and (max-height: 500px) {
+    .container { gap: 6px; padding-top: 6px; padding-bottom: 6px; }
+    .top-row   { grid-template-columns: 1fr 1.4fr 1fr; }
+    .timer     { font-size: clamp(20px, 5vh, 32px); }
+    .timer-icon { font-size: clamp(16px, 4vh, 24px); }
   }
 </style>

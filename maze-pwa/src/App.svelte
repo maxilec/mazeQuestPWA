@@ -19,8 +19,12 @@
   }
 </script>
 
-<!-- Persistent full-screen nebula — visible behind all screens -->
-<div class="bg-nebula"></div>
+<!-- Background : nébuleuse violet pour title/gameover, papier crème en jeu (Lot 6). -->
+{#if $screen === 'game'}
+  <div class="bg-cream"></div>
+{:else}
+  <div class="bg-nebula"></div>
+{/if}
 
 {#if $screen === 'title'}
   <TitleScreen />
@@ -48,5 +52,15 @@
       radial-gradient(ellipse 50% 40% at 55% 85%, rgba(190,0,110,0.13) 0%, transparent 70%),
       radial-gradient(ellipse 55% 45% at 84% 18%, rgba(0,90,220,0.15) 0%, transparent 70%),
       #03000f;
+  }
+
+  /* Lot 6 — papier crème pour l'écran de jeu. Subtil radial light sur le
+     haut pour donner un effet « éclairage studio ». */
+  .bg-cream {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 25%, rgba(255,250,242,0.55) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 50% at 50% 110%, rgba(220,205,180,0.30) 0%, transparent 70%),
+      #f1e9d9;
   }
 </style>

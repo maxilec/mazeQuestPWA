@@ -31,9 +31,13 @@
   export let boardTiltY   = 0;
   export let rect         = null;    // { top, left, width, height } CSS px
 
-  const DEG          = Math.PI / 180;
-  const MAX_TILT_DEG = 12;
-  const FOV          = 35;
+  const DEG              = Math.PI / 180;
+  const MAX_TILT_DEG     = 12;
+  const FOV              = 35;
+  // Lot 6 : élévation dynamique de la caméra — top-down au repos,
+  // ramp jusqu'à CAM_MAX_ELEV_DEG quand l'input tilt est non nul. Donne
+  // un cue 3D pendant le mouvement sans imposer d'angle au repos.
+  const CAM_MAX_ELEV_DEG = 12;
 
   // ── Host positioning (cadrage sur la zone canvas) ──────────────────────
   let host;
@@ -49,10 +53,25 @@
   // caméra. En portrait c'est G.H, en landscape G.W (le maze pivote 90°).
   $: isLandscape = (deviceAngle === 90 || deviceAngle === 270);
   $: visibleH    = G ? (isLandscape ? G.W : G.H) : 660;
-  // Vue top-down dead-on : la caméra reste perpendiculaire au plateau.
-  // L'utilisateur préfère pas d'angle au repos — la pente est lue via
-  // l'ombre sous la bille + le lighting contrasté, sans 3/4 plongeant.
-  $: cameraZ     = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.05;
+  $: cameraDist  = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.05;
+
+  // Élévation dynamique : tiltMag clamped 0..1 sur la magnitude du joystick.
+  // camY = sin(elev), camZ = cos(elev). Au repos (tiltMag=0) : camera dead-on.
+  // En tilt max : ~12° d'élévation, on voit les côtés des murs s'incliner.
+  $: tiltMag     = Math.min(Math.hypot(boardTiltX, boardTiltY), 1);
+  $: camElev     = tiltMag * CAM_MAX_ELEV_DEG * DEG;
+  $: camY        = Math.sin(camElev) * cameraDist;
+  $: camZ        = Math.cos(camElev) * cameraDist;
+  // cameraZ utilisé pour le `far` plane (compat avec d'autres calculs).
+  $: cameraZ     = cameraDist;
+
+  // Camera ref + lookAt : Three.js ne met pas à jour la rotation de la
+  // caméra automatiquement quand position change ; on rappelle lookAt
+  // sur chaque changement des coords caméra.
+  let cameraRef;
+  $: if (cameraRef && Number.isFinite(camY) && Number.isFinite(camZ)) {
+    cameraRef.lookAt(0, 0, 0);
+  }
 
   // ── Rotations (signs flipped pour compenser la chiralité Three.js ↔ CSS) ─
   // CSS (Y down) et Three.js (Y up) ont des sens de rotation opposés autour
@@ -67,6 +86,40 @@
   $: ballX = G ? G.ball.x - G.W / 2 : 0;
   $: ballY = G ? G.H / 2 - G.ball.y : 0;
   $: ballR = G ? G.br : 10;
+
+  // ── Murs 3D extrudés (Lot 6) ───────────────────────────────────────────
+  // Itère sur G.maze[r][c] en dédoublonnant les murs partagés entre
+  // cellules adjacentes : T uniquement si r=0, L uniquement si c=0,
+  // R et B toujours.
+  $: walls = G ? computeWalls(G) : [];
+  $: wallT = G ? Math.min(G.cw, G.ch) * 0.18 : 10;
+  $: wallH = G ? Math.min(G.cw, G.ch) * 0.40 : 20;
+  $: wallColor = G?.theme?.trackHi ?? '#ece5d2';
+
+  function computeWalls(g) {
+    const out = [];
+    for (let r = 0; r < g.ROWS; r++) {
+      for (let c = 0; c < g.COLS; c++) {
+        const ce = g.maze[r][c];
+        if (r === 0 && ce.T) out.push(horizWall(c, 0, g));
+        if (c === 0 && ce.L) out.push(vertWall(0, r, g));
+        if (ce.R)            out.push(vertWall(c + 1, r, g));
+        if (ce.B)            out.push(horizWall(c, r + 1, g));
+      }
+    }
+    return out;
+  }
+  function horizWall(c, r, g) {
+    return { type: 'h', x: c * g.cw + g.cw / 2 - g.W / 2,
+                        y: g.H / 2 - r * g.ch, length: g.cw };
+  }
+  function vertWall(c, r, g) {
+    return { type: 'v', x: c * g.cw - g.W / 2,
+                        y: g.H / 2 - r * g.ch - g.ch / 2, length: g.ch };
+  }
+
+  // ── Couleur néon dynamique (theme.neon) pour cadre + accent ────────────
+  $: neonColor = G?.theme?.neon ?? '#00c8ff';
 
   // Animation de chute (port du sc2 de render.js:422) : pendant la phase
   // 'falling' (bille dans un trou ou aspirée par le finish), la bille
@@ -137,34 +190,92 @@
 
 <div class="threlte-host" bind:this={host}>
   <Canvas>
-    <T.PerspectiveCamera makeDefault position={[0, 0, cameraZ]}
+    <T.PerspectiveCamera bind:ref={cameraRef} makeDefault
+                         position={[0, camY, camZ]}
                          fov={FOV} near={1} far={cameraZ * 3} />
 
-    <!-- Lighting renforcé : ratio ambient/directional baissé pour plus
-         de contraste (les ombres et highlights ressortent), fill light
-         côté gauche pour adoucir les ombres dures. -->
-    <T.AmbientLight intensity={0.35} />
-    <T.DirectionalLight position={[200, 500, 600]} intensity={1.2}  />
-    <T.DirectionalLight position={[-300, 200, 300]} intensity={0.35} />
+    <!-- Lot 6 — lighting zen : ratio ambient/directional plus doux,
+         le rendu se veut diffus comme une lumière studio sur papier
+         crème. Plus de contraste agressif vs Lot 5. -->
+    <T.AmbientLight intensity={0.55} />
+    <T.DirectionalLight position={[200, 500, 800]} intensity={0.75} />
+    <T.DirectionalLight position={[-200, -300, 400]} intensity={0.25} />
 
     <!-- World-lock root group -->
     <T.Group rotation.z={worldLockZ}>
       <!-- Tilt 3D group -->
       <T.Group rotation.x={tiltX} rotation.y={tiltY}>
 
-        <!-- Plateau texturé (Lot 3) — roughness/metalness affinés pour
-             un look béton patiné plus que mat plastique. -->
+        <!-- Sol (track) — texture clear : beige uniforme + ligne néon
+             visible. Mat papier (rough 0.92, metal 0). -->
         {#if G}
           <T.Mesh position={[0, 0, 0]}>
             <T.PlaneGeometry args={[G.W, G.H]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
-                                      roughness={0.65} metalness={0.15}
-                                      envMapIntensity={0.8} />
+                                      roughness={0.92} metalness={0.0} />
             {:else}
-              <T.MeshStandardMaterial color="#2a2e36"
-                                      roughness={0.85} metalness={0.1} />
+              <T.MeshStandardMaterial color={G?.theme?.trackFloor ?? '#d6cebc'}
+                                      roughness={0.92} metalness={0.0} />
             {/if}
+          </T.Mesh>
+        {/if}
+
+        <!-- Murs 3D extrudés (Lot 6) — BoxGeometry simple par segment.
+             Crème, mat, légèrement plus clair que le sol. wallT ajouté
+             à la longueur pour overlap aux jonctions (pas de gap visible). -->
+        {#each walls as wall, i (i)}
+          <T.Mesh position={[wall.x, wall.y, wallH / 2]}>
+            <T.BoxGeometry args={
+              wall.type === 'h'
+                ? [wall.length + wallT, wallT, wallH]
+                : [wallT, wall.length + wallT, wallH]
+            } />
+            <T.MeshStandardMaterial color={wallColor}
+                                    roughness={0.78} metalness={0.05} />
+          </T.Mesh>
+        {/each}
+
+        <!-- Cadre néon (Lot 6) — 4 segments émissifs dans theme.neon,
+             posés au-dessus des murs. emissiveIntensity haut +
+             toneMapped:false → glow visible sans bloom post-process. -->
+        {#if G}
+          {@const frT  = Math.min(G.cw, G.ch) * 0.10}
+          {@const frH  = Math.min(G.cw, G.ch) * 0.10}
+          {@const frZ  = wallH * 0.95}
+          {@const fw   = G.W + frT * 2}
+          {@const fh   = G.H + frT * 2}
+          <!-- top -->
+          <T.Mesh position={[0, G.H / 2 + frT / 2, frZ]}>
+            <T.BoxGeometry args={[fw, frT, frH]} />
+            <T.MeshStandardMaterial color={neonColor}
+                                    emissive={neonColor}
+                                    emissiveIntensity={1.5}
+                                    toneMapped={false} />
+          </T.Mesh>
+          <!-- bottom -->
+          <T.Mesh position={[0, -G.H / 2 - frT / 2, frZ]}>
+            <T.BoxGeometry args={[fw, frT, frH]} />
+            <T.MeshStandardMaterial color={neonColor}
+                                    emissive={neonColor}
+                                    emissiveIntensity={1.5}
+                                    toneMapped={false} />
+          </T.Mesh>
+          <!-- left -->
+          <T.Mesh position={[-G.W / 2 - frT / 2, 0, frZ]}>
+            <T.BoxGeometry args={[frT, fh, frH]} />
+            <T.MeshStandardMaterial color={neonColor}
+                                    emissive={neonColor}
+                                    emissiveIntensity={1.5}
+                                    toneMapped={false} />
+          </T.Mesh>
+          <!-- right -->
+          <T.Mesh position={[G.W / 2 + frT / 2, 0, frZ]}>
+            <T.BoxGeometry args={[frT, fh, frH]} />
+            <T.MeshStandardMaterial color={neonColor}
+                                    emissive={neonColor}
+                                    emissiveIntensity={1.5}
+                                    toneMapped={false} />
           </T.Mesh>
         {/if}
 
@@ -183,7 +294,7 @@
                 ? 1 + (age / 400) * 0.45
                 : 1 + Math.sin(now * 0.004 + col.c + col.r) * 0.06}
               {@const size   = base * pulse}
-              <T.Sprite position={[cx, cy, G.br * 0.4]}
+              <T.Sprite position={[cx, cy, wallH * 1.1]}
                         scale={[size, size, 1]}>
                 <T.SpriteMaterial map={tex} transparent={true}
                                   opacity={fade} depthWrite={false} />
@@ -199,7 +310,7 @@
           {@const fbase  = G.br * 4}
           {@const fpulse = 1 + Math.sin(now * 0.003) * 0.05}
           {@const fsize  = fbase * fpulse}
-          <T.Sprite position={[fx, fy, G.br * 0.4]}
+          <T.Sprite position={[fx, fy, wallH * 1.1]}
                     scale={[fsize, fsize, 1]}>
             <T.SpriteMaterial map={textures.finish} transparent={true}
                               depthWrite={false} />
@@ -213,7 +324,7 @@
                   scale={[fallScale, fallScale, 1]}>
             <T.CircleGeometry args={[ballR * 1.3, 24]} />
             <T.MeshBasicMaterial color="#000000" transparent={true}
-                                 opacity={0.42 * fallScale}
+                                 opacity={0.30 * fallScale}
                                  depthWrite={false} />
           </T.Mesh>
         {/if}

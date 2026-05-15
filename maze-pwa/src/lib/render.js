@@ -186,6 +186,80 @@ export function renderStaticTexture(g) {
   return off;
 }
 
+// Variant pour le rendu 3D « zen » (Lot 6) : sol beige uniforme + ligne
+// néon visible au centre des couloirs. Les murs sont désormais des meshes
+// 3D dans Scene3D — plus besoin de fake-bevel sur la track 2D.
+export function renderClearTexture(g) {
+  if (typeof document === 'undefined' || !g) return null;
+  const off = document.createElement('canvas');
+  off.width  = g.W;
+  off.height = g.H;
+  const ctx  = off.getContext('2d');
+  const t    = getTheme(g);
+
+  // Fond beige clair uniforme
+  ctx.fillStyle = t.trackFloor || '#d6cebc';
+  ctx.fillRect(0, 0, g.W, g.H);
+
+  drawNeonLineOnly(ctx, g);
+  return off;
+}
+
+// Extrait des passes 5-7 de drawTrack : la ligne néon glacée seule (sans
+// drop shadow, lit edge, ni body beige — ces couches simulaient la
+// piste creusée, plus utiles ici puisque la piste est juste le sol plat
+// entre les murs 3D).
+export function drawNeonLineOnly(ctx, g) {
+  const { maze, cw, ch, R, C, trackRatio } = g;
+  const t  = getTheme(g);
+  const tw = Math.min(cw, ch) * trackRatio;
+
+  const path = new Path2D();
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < C; c++) {
+      const cx = c * cw + cw / 2, cy = r * ch + ch / 2;
+      const ce = maze[r][c];
+      if (c < C - 1 && !ce.R) { path.moveTo(cx, cy); path.lineTo(cx + cw, cy); }
+      if (r < R - 1 && !ce.B) { path.moveTo(cx, cy); path.lineTo(cx, cy + ch); }
+    }
+  }
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Voile coloré (pass 5 de drawTrack)
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.shadowColor = t.neon;
+  ctx.shadowBlur  = 6;
+  ctx.strokeStyle = t.neonRgba(0.22);
+  ctx.lineWidth   = Math.max(2, tw * 0.10);
+  ctx.stroke(path);
+  ctx.restore();
+
+  // Cœur de ligne (pass 6)
+  ctx.save();
+  ctx.shadowColor = t.neon;
+  ctx.shadowBlur  = 6;
+  ctx.strokeStyle = t.neonCore || '#f4f9ff';
+  ctx.lineWidth   = 2.0;
+  ctx.stroke(path);
+  ctx.restore();
+
+  // Nucleus blanc (pass 7)
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.shadowColor = '#ffffff';
+  ctx.shadowBlur  = 2;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth   = 0.8;
+  ctx.stroke(path);
+  ctx.restore();
+
+  ctx.restore();
+}
+
 export function drawBoard(ctx, g, ia) {
   const { W, H } = g;
   const t = getTheme(g);
