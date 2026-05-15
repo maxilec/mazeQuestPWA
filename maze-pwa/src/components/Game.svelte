@@ -310,8 +310,9 @@
           `rotateX(${-boardTiltY * MAX_DEG}deg)`,
           `rotateY(${boardTiltX * MAX_DEG}deg)`,
         ].join(' ');
+        const haloRgba = G.theme?.neonRgba ? G.theme.neonRgba(0.18) : 'rgba(0,200,255,0.18)';
         boardWrap.style.boxShadow =
-          `0 0 50px rgba(0,200,255,0.18), ${boardTiltX * 18}px ${boardTiltY * 18 + 6}px 48px rgba(0,0,0,0.90)`;
+          `0 0 50px ${haloRgba}, ${boardTiltX * 18}px ${boardTiltY * 18 + 6}px 48px rgba(0,0,0,0.90)`;
       }
       if (worldRotateEl) {
         const normAngle = ((deviceAngle % 360) + 360) % 360;
@@ -507,5 +508,6 @@
     border: 1.5px solid var(--neon-color, #00c8ff);
     border-radius: 14px; padding: 28px 28px;
     box-shadow: 0 0 40px rgba(0,200,255,0.22);
+    box-shadow: 0 0 40px color-mix(in srgb, var(--neon-color, #00c8ff) 22%, transparent);
   }
 </style>

@@ -91,12 +91,15 @@
 
   .go-panel {
     background: rgba(0,5,20,0.96);
-    border: 1.5px solid #00c8ff;
+    border: 1.5px solid var(--neon-color, #00c8ff);
     border-radius: 16px;
     padding: 32px 36px;
     display: flex; flex-direction: column; align-items: center; gap: 16px;
     min-width: 260px; max-width: 360px; width: 90%;
     box-shadow: 0 0 50px rgba(0,200,255,0.25), inset 0 0 30px rgba(0,0,80,0.30);
+    box-shadow:
+      0 0 50px color-mix(in srgb, var(--neon-color, #00c8ff) 25%, transparent),
+      inset 0 0 30px rgba(0,0,80,0.30);
   }
 
   .go-title {
@@ -108,6 +111,7 @@
   .go-mode {
     font-size: 9px; letter-spacing: 5px;
     color: rgba(0,200,255,0.40);
+    color: color-mix(in srgb, var(--neon-color, #00c8ff) 40%, transparent);
     margin-top: -10px;
     font-family: 'Courier New', monospace;
   }
@@ -129,7 +133,9 @@
     width: 100%;
     display: flex; flex-direction: column; gap: 10px;
     border-top: 1px solid rgba(0,200,255,0.15);
+    border-top: 1px solid color-mix(in srgb, var(--neon-color, #00c8ff) 15%, transparent);
     border-bottom: 1px solid rgba(0,200,255,0.15);
+    border-bottom: 1px solid color-mix(in srgb, var(--neon-color, #00c8ff) 15%, transparent);
     padding: 14px 0;
   }
 
@@ -139,29 +145,43 @@
   }
   .stat-label {
     color: rgba(0,200,255,0.50);
+    color: color-mix(in srgb, var(--neon-color, #00c8ff) 50%, transparent);
     font-family: 'Courier New', monospace;
     letter-spacing: 0.5px;
   }
   .stat-val {
-    color: #00c8ff; font-weight: 700; letter-spacing: 2px;
-    text-shadow: 0 0 8px #00c8ff;
+    color: var(--neon-color, #00c8ff); font-weight: 700; letter-spacing: 2px;
+    text-shadow: 0 0 8px var(--neon-color, #00c8ff);
   }
   .stat-val.record { color: #ffe040; text-shadow: 0 0 8px #ffe040; }
 
   .go-btns { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 
   .neon-btn {
-    border: 1.5px solid #00c8ff; background: transparent; color: #00c8ff;
+    border: 1.5px solid var(--neon-color, #00c8ff);
+    background: transparent;
+    color: var(--neon-color, #00c8ff);
     padding: 11px 16px; border-radius: 7px;
     font-family: 'Orbitron', monospace; font-size: 11px; cursor: pointer;
-    letter-spacing: 3px; text-shadow: 0 0 8px #00c8ff;
-    box-shadow: 0 0 10px rgba(0,200,255,0.20); width: 100%;
+    letter-spacing: 3px; text-shadow: 0 0 8px var(--neon-color, #00c8ff);
+    box-shadow: 0 0 10px rgba(0,200,255,0.20);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--neon-color, #00c8ff) 20%, transparent);
+    width: 100%;
   }
-  .neon-btn:active { background: rgba(0,200,255,0.13); }
+  .neon-btn:active {
+    background: rgba(0,200,255,0.13);
+    background: color-mix(in srgb, var(--neon-color, #00c8ff) 13%, transparent);
+  }
 
   .neon-btn--dim {
-    border-color: rgba(0,200,255,0.35); color: rgba(0,200,255,0.50);
+    border-color: rgba(0,200,255,0.35);
+    border-color: color-mix(in srgb, var(--neon-color, #00c8ff) 35%, transparent);
+    color: rgba(0,200,255,0.50);
+    color: color-mix(in srgb, var(--neon-color, #00c8ff) 50%, transparent);
     text-shadow: none; box-shadow: none;
   }
-  .neon-btn--dim:active { background: rgba(0,200,255,0.06); }
+  .neon-btn--dim:active {
+    background: rgba(0,200,255,0.06);
+    background: color-mix(in srgb, var(--neon-color, #00c8ff) 6%, transparent);
+  }
 </style>
