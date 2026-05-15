@@ -4,7 +4,7 @@
   import { getTrackRatio, bfsPath,
            computeCheckpoints, computeCollectibles } from '../lib/maze-utils.js';
   import { stepPhysics, checkWallFall }           from '../lib/physics.js';
-  import { draw }                                 from '../lib/render.js';
+  import { draw, renderStaticTexture }            from '../lib/render.js';
   import { getTheme, neonToRgba }                 from '../lib/theme.js';
   import { screen as appScreen, gameMode,
            runStats, settings, audioMgrStore }    from '../stores.js';
@@ -200,6 +200,12 @@
     chrono = currentMode === 'zen' ? '∞' : formatTime(initialTime * 1000);
     countdownText = '';
     runStats.update(s => ({ ...s, lvl: levelNum }));
+
+    // Pour le rendu Threlte (Lot 3) : pré-rendu de la couche statique
+    // (surface + piste + néon) du plateau. Sera uploadé en CanvasTexture
+    // par Scene3D et appliqué au plateau 3D. Texture invalidée à chaque
+    // initLevel (palette néon, dimensions ou maze topology peuvent changer).
+    if (is3D) G.staticTexture = renderStaticTexture(G);
   }
 
   function handleOrientationChange() {
@@ -542,6 +548,14 @@
   });
 </script>
 
+<!-- Scène Threlte plein écran sous la HUD. Le HUD a un z-index élevé
+     pour rester au-dessus. pointer-events: none côté Scene3D → les
+     touches tombent sur le canvas 2D dessous (pour inputMgr). -->
+{#if is3D && Scene3DComponent}
+  <svelte:component this={Scene3DComponent}
+    {G} {deviceAngle} {boardTiltX} {boardTiltY} />
+{/if}
+
 <HUD {lvl} {chrono} {attempts} {paused} mode={currentMode} {hint} {timeLeft}
      onTogglePause={togglePause}
      on:click={handleContainerTap}>
@@ -552,16 +566,7 @@
     {countdownText}
     {deviceAngle}
     hidden={is3D}
-    on:click={handleCanvasTap}>
-    <!-- Scène Threlte placée DANS .world-rotate (sized par Game.svelte
-         aux dims du canvas 2D) → la 3D occupe la même zone visuelle que
-         le canvas 2D, sans déborder sur la HUD. pointer-events: none
-         côté Scene3D → les touches tombent sur le canvas 2D dessous. -->
-    {#if is3D && Scene3DComponent}
-      <svelte:component this={Scene3DComponent}
-        {G} {deviceAngle} {boardTiltX} {boardTiltY} />
-    {/if}
-  </Canvas>
+    on:click={handleCanvasTap} />
 </HUD>
 
 {#if showCfg}

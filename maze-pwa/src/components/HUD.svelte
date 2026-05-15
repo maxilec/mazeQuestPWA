@@ -90,7 +90,7 @@
 
 <style>
   .container {
-    position: relative; z-index: 1;
+    position: relative; z-index: 10;
     width: 100vw; height: 100vh;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;

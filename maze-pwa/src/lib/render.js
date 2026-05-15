@@ -168,6 +168,23 @@ function getTheme(g) {
 // Remplit le canvas avec le fond sombre — la table sur laquelle reposent
 // les pistes. Les pistes (drawTrack) sont dessinées comme des strokes
 // surélevés au-dessus de cette surface.
+//
+// Texture statique pour le rendu 3D (Lot 3 Threlte) — rend uniquement
+// les couches statiques (surface + piste + intersections) dans un
+// offscreen canvas. Sert de THREE.CanvasTexture appliquée au plateau
+// 3D ; donne instantanément le look concrete + icy neon sans réécrire
+// les passes en GLSL ni en meshes 3D. Régénérée à chaque initLevel.
+export function renderStaticTexture(g) {
+  if (typeof document === 'undefined' || !g) return null;
+  const off = document.createElement('canvas');
+  off.width  = g.W;
+  off.height = g.H;
+  const ctx  = off.getContext('2d');
+  drawBoard(ctx, g, 1);          // surface slate
+  drawTrack(ctx, g, 0, 0, 1);    // piste beige + néon (parallax neutralisé)
+  return off;
+}
+
 export function drawBoard(ctx, g, ia) {
   const { W, H } = g;
   const t = getTheme(g);

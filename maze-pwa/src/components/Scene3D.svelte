@@ -21,26 +21,41 @@
   // L'élément hôte est `pointer-events: none` — les touch events tombent
   // sur le canvas 2D en arrière-plan, capturé par inputMgr.
 
-  import { Canvas, T } from '@threlte/core';
+  import { onDestroy }   from 'svelte';
+  import { Canvas, T }   from '@threlte/core';
+  import { CanvasTexture, SRGBColorSpace } from 'three';
 
   export let G            = null;
   export let deviceAngle  = 0;
   export let boardTiltX   = 0;
   export let boardTiltY   = 0;
 
+  // ── Texture du plateau (Lot 3) ─────────────────────────────────────────
+  // Game.svelte pré-rend les couches statiques du plateau (surface +
+  // piste béton + ligne néon glacé) dans G.staticTexture, un offscreen
+  // <canvas>. On l'enveloppe ici en THREE.CanvasTexture et on l'applique
+  // au plateau via map. Régénérée à chaque changement de canvas source
+  // (initLevel : nouveau maze, nouvelle palette néon, ou resize).
+  let plateauTexture = null;
+  $: if (G?.staticTexture && (plateauTexture?.image !== G.staticTexture)) {
+    if (plateauTexture) plateauTexture.dispose();
+    plateauTexture = new CanvasTexture(G.staticTexture);
+    plateauTexture.colorSpace = SRGBColorSpace;
+    plateauTexture.needsUpdate = true;
+  }
+  onDestroy(() => { if (plateauTexture) plateauTexture.dispose(); });
+
   const DEG          = Math.PI / 180;
   const MAX_TILT_DEG = 12;
   const FOV          = 35;
-  const WALL_H       = 12;   // épaisseur 3D des murs
 
-  // Le host fillt .world-rotate qui est sized par Game.svelte aux dims
-  // du canvas 2D : portrait = (G.W, G.H), landscape = (G.H, G.W) (swap).
-  // Après world-lock rotation autour de Z (-deviceAngle), le maze pivoté
-  // a une bbox dont la hauteur visible = G.W en landscape, G.H en portrait.
-  // → cameraZ frame cette hauteur visible avec marge.
+  // Scene3D occupe tout le viewport. Caméra dimensionnée pour englober
+  // le maze (pivoté ou non par world-lock). En landscape, après rotation
+  // -90°, la hauteur visible du maze = G.W ; en portrait c'est G.H.
+  // +20 % de marge pour que le HUD à l'avant ne masque pas trop le maze.
   $: isLandscape = (deviceAngle === 90 || deviceAngle === 270);
   $: visibleH    = G ? (isLandscape ? G.W : G.H) : 660;
-  $: cameraZ     = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.05;
+  $: cameraZ     = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.20;
 
   // World-lock : rotation Z = -deviceAngle.
   $: worldLockZ = -deviceAngle * DEG;
@@ -55,47 +70,6 @@
   $: ballY  = G ? G.H / 2 - G.ball.y : 0;
   $: ballR  = G ? G.br : 10;
   // La bille « repose » sur le plateau (Z ≈ rayon, sphère tangente au plan).
-
-  // Murs : un Box par mur ouvert/fermé selon ce.R / ce.B / ce.T (row 0) /
-  // ce.L (col 0). Re-calculé à chaque changement de niveau (G.maze /
-  // G.cw / G.ch).
-  $: walls = G ? buildWalls(G) : [];
-
-  function buildWalls(g) {
-    const out = [];
-    const { maze, R, C, cw, ch, W, H } = g;
-    const wt = Math.max(3, Math.min(7, Math.min(cw, ch) * 0.14));
-    for (let r = 0; r < R; r++) {
-      for (let c = 0; c < C; c++) {
-        const ce = maze[r][c];
-        // Right wall (between this cell and the one to the right)
-        if (ce.R) {
-          const x = (c + 1) * cw - W / 2;
-          const y = H / 2 - (r * ch + ch / 2);
-          out.push({ x, y, w: wt, h: ch });
-        }
-        // Bottom wall
-        if (ce.B) {
-          const x = c * cw + cw / 2 - W / 2;
-          const y = H / 2 - ((r + 1) * ch);
-          out.push({ x, y, w: cw, h: wt });
-        }
-        // Top wall (perimeter only — row 0)
-        if (r === 0 && ce.T) {
-          const x = c * cw + cw / 2 - W / 2;
-          const y = H / 2;
-          out.push({ x, y, w: cw, h: wt });
-        }
-        // Left wall (perimeter only — col 0)
-        if (c === 0 && ce.L) {
-          const x = -W / 2;
-          const y = H / 2 - (r * ch + ch / 2);
-          out.push({ x, y, w: wt, h: ch });
-        }
-      }
-    }
-    return out;
-  }
 </script>
 
 <div class="threlte-host">
@@ -110,21 +84,22 @@
       <!-- Tilt 3D group -->
       <T.Group rotation.x={tiltX} rotation.y={tiltY}>
 
-        <!-- Plateau (la texture concrete + icy neon viendra en Lot 3) -->
+        <!-- Plateau texturé (Lot 3) — la texture issue de render.js inclut
+             surface, piste béton et ligne néon. Plus de murs séparés en
+             3D (la texture les rend déjà visuellement). Lot 6 ajoutera
+             du vrai relief 3D si on le souhaite. -->
         {#if G}
           <T.Mesh position={[0, 0, 0]}>
             <T.PlaneGeometry args={[G.W, G.H]} />
-            <T.MeshStandardMaterial color="#2a2e36" roughness={0.85} metalness={0.1} />
+            {#if plateauTexture}
+              <T.MeshStandardMaterial map={plateauTexture}
+                                      roughness={0.85} metalness={0.05} />
+            {:else}
+              <T.MeshStandardMaterial color="#2a2e36"
+                                      roughness={0.85} metalness={0.1} />
+            {/if}
           </T.Mesh>
         {/if}
-
-        <!-- Murs du labyrinthe — un Box par mur du maze -->
-        {#each walls as wall}
-          <T.Mesh position={[wall.x, wall.y, WALL_H / 2]}>
-            <T.BoxGeometry args={[wall.w, wall.h, WALL_H]} />
-            <T.MeshStandardMaterial color="#0c0f15" roughness={0.7} metalness={0.05} />
-          </T.Mesh>
-        {/each}
 
         <!-- Bille -->
         {#if G}
@@ -141,14 +116,10 @@
 
 <style>
   .threlte-host {
-    /* Positionné dans .world-rotate (Canvas.svelte) qui est sized par
-       Game.svelte aux dims exactes du canvas 2D. Le 3D occupe donc la
-       même zone visuelle que le 2D, sans empiéter sur la HUD à côté. */
-    position: absolute;
+    /* Plein viewport. La HUD a un z-index supérieur pour rester en avant. */
+    position: fixed;
     inset: 0;
-    z-index: 0;
-    /* Les touch events traversent vers le canvas 2D dessous, qui est
-       toujours en charge de l'input via inputMgr. */
+    z-index: 1;
     pointer-events: none;
     background: transparent;
   }
