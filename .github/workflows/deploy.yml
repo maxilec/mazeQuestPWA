@@ -6,6 +6,7 @@ on:
       - main
       - 'claude/gyroscope-marble-maze-s2CPy'
       - 'claude/refactor-game-ui-JacOS'
+      - 'claude/threlte-3d-migration'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
