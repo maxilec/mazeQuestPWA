@@ -327,16 +327,16 @@
              2) Path nodes    : cylindres aux centres → caps arrondies
                 aux extrémités + jonctions T/+/etc. -->
         {#if G && G.maze}
-          <!-- Path segments — Lot 6.11 : RoundedBoxGeometry pour des
-               bords arrondis (au lieu de BoxGeometry vif). Args :
-               [w, h, d, segments=3, radius=0.18 (en unités unité)].
-               Scale s'applique ensuite, les corners restent doux. -->
+          <!-- Path segments — Lot 6.15 : extension +pathW * 0.6 (vs 0.3
+               Lot 6.11) pour mieux masquer les cylindres aux corners.
+               Les segments dépassent les nodes des deux côtés, ne
+               laissant qu'un petit "pétale" visible au max. -->
           {#each computePathSegments(G) as seg, i (`s${i}-${seg.type}`)}
             <T.Mesh position={[seg.x, seg.y, pathBase + pathH / 2]}
                     scale={
                       seg.type === 'h'
-                        ? [seg.length + pathW * 0.3, pathW, pathH]
-                        : [pathW, seg.length + pathW * 0.3, pathH]
+                        ? [seg.length + pathW * 0.6, pathW, pathH]
+                        : [pathW, seg.length + pathW * 0.6, pathH]
                     }
                     castShadow receiveShadow>
               <T is={RoundedBoxGeometry} args={[1, 1, 1, 3, 0.18]} />
@@ -360,17 +360,17 @@
             </T.Mesh>
           {/each}
 
-          <!-- Rainure néon sur le dessus de la piste — Lot 6.13 :
-               dual-layer (white core + color halo) pour match ref 2D.
-               White core : fine bright stripe au centre.
-               Color halo : teinte colorée + glow émissif autour. -->
+          <!-- Rainure néon sur le dessus de la piste — Lot 6.15 :
+               extension +pathW * 0.6 sur la longueur pour matcher
+               l'extension segments (continuité du néon aux jonctions).
+               Dual-layer : white core + color halo pour match ref 2D. -->
           {#each computePathSegments(G) as seg, i (`ns${i}`)}
             <!-- White core (intense emissive) -->
             <T.Mesh position={[seg.x, seg.y, pathBase + pathH + 0.35]}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 0.3]
-                  : [neonW * 0.3, seg.length]
+                  ? [seg.length + pathW * 0.6, neonW * 0.3]
+                  : [neonW * 0.3, seg.length + pathW * 0.6]
               } />
               <T.MeshStandardMaterial color="#ffffff"
                                       emissive="#ffffff"
@@ -382,8 +382,8 @@
             <T.Mesh position={[seg.x, seg.y, pathBase + pathH + 0.40]}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 0.7]
-                  : [neonW * 0.7, seg.length]
+                  ? [seg.length + pathW * 0.6, neonW * 0.7]
+                  : [neonW * 0.7, seg.length + pathW * 0.6]
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
@@ -542,37 +542,43 @@
           </T.Sprite>
         {/if}
 
-        <!-- Bille — Lot 6.13 : métal pur gold avec emissive pour
-             luminosité accrue. Le metal reflète les neon PointLights,
-             l'emissive ajoute du brillant. -->
+        <!-- Bille — Lot 6.15 : retour à métal pur (sans emissive).
+             L'emissive du Lot 6.13 saturait le matériau et masquait
+             les reflections du metalness=1.0. Avec emissive retirée,
+             la bille reflète correctement les neon PointLights aux
+             intersections (teintes cyan/rose/vert selon theme). -->
         {#if G && ballVisible}
           <T.Mesh position={[ballX, ballY, (pathBase + pathH + ballR) * fallScale]}
                   scale={[fallScale, fallScale, fallScale]}
                   castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
             <T.MeshStandardMaterial color="#D4AF37"
-                                    emissive="#f4c267"
-                                    emissiveIntensity={0.3}
                                     metalness={1.0}
                                     roughness={0.15} />
           </T.Mesh>
 
-          <!-- Ball trail — Lot 6.14 : 8 sprites circulaires (texture
-               procédurale radial gradient) qui fade derrière le vecteur
-               de mouvement. Velocity gate : ne render que si la bille
-               bouge (vmag > 0.5) → pas de carré jaune au centre quand
-               immobile. -->
-          {@const vmag = Math.hypot(G.ball.vx || 0, G.ball.vy || 0)}
-          {#if vmag > 0.5 && ballGlowTexture}
-            {#each Array(8) as _, i}
-              {@const trailPos = {
-                  x: ballX - (i / 8) * (G.ball.vx || 0) * 0.5,
-                  y: ballY - (i / 8) * (G.ball.vy || 0) * 0.5,
-                  z: pathBase + pathH + ballR * 0.8,
-                }}
-              {@const opacity = (1 - i / 8) * 0.5}
-              {@const scale = ballR * 1.4 * (1 - i / 8 * 0.3)}
-              <T.Sprite position={[trailPos.x, trailPos.y, trailPos.z]}
+          <!-- Ball trail — Lot 6.15 : trainée DERRIÈRE la bille.
+               Fixes Lot 6.14 :
+               - Trail démarre à i=1 (pas i=0) pour ne pas overlap la bille
+               - Offset basé sur direction normalisée (pas velocity raw)
+                 → trail longueur fixe ∝ ballR, indépendante de vitesse
+               - Gate à vmag > 0.2 (plus permissif, trail visible plus tôt)
+               - Direction inversée : trail derrière le vecteur (-vx, -vy
+                 dans le repère 3D Y-up) -->
+          {@const vx = G.ball.vx || 0}
+          {@const vy = G.ball.vy || 0}
+          {@const vmag = Math.hypot(vx, vy)}
+          {#if vmag > 0.2 && ballGlowTexture}
+            <!-- Direction unitaire dans le repère 3D (Y inversé : canvas vy+ = 3D -Y) -->
+            {@const dirX = vx / vmag}
+            {@const dirY = -vy / vmag}
+            {#each Array(7) as _, i}
+              {@const step = (i + 1) * ballR * 0.7}
+              {@const trailX = ballX - dirX * step}
+              {@const trailY = ballY - dirY * step}
+              {@const opacity = Math.max(0, (1 - i / 7) * 0.55)}
+              {@const scale = ballR * 1.6 * (1 - i / 7 * 0.35)}
+              <T.Sprite position={[trailX, trailY, pathBase + pathH + ballR * 0.5]}
                         scale={[scale, scale, 1]}>
                 <T.SpriteMaterial map={ballGlowTexture}
                                   transparent={true}
