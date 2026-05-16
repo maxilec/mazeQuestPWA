@@ -299,8 +299,10 @@
          Le composant doit être DANS Canvas pour accéder à useThrelte().
          Env map (RoomEnvironment via PMREM) rend la bille metalness=1.0
          reflective (au lieu de noire). Bloom amplifie les emissive
-         materials (neon, cadre) en halo gaussien. -->
-    <Postprocess bloomStrength={0.9} bloomRadius={0.5} bloomThreshold={0.15} />
+         materials (neon, cadre) en halo gaussien.
+         Lot 6.17 fix : threshold 0.85 pour ne capturer QUE les emissive
+         très brillants (pas la piste beige claire). -->
+    <Postprocess bloomStrength={0.6} bloomRadius={0.3} bloomThreshold={0.85} />
 
     <!-- Lighting (Lot 6.3) — bind:ref + config shadow programmatique
          (updateProjectionMatrix appelé explicitement, plus fiable que
