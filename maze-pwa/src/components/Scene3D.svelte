@@ -265,6 +265,27 @@
           </T.Mesh>
         {/if}
 
+        <!-- DEBUG SINGLE WALL (Lot 6.7) — isole le premier wall produit
+             par computeWalls(G). Rendu manuel hors du {#each}. Si on
+             voit le mur vert, computeWalls retourne bien des données
+             et la position/scale sont valides → bug = each block. Si
+             on ne voit rien, bug = computeWalls (G.maze structure ?). -->
+        {#if G && G.maze}
+          {@const testWalls = computeWalls(G)}
+          {#if testWalls.length > 0}
+            {@const w0 = testWalls[0]}
+            <T.Mesh position={[w0.x, w0.y, wallH / 2 + 1]}
+                    scale={
+                      w0.type === 'h'
+                        ? [w0.length + wallT, wallT, wallH]
+                        : [wallT, w0.length + wallT, wallH]
+                    }>
+              <T.BoxGeometry args={[1, 1, 1]} />
+              <T.MeshBasicMaterial color="#00ff00" />
+            </T.Mesh>
+          {/if}
+        {/if}
+
         <!-- Murs 3D extrudés (Lot 6, refactor 6.6) — passage de l'each
              réactif sur `walls` à un each direct sur computeWalls(G) +
              unité BoxGeometry + scale, pour éliminer toute chance de
