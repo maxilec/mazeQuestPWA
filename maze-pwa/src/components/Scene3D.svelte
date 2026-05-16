@@ -323,16 +323,20 @@
 
         <!-- Sol (track) — texture clear : beige uniforme + ligne néon
              visible. Mat papier (rough 0.92, metal 0). Reçoit les
-             ombres projetées par les murs (Lot 6.2). -->
+             ombres projetées par les murs (Lot 6.2).
+             Lot 6.17 hotfix 3 : envMapIntensity=0 → le sol n'absorbe
+             PAS l'illumination du env map (qui sur-éclairait tout). -->
         {#if G}
           <T.Mesh position={[0, 0, 0]} receiveShadow>
             <T.PlaneGeometry args={[G.W, G.H]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
-                                      roughness={0.92} metalness={0.0} />
+                                      roughness={0.92} metalness={0.0}
+                                      envMapIntensity={0} />
             {:else}
               <T.MeshStandardMaterial color={G?.theme?.trackFloor ?? '#d6cebc'}
-                                      roughness={0.92} metalness={0.0} />
+                                      roughness={0.92} metalness={0.0}
+                                      envMapIntensity={0} />
             {/if}
           </T.Mesh>
         {/if}
@@ -359,7 +363,8 @@
                     castShadow receiveShadow>
               <T is={RoundedBoxGeometry} args={[1, 1, 1, 3, 0.18]} />
               <T.MeshStandardMaterial color={PATH_COLOR}
-                                      roughness={0.82} metalness={0.04} />
+                                      roughness={0.82} metalness={0.04}
+                                      envMapIntensity={0} />
             </T.Mesh>
           {/each}
 
@@ -374,7 +379,8 @@
                     castShadow receiveShadow>
               <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32]} />
               <T.MeshStandardMaterial color={PATH_COLOR}
-                                      roughness={0.82} metalness={0.04} />
+                                      roughness={0.82} metalness={0.04}
+                                      envMapIntensity={0} />
             </T.Mesh>
           {/each}
 
