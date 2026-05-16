@@ -122,8 +122,12 @@
 
   function computeWalls(g) {
     const out = [];
-    for (let r = 0; r < g.ROWS; r++) {
-      for (let c = 0; c < g.COLS; c++) {
+    // FIX Lot 6.8 : G utilise les propriétés `R` et `C` (cf. Game.svelte:194),
+    // pas ROWS/COLS. Mon ancien code lisait g.ROWS = undefined → `r < undefined`
+    // → loop never runs → array vide → zéro walls rendus. C'EST POURQUOI les
+    // walls étaient invisibles.
+    for (let r = 0; r < g.R; r++) {
+      for (let c = 0; c < g.C; c++) {
         const ce = g.maze[r][c];
         if (r === 0 && ce.T) out.push(horizWall(c, 0, g));
         if (c === 0 && ce.L) out.push(vertWall(0, r, g));
@@ -253,54 +257,21 @@
           </T.Mesh>
         {/if}
 
-        <!-- DEBUG TEST CUBE (Lot 6.6) — mesh hardcoded au centre du maze.
-             Si on voit ce cube magenta, le rendu T.Mesh/BoxGeometry
-             fonctionne dans le tilt group → le bug est dans la boucle
-             {#each walls}. Si on ne le voit pas, problème plus profond
-             (camera frustum, ordre de rendu, etc.). -->
-        {#if G}
-          <T.Mesh position={[0, 0, 80]}>
-            <T.BoxGeometry args={[120, 120, 120]} />
-            <T.MeshBasicMaterial color="#ff00ff" />
-          </T.Mesh>
-        {/if}
-
-        <!-- DEBUG SINGLE WALL (Lot 6.7) — isole le premier wall produit
-             par computeWalls(G). Rendu manuel hors du {#each}. Si on
-             voit le mur vert, computeWalls retourne bien des données
-             et la position/scale sont valides → bug = each block. Si
-             on ne voit rien, bug = computeWalls (G.maze structure ?). -->
-        {#if G && G.maze}
-          {@const testWalls = computeWalls(G)}
-          {#if testWalls.length > 0}
-            {@const w0 = testWalls[0]}
-            <T.Mesh position={[w0.x, w0.y, wallH / 2 + 1]}
-                    scale={
-                      w0.type === 'h'
-                        ? [w0.length + wallT, wallT, wallH]
-                        : [wallT, w0.length + wallT, wallH]
-                    }>
-              <T.BoxGeometry args={[1, 1, 1]} />
-              <T.MeshBasicMaterial color="#00ff00" />
-            </T.Mesh>
-          {/if}
-        {/if}
-
-        <!-- Murs 3D extrudés (Lot 6, refactor 6.6) — passage de l'each
-             réactif sur `walls` à un each direct sur computeWalls(G) +
-             unité BoxGeometry + scale, pour éliminer toute chance de
-             désynchro reactive et de geometry recréée chaque frame. -->
+        <!-- Murs 3D extrudés. Cf. computeWalls(G) qui itère G.maze[r][c]
+             (avec les bons accesseurs G.R / G.C — Lot 6.8 fix bug).
+             Unité BoxGeometry + scale = une seule géométrie réutilisée. -->
         {#if G && G.maze}
           {#each computeWalls(G) as wall, i (`${i}-${wall.type}`)}
-            <!-- Mur lui-même : MeshBasic rouge (debug Gemini). -->
             <T.Mesh position={[wall.x, wall.y, wallH / 2 + 1]}
                     scale={
                       wall.type === 'h'
                         ? [wall.length + wallT, wallT, wallH]
                         : [wallT, wall.length + wallT, wallH]
-                    }>
+                    }
+                    castShadow receiveShadow>
               <T.BoxGeometry args={[1, 1, 1]} />
-              <T.MeshBasicMaterial color="#ff0000" />
+              <T.MeshStandardMaterial color={WALL_COLOR}
+                                      roughness={0.78} metalness={0.05} />
             </T.Mesh>
           {/each}
         {/if}
