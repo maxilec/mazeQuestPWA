@@ -1,0 +1,19 @@
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="blurLgBlue">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+    <filter id="blurSmBlue">
+      <feGaussianBlur stdDeviation="2"/>
+    </filter>
+  </defs>
+  <circle cx="60" cy="60" r="42" fill="#2b3b4a"/>
+  <circle cx="60" cy="60" r="42" fill="none" stroke="#38bdf8" stroke-width="6" filter="url(#blurLgBlue)"/>
+  <text x="60" y="70" font-family="sans-serif" font-weight="900" font-size="28" fill="#38bdf8" filter="url(#blurSmBlue)" text-anchor="middle">
+    +5s
+  </text>
+  <circle cx="60" cy="60" r="42" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+  <text x="60" y="70" font-family="sans-serif" font-weight="900" font-size="28" fill="#ffffff" text-anchor="middle">
+    +5s
+  </text>
+</svg>
