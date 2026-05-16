@@ -114,8 +114,12 @@
   //               + jonctions, intersections lumineuses).
   // Les "murs" deviennent juste l'absence de piste (zones de void).
   $: pathW    = G ? Math.min(G.cw, G.ch) * 0.60 : 30;   // largeur de piste
-  $: pathH    = G ? Math.min(G.cw, G.ch) * 0.28 : 15;   // hauteur d'extrusion
-  $: neonW    = G ? Math.min(G.cw, G.ch) * 0.06 : 3;    // largeur ligne néon
+  $: pathH    = G ? Math.min(G.cw, G.ch) * 0.32 : 15;   // hauteur d'extrusion
+  // Lot 6.10 : gap entre le sol et le BAS de la piste — donne l'effet
+  // « piste qui flotte au-dessus du plateau ». Le shadow casté par la
+  // piste sur le sol renforce l'effet floating.
+  $: pathBase = G ? Math.min(G.cw, G.ch) * 0.10 : 5;
+  $: neonW    = G ? Math.min(G.cw, G.ch) * 0.05 : 2.5;
   const PATH_COLOR = '#ece5d2';   // theme.trackHi cream — piste surélevée
 
   function computePathSegments(g) {
@@ -284,59 +288,65 @@
              2) Path nodes    : cylindres aux centres → caps arrondies
                 aux extrémités + jonctions T/+/etc. -->
         {#if G && G.maze}
+          <!-- Path segments — Lot 6.10 : étendus de pathW * 0.3 pour
+               OVERLAP avec les nodes cylindres aux extrémités (évite
+               le Z-fighting visible aux jonctions sous tilt). Position
+               z = pathBase + pathH/2 (piste surélevée, flotte au-dessus
+               du sol). castShadow gardé pour shadow projetée sur sol. -->
           {#each computePathSegments(G) as seg, i (`s${i}-${seg.type}`)}
-            <T.Mesh position={[seg.x, seg.y, pathH / 2 + 0.5]}
+            <T.Mesh position={[seg.x, seg.y, pathBase + pathH / 2]}
                     scale={
                       seg.type === 'h'
-                        ? [seg.length, pathW, pathH]
-                        : [pathW, seg.length, pathH]
+                        ? [seg.length + pathW * 0.3, pathW, pathH]
+                        : [pathW, seg.length + pathW * 0.3, pathH]
                     }
                     castShadow receiveShadow>
               <T.BoxGeometry args={[1, 1, 1]} />
               <T.MeshStandardMaterial color={PATH_COLOR}
-                                      roughness={0.78} metalness={0.05} />
+                                      roughness={0.82} metalness={0.04} />
             </T.Mesh>
           {/each}
 
           {#each computePathNodes(G) as node, i (`n${i}`)}
-            <T.Mesh position={[node.x, node.y, pathH / 2 + 0.5]}
+            <T.Mesh position={[node.x, node.y, pathBase + pathH / 2]}
                     rotation={[Math.PI / 2, 0, 0]}
                     castShadow receiveShadow>
-              <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 20]} />
+              <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 24]} />
               <T.MeshStandardMaterial color={PATH_COLOR}
-                                      roughness={0.78} metalness={0.05} />
+                                      roughness={0.82} metalness={0.04} />
             </T.Mesh>
           {/each}
 
-          <!-- Rainure néon sur le dessus de la piste : segments emissifs
-               qui suivent les connexions, posés juste au-dessus de la
-               piste (z = pathH + 0.5). theme.neon dynamique. -->
+          <!-- Rainure néon sur le dessus de la piste (Lot 6.10 :
+               emissiveIntensity baissée 1.2 → 0.55 + toneMapped true
+               pour une lueur SUBTILE qui s'intègre, plus une bande
+               cyan saturée). -->
           {#each computePathSegments(G) as seg, i (`ns${i}`)}
-            <T.Mesh position={[seg.x, seg.y, pathH + 0.6]}>
+            <T.Mesh position={[seg.x, seg.y, pathBase + pathH + 0.4]}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW]
-                  : [neonW, seg.length]
+                  ? [seg.length + pathW * 0.3, neonW]
+                  : [neonW, seg.length + pathW * 0.3]
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
-                                      emissiveIntensity={1.2}
+                                      emissiveIntensity={0.55}
                                       transparent={true}
-                                      toneMapped={false} />
+                                      opacity={0.85} />
             </T.Mesh>
           {/each}
 
           <!-- Points d'intersection lumineux (cellules avec >=3 sorties).
-               Petit disque émissif plus brillant aux jonctions. -->
+               Lot 6.10 : intensité baissée pour subtilité. -->
           {#each computePathNodes(G) as node, i (`ni${i}`)}
             {#if node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathH + 0.7]}>
-                <T.CircleGeometry args={[neonW * 1.4, 16]} />
+              <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.5]}>
+                <T.CircleGeometry args={[neonW * 1.6, 16]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
-                                        emissiveIntensity={1.8}
+                                        emissiveIntensity={0.85}
                                         transparent={true}
-                                        toneMapped={false} />
+                                        opacity={0.85} />
               </T.Mesh>
             {/if}
           {/each}
@@ -353,9 +363,9 @@
             {@const cpLen   = Math.min(G.cw, G.ch) * 0.40}
             {@const cpThick = Math.min(G.cw, G.ch) * 0.08}
             {@const cpHigh  = pathH * 0.35}
-            <!-- Lot 6.9 : checkpoint posé sur le dessus de la piste
-                 (z = pathH + cpHigh/2 + 0.5). -->
-            <T.Mesh position={[cx, cy, pathH + cpHigh / 2 + 0.5]}>
+            <!-- Lot 6.10 : checkpoint posé sur le dessus de la piste
+                 surélevée (z = pathBase + pathH + cpHigh/2 + 0.3). -->
+            <T.Mesh position={[cx, cy, pathBase + pathH + cpHigh / 2 + 0.3]}>
               <T.BoxGeometry args={
                 cp.horizontal
                   ? [cpLen, cpThick, cpHigh]
@@ -425,10 +435,10 @@
                 ? 1 + (age / 400) * 0.45
                 : 1 + Math.sin(now * 0.004 + col.c + col.r) * 0.06}
               {@const size   = base * pulse}
-              <!-- Lot 6.9 : z = pathH + 1.5 (juste au-dessus de la
-                   piste extrudée) + depthTest=false → toujours visible
-                   par-dessus tout. -->
-              <T.Sprite position={[cx, cy, pathH + 1.5]}
+              <!-- Lot 6.10 : z = pathBase + pathH + 1.5 (au-dessus de
+                   la piste surélevée) + depthTest=false → toujours
+                   visible par-dessus tout. -->
+              <T.Sprite position={[cx, cy, pathBase + pathH + 1.5]}
                         scale={[size, size, 1]}>
                 <T.SpriteMaterial map={tex} transparent={true}
                                   opacity={fade}
@@ -448,25 +458,25 @@
           {@const fpulse  = 1 + Math.sin(now * 0.003) * 0.05}
           {@const fsize   = fbase * fpulse}
           {@const fAspect = 303 / 256}
-          <T.Sprite position={[fx, fy, pathH + 1.5]}
+          <T.Sprite position={[fx, fy, pathBase + pathH + 1.5]}
                     scale={[fsize, fsize * fAspect, 1]}>
             <T.SpriteMaterial map={textures.finish} transparent={true}
                               depthWrite={false} depthTest={false} />
           </T.Sprite>
         {/if}
 
-        <!-- Bille — bronze brillant. Lot 6.9 : pose SUR le dessus de
-             la piste extrudée (z = pathH + ballR), plus sur le sol
-             entre murs. -->
+        <!-- Bille — bronze brillant. Lot 6.10 : couleur plus lumineuse
+             (gold doré), emissive bumpé. Pose sur le dessus de la
+             piste extrudée et surélevée (z = pathBase + pathH + ballR). -->
         {#if G && ballVisible}
-          <T.Mesh position={[ballX, ballY, (pathH + ballR) * fallScale]}
+          <T.Mesh position={[ballX, ballY, (pathBase + pathH + ballR) * fallScale]}
                   scale={[fallScale, fallScale, fallScale]}
                   castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
-            <T.MeshStandardMaterial color="#f4c267"
-                                    emissive="#5a3010"
-                                    emissiveIntensity={0.4}
-                                    roughness={0.16} metalness={0.85} />
+            <T.MeshStandardMaterial color="#fadb88"
+                                    emissive="#8a5520"
+                                    emissiveIntensity={0.55}
+                                    roughness={0.14} metalness={0.88} />
           </T.Mesh>
         {/if}
 
