@@ -112,9 +112,8 @@
   // R et B toujours.
   $: walls = G ? computeWalls(G) : [];
   $: wallT = G ? Math.min(G.cw, G.ch) * 0.18 : 10;
-  // Lot 6.3 : wallH bumpé encore (0.55 → 0.70) — relief plus prononcé,
-  // côtés des murs plus visibles si la caméra change.
-  $: wallH = G ? Math.min(G.cw, G.ch) * 0.70 : 20;
+  // Lot 6.5 : wallH bumpé à 1.0 × cell — ULTRA visible si la géo rend.
+  $: wallH = G ? Math.min(G.cw, G.ch) * 1.00 : 20;
   // Lot 6.4 : couleur des murs INVERSÉE vs Lot 6.3. Le ref montre
   // les walls plus CLAIRS que le path/floor (look « marble maze »).
   // Light cream #f1e9d3 sur path beige theme.trackFloor #d6cebc :
@@ -272,20 +271,21 @@
             <T.MeshBasicMaterial color="#000000" transparent={true}
                                  opacity={0.22} depthWrite={false} />
           </T.Mesh>
-          <!-- Mur lui-même. Lot 6.4 : position z = wallH/2 + 1 pour
-               éviter le Z-fighting entre la face inférieure du wall
-               (à z=0) et le floor PlaneGeometry (à z=0). Sur GPU
-               mobile la coïncidence exacte peut faire disparaître
-               les walls dans le z-buffer. -->
-          <T.Mesh position={[wall.x, wall.y, wallH / 2 + 1]}
-                  castShadow receiveShadow>
+          <!-- Mur lui-même. Lot 6.5 DEBUG : MeshBasicMaterial rouge
+               (suggestion Gemini #4) pour distinguer un problème de
+               lighting/couleur d'un problème de géométrie/rendu. Si
+               on voit du rouge → revenir à StandardMaterial avec
+               couleur ET lighting plus fort. Sinon → problème
+               géométrie/Z plus profond. Z toujours = wallH/2 + 1
+               (no Z-fighting). wallH bumpé à 1.0 * min(cw,ch) pour
+               être ULTRA visible si la géométrie marche. -->
+          <T.Mesh position={[wall.x, wall.y, wallH / 2 + 1]}>
             <T.BoxGeometry args={
               wall.type === 'h'
                 ? [wall.length + wallT, wallT, wallH]
                 : [wallT, wall.length + wallT, wallH]
             } />
-            <T.MeshStandardMaterial color={WALL_COLOR}
-                                    roughness={0.82} metalness={0.04} />
+            <T.MeshBasicMaterial color="#ff0000" />
           </T.Mesh>
         {/each}
 
@@ -313,14 +313,14 @@
           {/each}
         {/if}
 
-        <!-- Cadre néon (Lot 6, ajusté 6.2) — 4 segments émissifs dans
-             theme.neon, posés au-dessus des murs. Épaisseur calée sur
-             la border 2D (1.5-3 px). Placé À L'INTÉRIEUR du rect du
-             maze pour ne pas déborder de la zone clip de Scene3D. -->
+        <!-- Cadre néon — Lot 6.5 : frame au RAS du sol (z=0.5) avec
+             extrusion minimale (frH=2) pour éviter la parallaxe avec
+             le sol pendant le tilt. Le cadre suit le sol au pixel
+             près. emissive donne le glow sans dépendre du Z. -->
         {#if G}
           {@const frT  = 2.5}
-          {@const frH  = wallH * 0.20}
-          {@const frZ  = wallH * 1.05}
+          {@const frH  = 2}
+          {@const frZ  = 0.5}
           <!-- top : edge à G.H/2, frame inside vers Y descendant -->
           <T.Mesh position={[0, G.H / 2 - frT / 2, frZ]}>
             <T.BoxGeometry args={[G.W, frT, frH]} />
@@ -370,10 +370,14 @@
                 ? 1 + (age / 400) * 0.45
                 : 1 + Math.sin(now * 0.004 + col.c + col.r) * 0.06}
               {@const size   = base * pulse}
-              <T.Sprite position={[cx, cy, wallH * 1.1]}
+              <!-- Lot 6.5 : z=0.5 (au ras du sol) + depthTest=false
+                   → pas de parallaxe pendant le tilt, toujours visible
+                   même si un wall est devant en XY. -->
+              <T.Sprite position={[cx, cy, 0.5]}
                         scale={[size, size, 1]}>
                 <T.SpriteMaterial map={tex} transparent={true}
-                                  opacity={fade} depthWrite={false} />
+                                  opacity={fade}
+                                  depthWrite={false} depthTest={false} />
               </T.Sprite>
             {/if}
           {/each}
@@ -389,10 +393,10 @@
           {@const fpulse  = 1 + Math.sin(now * 0.003) * 0.05}
           {@const fsize   = fbase * fpulse}
           {@const fAspect = 303 / 256}
-          <T.Sprite position={[fx, fy, wallH * 1.1]}
+          <T.Sprite position={[fx, fy, 0.5]}
                     scale={[fsize, fsize * fAspect, 1]}>
             <T.SpriteMaterial map={textures.finish} transparent={true}
-                              depthWrite={false} />
+                              depthWrite={false} depthTest={false} />
           </T.Sprite>
         {/if}
 

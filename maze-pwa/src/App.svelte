@@ -17,6 +17,16 @@
   $: if ($audioMgrStore) {
     $audioMgrStore.setVolume($settings.volume, !$settings.muted);
   }
+
+  // Lot 6.5 : body bg dynamique selon l'écran. iOS Safari peut leak
+  // le body bg dans la safe-area-inset quand .bg-cream/.bg-nebula
+  // fixed:inset:0 ne couvrent pas exactement. Synchronisé body bg
+  // élimine le « black band » (mode jeu) et le « cream band »
+  // (mode title/gameover) au bas de l'écran.
+  $: if (typeof document !== 'undefined') {
+    document.body.style.background =
+      $screen === 'game' ? '#f1e9d3' : '#03000f';
+  }
 </script>
 
 <!-- Background : nébuleuse violet pour title/gameover, papier crème en jeu (Lot 6). -->
@@ -40,12 +50,10 @@
   :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   :global(html, body) {
     width: 100%; height: 100%;
-    /* Lot 6.4 : body bg crème (était #03000f sombre). Évite le
-       « black band » qui apparaissait en bas de l'écran iOS quand
-       .bg-cream fixed inset:0 ne couvrait pas exactement la
-       safe-area. Pour title/gameover, .bg-nebula (opaque dark)
-       recouvre, aucun impact. */
-    background: #f1e9d3; overflow: hidden;
+    /* Lot 6.5 : body bg pilotée par JS (App.svelte script) selon
+       $screen pour éviter le leak inversé entre game (cream) et
+       title/gameover (dark). Initial fallback ici neutre #1a1219. */
+    background: #1a1219; overflow: hidden;
     touch-action: none; user-select: none;
   }
 

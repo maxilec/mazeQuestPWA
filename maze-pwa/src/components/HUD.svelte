@@ -166,9 +166,14 @@
 
   /* ── Board area ──────────────────────────────────────────────────── */
   .board-area {
+    /* Lot 6.5 : align-items flex-end → le canvas est aligné AU BAS
+       du board-area, juste au-dessus du bottom-bar. L'espace vide
+       inhérent à l'aspect ratio non-fitté apparaît AU-DESSUS du
+       canvas (vers le top-bar) plutôt qu'en bas. Bouton MENU au
+       plus près du maze. */
     flex: 1 1 auto; min-height: 0;
     position: relative;
-    display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: flex-end; justify-content: center;
   }
 
   /* ── Bottom bar ──────────────────────────────────────────────────── */
