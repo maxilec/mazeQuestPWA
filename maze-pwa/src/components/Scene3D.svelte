@@ -25,6 +25,7 @@
   import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap } from 'three';
   import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
   import { getSvgSource, svgReady } from '../lib/render.js';
+  import Postprocess            from './Postprocess.svelte';
 
   export let G            = null;
   export let deviceAngle  = 0;
@@ -294,9 +295,12 @@
                          position={[0, camY, camZ]}
                          fov={FOV} near={1} far={cameraZ * 3} />
 
-    <!-- Bloom post-process (Lot 6.14) — TODO : ajouter UnrealBloomPass via
-         EffectComposer pour amplifier les emissive. Pour l'instant, les
-         PointLights + emissive donnent déjà un bon glow. -->
+    <!-- Post-process (Lot 6.17) — Bloom + Env map procédural.
+         Le composant doit être DANS Canvas pour accéder à useThrelte().
+         Env map (RoomEnvironment via PMREM) rend la bille metalness=1.0
+         reflective (au lieu de noire). Bloom amplifie les emissive
+         materials (neon, cadre) en halo gaussien. -->
+    <Postprocess bloomStrength={0.9} bloomRadius={0.5} bloomThreshold={0.15} />
 
     <!-- Lighting (Lot 6.3) — bind:ref + config shadow programmatique
          (updateProjectionMatrix appelé explicitement, plus fiable que
