@@ -296,32 +296,25 @@
                          fov={FOV} near={1} far={cameraZ * 3} />
 
     <!-- Post-process (Lot 6.17) — Bloom + Env map procédural.
-         Le composant doit être DANS Canvas pour accéder à useThrelte().
-         Env map (RoomEnvironment via PMREM) rend la bille metalness=1.0
-         reflective (au lieu de noire). Bloom amplifie les emissive
-         materials (neon, cadre) en halo gaussien.
-         Lot 6.17 fix : threshold 0.85 pour ne capturer QUE les emissive
-         très brillants (pas la piste beige claire). -->
-    <Postprocess bloomStrength={0.6} bloomRadius={0.3} bloomThreshold={0.85} />
+         Lot 6.17 hotfix 2 : threshold 1.0 + strength 0.4 pour ne
+         capturer QUE les emissive HDR (toneMapped:false). Lights
+         ambient/directional réduits car RoomEnvironment fournit
+         maintenant l'illumination globale. -->
+    <Postprocess bloomStrength={0.4} bloomRadius={0.2} bloomThreshold={1.0} />
 
-    <!-- Lighting (Lot 6.3) — bind:ref + config shadow programmatique
-         (updateProjectionMatrix appelé explicitement, plus fiable que
-         le dotted attrs parsing). Bonus visuel par-dessus le fake AO
-         des walls — si shadows runtime marchent, ombres réelles, sinon
-         on a déjà le cue géométrique. -->
-    <!-- Lot 6.12 : lighting « jour ensoleillé » — bumper toutes les
-         intensités + tint chaud (#fff8e6) sur la key directional pour
-         évoquer un soleil chaud. -->
-    <T.AmbientLight intensity={0.95} color="#fff5e0" />
+    <!-- Lighting (Lot 6.17 hotfix 2) : intensités réduites de moitié
+         car RoomEnvironment (Postprocess.svelte) fournit déjà une
+         lumière diffuse globale. Évite la sur-saturation. -->
+    <T.AmbientLight intensity={0.40} color="#fff5e0" />
     <T.DirectionalLight bind:ref={lightRef}
                         position={[G ? G.W * 0.35 : 200,
                                    G ? G.H * 0.20 : 100,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 7]}
-                        intensity={1.40}
+                        intensity={0.70}
                         color="#fff8e6"
                         castShadow />
     <T.DirectionalLight position={[-150, -200, 400]}
-                        intensity={0.35} color="#f4eddb" />
+                        intensity={0.20} color="#f4eddb" />
 
     <!-- World-lock root group -->
     <T.Group rotation.z={worldLockZ}>
