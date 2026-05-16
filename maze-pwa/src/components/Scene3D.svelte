@@ -116,12 +116,14 @@
   //  - Nodes    : cylindres aux centres de cellules (extrémités arrondies
   //               + jonctions, intersections lumineuses).
   // Les "murs" deviennent juste l'absence de piste (zones de void).
-  $: pathW    = G ? Math.min(G.cw, G.ch) * 0.60 : 30;   // largeur de piste
+  // Lot 6.13 : pathW +25% (0.60→0.75), pathBase +100% (0.10→0.20)
+  // pour renforcer le sentiment d'extrusion 3D.
+  $: pathW    = G ? Math.min(G.cw, G.ch) * 0.75 : 30;   // largeur de piste
   $: pathH    = G ? Math.min(G.cw, G.ch) * 0.32 : 15;   // hauteur d'extrusion
   // Lot 6.10 : gap entre le sol et le BAS de la piste — donne l'effet
   // « piste qui flotte au-dessus du plateau ». Le shadow casté par la
   // piste sur le sol renforce l'effet floating.
-  $: pathBase = G ? Math.min(G.cw, G.ch) * 0.10 : 5;
+  $: pathBase = G ? Math.min(G.cw, G.ch) * 0.20 : 5;
   $: neonW    = G ? Math.min(G.cw, G.ch) * 0.05 : 2.5;
   // Lot 6.11 : couleur piste teinte plus chaude #EADFCF (vs #ece5d2).
   const PATH_COLOR = '#EADFCF';
@@ -249,6 +251,10 @@
                          position={[0, camY, camZ]}
                          fov={FOV} near={1} far={cameraZ * 3} />
 
+    <!-- Bloom post-process (Lot 6.14) — TODO : ajouter UnrealBloomPass via
+         EffectComposer pour amplifier les emissive. Pour l'instant, les
+         PointLights + emissive donnent déjà un bon glow. -->
+
     <!-- Lighting (Lot 6.3) — bind:ref + config shadow programmatique
          (updateProjectionMatrix appelé explicitement, plus fiable que
          le dotted attrs parsing). Bonus visuel par-dessus le fake AO
@@ -315,98 +321,126 @@
             </T.Mesh>
           {/each}
 
-          <!-- Path nodes (cell centers) — Lot 6.12 : retour à
-               CylinderGeometry pour des CAPS PARFAITEMENT CIRCULAIRES
-               aux extrémités de piste. Les segments restent en
-               RoundedBoxGeometry (bords doux le long des côtés). Le
-               cylindre fait disparaître l'effet « carré arrondi » des
-               nœuds Lot 6.11. radialSegments=32 pour cercle parfait. -->
+          <!-- Path nodes (cell centers) — Lot 6.13 : selective geometry.
+               - openCount >= 3 (true junctions T/+) : CylinderGeometry
+                 (caps arrondies parfaites)
+               - openCount === 2 (straight passages) : RoundedBoxGeometry
+                 (match segments) -->
           {#each computePathNodes(G) as node, i (`n${i}`)}
             <T.Mesh position={[node.x, node.y, pathBase + pathH / 2]}
-                    rotation={[Math.PI / 2, 0, 0]}
+                    rotation={node.openCount >= 3 ? [Math.PI / 2, 0, 0] : [0, 0, 0]}
                     castShadow receiveShadow>
-              <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32]} />
+              {#if node.openCount >= 3}
+                <!-- True junction: perfect circular caps -->
+                <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32]} />
+              {:else}
+                <!-- Straight passage: RoundedBox for consistency -->
+                <T is={RoundedBoxGeometry} args={[pathW, pathW, pathH, 3, 0.18]} />
+              {/if}
               <T.MeshStandardMaterial color={PATH_COLOR}
                                       roughness={0.82} metalness={0.04} />
             </T.Mesh>
           {/each}
 
-          <!-- Rainure néon sur le dessus de la piste — Lot 6.12 :
-               PLUS d'extension pathW*0.3 (était la source des croix
-               visibles aux jonctions). Le segment néon s'arrête à la
-               longueur nominale, le disque au node prend le relais
-               pour couvrir le centre de cellule. -->
+          <!-- Rainure néon sur le dessus de la piste — Lot 6.13 :
+               dual-layer (white core + color halo) pour match ref 2D.
+               White core : fine bright stripe au centre.
+               Color halo : teinte colorée + glow émissif autour. -->
           {#each computePathSegments(G) as seg, i (`ns${i}`)}
-            <T.Mesh position={[seg.x, seg.y, pathBase + pathH + 0.4]}>
+            <!-- White core (intense emissive) -->
+            <T.Mesh position={[seg.x, seg.y, pathBase + pathH + 0.35]}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW]
-                  : [neonW, seg.length]
+                  ? [seg.length, neonW * 0.3]
+                  : [neonW * 0.3, seg.length]
+              } />
+              <T.MeshStandardMaterial color="#ffffff"
+                                      emissive="#ffffff"
+                                      emissiveIntensity={1.0}
+                                      transparent={true}
+                                      opacity={1.0} />
+            </T.Mesh>
+            <!-- Color halo (glow coloré) -->
+            <T.Mesh position={[seg.x, seg.y, pathBase + pathH + 0.40]}>
+              <T.PlaneGeometry args={
+                seg.type === 'h'
+                  ? [seg.length, neonW * 0.7]
+                  : [neonW * 0.7, seg.length]
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
-                                      emissiveIntensity={0.55}
+                                      emissiveIntensity={0.6}
                                       transparent={true}
-                                      opacity={0.85} />
+                                      opacity={0.75} />
             </T.Mesh>
           {/each}
 
-          <!-- Neon dots à CHAQUE cell node — Lot 6.12 : disque
-               significativement plus GROS (neonW * 1.6 vs 0.55) pour
-               COUVRIR le centre de cellule et masquer les fines
-               extrémités des segments qui se rejoignent. Plus de croix
-               visibles aux jonctions corner. -->
+          <!-- Neon dots aux INTERSECTIONS UNIQUEMENT — Lot 6.13 :
+               SphereGeometry pour soft glow naturel (falloff sphérique).
+               Seules les vraies intersections (>=3 sorties) ont des dots. -->
           {#each computePathNodes(G) as node, i (`nb${i}`)}
-            <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.45]}>
-              <T.CircleGeometry args={[neonW * 1.6, 20]} />
-              <T.MeshStandardMaterial color={neonColor}
-                                      emissive={neonColor}
-                                      emissiveIntensity={0.55}
-                                      transparent={true}
-                                      opacity={0.85} />
-            </T.Mesh>
-          {/each}
-
-          <!-- Points d'intersection (>=3 sorties) : disque plus
-               brillant superposé au dot standard, légèrement plus
-               grand pour distinction. -->
-          {#each computePathNodes(G) as node, i (`ni${i}`)}
             {#if node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.55]}>
-                <T.CircleGeometry args={[neonW * 2.0, 20]} />
+              <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.50]}>
+                <T.SphereGeometry args={[neonW * 0.8, 16, 8]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
-                                        emissiveIntensity={0.95}
+                                        emissiveIntensity={1.2}
                                         transparent={true}
-                                        opacity={0.95} />
+                                        opacity={0.95}
+                                        toneMapped={false} />
               </T.Mesh>
             {/if}
           {/each}
         {/if}
 
-        <!-- Checkpoints (Lot 6.1) — barres émissives au centre des
-             cellules, vertes (non passées) ou jaunes (passées). Reproduit
-             le rendu de drawCheckpoints (render.js:399) en 3D. -->
+        <!-- Checkpoints (Lot 6.13) — thin luminous stripes (PlaneGeometry)
+             vertes (non passées) ou jaunes (passées). Match du rendu
+             2D luminous fin. -->
         {#if G?.checkpoints}
           {#each G.checkpoints as cp, i (i)}
             {@const cx      = cp.c * G.cw + G.cw / 2 - G.W / 2}
             {@const cy      = G.H / 2 - (cp.r * G.ch + G.ch / 2)}
             {@const cpClr   = cp.passed ? '#ffcc00' : '#00ff80'}
-            {@const cpLen   = Math.min(G.cw, G.ch) * 0.40}
-            {@const cpThick = Math.min(G.cw, G.ch) * 0.08}
-            {@const cpHigh  = pathH * 0.35}
-            <!-- Lot 6.10 : checkpoint posé sur le dessus de la piste
-                 surélevée (z = pathBase + pathH + cpHigh/2 + 0.3). -->
-            <T.Mesh position={[cx, cy, pathBase + pathH + cpHigh / 2 + 0.3]}>
-              <T.BoxGeometry args={
+            {@const cpLen   = Math.min(G.cw, G.ch) * 0.50}
+            {@const cpThick = neonW * 0.6}
+            <T.Mesh position={[cx, cy, pathBase + pathH + 0.8]}>
+              <T.PlaneGeometry args={
                 cp.horizontal
-                  ? [cpLen, cpThick, cpHigh]
-                  : [cpThick, cpLen, cpHigh]
+                  ? [cpLen, cpThick]
+                  : [cpThick, cpLen]
               } />
-              <T.MeshStandardMaterial color={cpClr} emissive={cpClr}
-                                      emissiveIntensity={1.4}
-                                      toneMapped={false} />
+              <T.MeshStandardMaterial color={cpClr}
+                                      emissive={cpClr}
+                                      emissiveIntensity={1.5}
+                                      toneMapped={false}
+                                      transparent={true}
+                                      opacity={0.95} />
             </T.Mesh>
+          {/each}
+        {/if}
+
+        <!-- PointLights pour neon real light — Lot 6.13 :
+             Illumination continue le long des segments (dim) +
+             bright points aux intersections (bright). -->
+        {#if G && G.maze}
+          <!-- PointLights aux centre des segments (dim) -->
+          {#each computePathSegments(G) as seg, i (`light-seg-${i}`)}
+            <T.PointLight position={[seg.x, seg.y, pathBase + pathH + 2]}
+                          intensity={0.7}
+                          distance={Math.min(G.cw, G.ch) * 1.0}
+                          color={neonColor}
+                          decay={1.5} />
+          {/each}
+
+          <!-- PointLights aux intersections (bright) -->
+          {#each computePathNodes(G) as node, i (`light-node-${i}`)}
+            {#if node.isIntersection}
+              <T.PointLight position={[node.x, node.y, pathBase + pathH + 2]}
+                            intensity={1.4}
+                            distance={Math.min(G.cw, G.ch) * 1.5}
+                            color={neonColor}
+                            decay={1.5} />
+            {/if}
           {/each}
         {/if}
 
@@ -497,19 +531,39 @@
           </T.Sprite>
         {/if}
 
-        <!-- Bille — Lot 6.11 : métal pur gold (D4AF37) avec
-             metalness=1.0 + roughness=0.15 (specs utilisateur). Plus
-             d'emissive — un metal pur reflète l'environnement, pas
-             besoin d'auto-illumination. Pose sur le dessus de la
-             piste surélevée (z = pathBase + pathH + ballR). -->
+        <!-- Bille — Lot 6.13 : métal pur gold avec emissive pour
+             luminosité accrue. Le metal reflète les neon PointLights,
+             l'emissive ajoute du brillant. -->
         {#if G && ballVisible}
           <T.Mesh position={[ballX, ballY, (pathBase + pathH + ballR) * fallScale]}
                   scale={[fallScale, fallScale, fallScale]}
                   castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
             <T.MeshStandardMaterial color="#D4AF37"
-                                    metalness={1.0} roughness={0.15} />
+                                    emissive="#f4c267"
+                                    emissiveIntensity={0.3}
+                                    metalness={1.0}
+                                    roughness={0.15} />
           </T.Mesh>
+
+          <!-- Ball trail — Lot 6.13 : 8 sprites fade progressivement
+               derrière le vecteur de mouvement de la bille. -->
+          {#each Array(8) as _, i}
+            {@const trailPos = {
+                x: ballX - (i / 8) * (G.ball.vx || 0) * 0.5,
+                y: ballY - (i / 8) * (G.ball.vy || 0) * 0.5,
+                z: pathBase + pathH + ballR * 0.8,
+              }}
+            {@const opacity = (1 - i / 8) * 0.5}
+            {@const scale = ballR * (1 - i / 8 * 0.3)}
+            <T.Sprite position={[trailPos.x, trailPos.y, trailPos.z]}
+                      scale={[scale, scale, 1]}>
+              <T.SpriteMaterial color="#D4AF37"
+                                transparent={true}
+                                opacity={opacity}
+                                depthTest={false} />
+            </T.Sprite>
+          {/each}
         {/if}
 
       </T.Group>
