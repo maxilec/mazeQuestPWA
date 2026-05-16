@@ -197,13 +197,13 @@ export function renderClearTexture(g) {
   const ctx  = off.getContext('2d');
   const t    = getTheme(g);
 
-  // Lot 6.4 : retour à theme.trackFloor (beige médian #d6cebc) puisque
-  // les walls sont désormais cream clair (#f1e9d3). Contraste path
-  // foncé / walls clairs, conforme au ref « marble maze ».
+  // Lot 6.9 : sol uniforme beige (theme.trackFloor) sans ligne néon
+  // peinte. La piste est désormais extrudée en 3D dans Scene3D, et la
+  // ligne néon est rendue comme des meshes émissifs sur le dessus de
+  // la piste. Le sol n'apparaît plus que dans les zones « void » entre
+  // segments de piste — uniforme beige neutre.
   ctx.fillStyle = t.trackFloor || '#d6cebc';
   ctx.fillRect(0, 0, g.W, g.H);
-
-  drawNeonLineOnly(ctx, g);
   return off;
 }
 

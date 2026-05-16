@@ -106,44 +106,63 @@
   $: ballY = G ? G.H / 2 - G.ball.y : 0;
   $: ballR = G ? G.br : 10;
 
-  // ── Murs 3D extrudés (Lot 6) ───────────────────────────────────────────
-  // Itère sur G.maze[r][c] en dédoublonnant les murs partagés entre
-  // cellules adjacentes : T uniquement si r=0, L uniquement si c=0,
-  // R et B toujours.
-  $: walls = G ? computeWalls(G) : [];
-  $: wallT = G ? Math.min(G.cw, G.ch) * 0.18 : 10;
-  // Lot 6.5 : wallH bumpé à 1.0 × cell — ULTRA visible si la géo rend.
-  $: wallH = G ? Math.min(G.cw, G.ch) * 1.00 : 20;
-  // Lot 6.4 : couleur des murs INVERSÉE vs Lot 6.3. Le ref montre
-  // les walls plus CLAIRS que le path/floor (look « marble maze »).
-  // Light cream #f1e9d3 sur path beige theme.trackFloor #d6cebc :
-  // contraste net dans le bon sens, walls clairement raised.
-  const WALL_COLOR = '#f1e9d3';
+  // ── Pistes 3D extrudées (Lot 6.9) — refonte vs Lot 6.8 ───────────────
+  // Le ref montre la PISTE comme structure SURÉLEVÉE (où la bille roule),
+  // pas les murs. On extrude donc les CONNEXIONS entre cellules ouvertes :
+  //  - Segments : boxes entre paires de cellules adjacentes ouvertes
+  //  - Nodes    : cylindres aux centres de cellules (extrémités arrondies
+  //               + jonctions, intersections lumineuses).
+  // Les "murs" deviennent juste l'absence de piste (zones de void).
+  $: pathW    = G ? Math.min(G.cw, G.ch) * 0.60 : 30;   // largeur de piste
+  $: pathH    = G ? Math.min(G.cw, G.ch) * 0.28 : 15;   // hauteur d'extrusion
+  $: neonW    = G ? Math.min(G.cw, G.ch) * 0.06 : 3;    // largeur ligne néon
+  const PATH_COLOR = '#ece5d2';   // theme.trackHi cream — piste surélevée
 
-  function computeWalls(g) {
+  function computePathSegments(g) {
     const out = [];
-    // FIX Lot 6.8 : G utilise les propriétés `R` et `C` (cf. Game.svelte:194),
-    // pas ROWS/COLS. Mon ancien code lisait g.ROWS = undefined → `r < undefined`
-    // → loop never runs → array vide → zéro walls rendus. C'EST POURQUOI les
-    // walls étaient invisibles.
     for (let r = 0; r < g.R; r++) {
       for (let c = 0; c < g.C; c++) {
         const ce = g.maze[r][c];
-        if (r === 0 && ce.T) out.push(horizWall(c, 0, g));
-        if (c === 0 && ce.L) out.push(vertWall(0, r, g));
-        if (ce.R)            out.push(vertWall(c + 1, r, g));
-        if (ce.B)            out.push(horizWall(c, r + 1, g));
+        const cx = c * g.cw + g.cw / 2 - g.W / 2;
+        const cy = g.H / 2 - r * g.ch - g.ch / 2;
+        // Connexion droite (segment horizontal vers le voisin de droite)
+        if (!ce.R && c < g.C - 1) {
+          out.push({ type: 'h',
+                     x: cx + g.cw / 2,
+                     y: cy,
+                     length: g.cw });
+        }
+        // Connexion basse (segment vertical vers le voisin du bas)
+        if (!ce.B && r < g.R - 1) {
+          out.push({ type: 'v',
+                     x: cx,
+                     y: cy - g.ch / 2,
+                     length: g.ch });
+        }
       }
     }
     return out;
   }
-  function horizWall(c, r, g) {
-    return { type: 'h', x: c * g.cw + g.cw / 2 - g.W / 2,
-                        y: g.H / 2 - r * g.ch, length: g.cw };
-  }
-  function vertWall(c, r, g) {
-    return { type: 'v', x: c * g.cw - g.W / 2,
-                        y: g.H / 2 - r * g.ch - g.ch / 2, length: g.ch };
+
+  function computePathNodes(g) {
+    const out = [];
+    for (let r = 0; r < g.R; r++) {
+      for (let c = 0; c < g.C; c++) {
+        const ce = g.maze[r][c];
+        // Une cellule a un node dès qu'au moins un côté est ouvert. Dans
+        // un maze parfait c'est toujours le cas, mais on garde la garde.
+        const openCount = (!ce.T?1:0) + (!ce.R?1:0) + (!ce.B?1:0) + (!ce.L?1:0);
+        if (openCount > 0) {
+          out.push({
+            x: c * g.cw + g.cw / 2 - g.W / 2,
+            y: g.H / 2 - r * g.ch - g.ch / 2,
+            openCount,
+            isIntersection: openCount >= 3,
+          });
+        }
+      }
+    }
+    return out;
   }
 
   // ── Couleur néon dynamique (theme.neon) pour cadre + accent ────────────
@@ -257,22 +276,69 @@
           </T.Mesh>
         {/if}
 
-        <!-- Murs 3D extrudés. Cf. computeWalls(G) qui itère G.maze[r][c]
-             (avec les bons accesseurs G.R / G.C — Lot 6.8 fix bug).
-             Unité BoxGeometry + scale = une seule géométrie réutilisée. -->
+        <!-- Pistes 3D extrudées (Lot 6.9) — refonte structurelle.
+             On extrude les CONNEXIONS entre cellules ouvertes (piste
+             surélevée où la bille roule), pas les murs. Les "murs"
+             sont l'absence de piste (zones de void cream-floor).
+             1) Path segments : box entre paires de cellules ouvertes.
+             2) Path nodes    : cylindres aux centres → caps arrondies
+                aux extrémités + jonctions T/+/etc. -->
         {#if G && G.maze}
-          {#each computeWalls(G) as wall, i (`${i}-${wall.type}`)}
-            <T.Mesh position={[wall.x, wall.y, wallH / 2 + 1]}
+          {#each computePathSegments(G) as seg, i (`s${i}-${seg.type}`)}
+            <T.Mesh position={[seg.x, seg.y, pathH / 2 + 0.5]}
                     scale={
-                      wall.type === 'h'
-                        ? [wall.length + wallT, wallT, wallH]
-                        : [wallT, wall.length + wallT, wallH]
+                      seg.type === 'h'
+                        ? [seg.length, pathW, pathH]
+                        : [pathW, seg.length, pathH]
                     }
                     castShadow receiveShadow>
               <T.BoxGeometry args={[1, 1, 1]} />
-              <T.MeshStandardMaterial color={WALL_COLOR}
+              <T.MeshStandardMaterial color={PATH_COLOR}
                                       roughness={0.78} metalness={0.05} />
             </T.Mesh>
+          {/each}
+
+          {#each computePathNodes(G) as node, i (`n${i}`)}
+            <T.Mesh position={[node.x, node.y, pathH / 2 + 0.5]}
+                    rotation={[Math.PI / 2, 0, 0]}
+                    castShadow receiveShadow>
+              <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 20]} />
+              <T.MeshStandardMaterial color={PATH_COLOR}
+                                      roughness={0.78} metalness={0.05} />
+            </T.Mesh>
+          {/each}
+
+          <!-- Rainure néon sur le dessus de la piste : segments emissifs
+               qui suivent les connexions, posés juste au-dessus de la
+               piste (z = pathH + 0.5). theme.neon dynamique. -->
+          {#each computePathSegments(G) as seg, i (`ns${i}`)}
+            <T.Mesh position={[seg.x, seg.y, pathH + 0.6]}>
+              <T.PlaneGeometry args={
+                seg.type === 'h'
+                  ? [seg.length, neonW]
+                  : [neonW, seg.length]
+              } />
+              <T.MeshStandardMaterial color={neonColor}
+                                      emissive={neonColor}
+                                      emissiveIntensity={1.2}
+                                      transparent={true}
+                                      toneMapped={false} />
+            </T.Mesh>
+          {/each}
+
+          <!-- Points d'intersection lumineux (cellules avec >=3 sorties).
+               Petit disque émissif plus brillant aux jonctions. -->
+          {#each computePathNodes(G) as node, i (`ni${i}`)}
+            {#if node.isIntersection}
+              <T.Mesh position={[node.x, node.y, pathH + 0.7]}>
+                <T.CircleGeometry args={[neonW * 1.4, 16]} />
+                <T.MeshStandardMaterial color={neonColor}
+                                        emissive={neonColor}
+                                        emissiveIntensity={1.8}
+                                        transparent={true}
+                                        toneMapped={false} />
+              </T.Mesh>
+            {/if}
           {/each}
         {/if}
 
@@ -284,10 +350,12 @@
             {@const cx      = cp.c * G.cw + G.cw / 2 - G.W / 2}
             {@const cy      = G.H / 2 - (cp.r * G.ch + G.ch / 2)}
             {@const cpClr   = cp.passed ? '#ffcc00' : '#00ff80'}
-            {@const cpLen   = Math.min(G.cw, G.ch) * 0.45}
-            {@const cpThick = wallT * 0.45}
-            {@const cpHigh  = wallH * 0.55}
-            <T.Mesh position={[cx, cy, cpHigh / 2 + 0.3]}>
+            {@const cpLen   = Math.min(G.cw, G.ch) * 0.40}
+            {@const cpThick = Math.min(G.cw, G.ch) * 0.08}
+            {@const cpHigh  = pathH * 0.35}
+            <!-- Lot 6.9 : checkpoint posé sur le dessus de la piste
+                 (z = pathH + cpHigh/2 + 0.5). -->
+            <T.Mesh position={[cx, cy, pathH + cpHigh / 2 + 0.5]}>
               <T.BoxGeometry args={
                 cp.horizontal
                   ? [cpLen, cpThick, cpHigh]
@@ -357,10 +425,10 @@
                 ? 1 + (age / 400) * 0.45
                 : 1 + Math.sin(now * 0.004 + col.c + col.r) * 0.06}
               {@const size   = base * pulse}
-              <!-- Lot 6.5 : z=0.5 (au ras du sol) + depthTest=false
-                   → pas de parallaxe pendant le tilt, toujours visible
-                   même si un wall est devant en XY. -->
-              <T.Sprite position={[cx, cy, 0.5]}
+              <!-- Lot 6.9 : z = pathH + 1.5 (juste au-dessus de la
+                   piste extrudée) + depthTest=false → toujours visible
+                   par-dessus tout. -->
+              <T.Sprite position={[cx, cy, pathH + 1.5]}
                         scale={[size, size, 1]}>
                 <T.SpriteMaterial map={tex} transparent={true}
                                   opacity={fade}
@@ -380,18 +448,18 @@
           {@const fpulse  = 1 + Math.sin(now * 0.003) * 0.05}
           {@const fsize   = fbase * fpulse}
           {@const fAspect = 303 / 256}
-          <T.Sprite position={[fx, fy, 0.5]}
+          <T.Sprite position={[fx, fy, pathH + 1.5]}
                     scale={[fsize, fsize * fAspect, 1]}>
             <T.SpriteMaterial map={textures.finish} transparent={true}
                               depthWrite={false} depthTest={false} />
           </T.Sprite>
         {/if}
 
-        <!-- Bille — bronze brillant. Cast shadows désormais (Lot 6.2 :
-             ShadowMap activée), l'ombre noire fake CircleGeometry est
-             retirée — la vraie ombre suffit. -->
+        <!-- Bille — bronze brillant. Lot 6.9 : pose SUR le dessus de
+             la piste extrudée (z = pathH + ballR), plus sur le sol
+             entre murs. -->
         {#if G && ballVisible}
-          <T.Mesh position={[ballX, ballY, ballR * fallScale]}
+          <T.Mesh position={[ballX, ballY, (pathH + ballR) * fallScale]}
                   scale={[fallScale, fallScale, fallScale]}
                   castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
