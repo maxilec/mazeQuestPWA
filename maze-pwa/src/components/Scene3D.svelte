@@ -23,6 +23,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Canvas, T }          from '@threlte/core';
   import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap } from 'three';
+  import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
   import { getSvgSource, svgReady } from '../lib/render.js';
 
   export let G            = null;
@@ -89,6 +90,8 @@
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
     s.bias          = -0.002;
+    // Lot 6.11 : softer shadow edges (PCFSoftShadowMap blur radius).
+    s.radius        = 4;
     s.needsUpdate   = true;
   }
 
@@ -120,7 +123,8 @@
   // piste sur le sol renforce l'effet floating.
   $: pathBase = G ? Math.min(G.cw, G.ch) * 0.10 : 5;
   $: neonW    = G ? Math.min(G.cw, G.ch) * 0.05 : 2.5;
-  const PATH_COLOR = '#ece5d2';   // theme.trackHi cream — piste surélevée
+  // Lot 6.11 : couleur piste teinte plus chaude #EADFCF (vs #ece5d2).
+  const PATH_COLOR = '#EADFCF';
 
   function computePathSegments(g) {
     const out = [];
@@ -250,12 +254,14 @@
          le dotted attrs parsing). Bonus visuel par-dessus le fake AO
          des walls — si shadows runtime marchent, ombres réelles, sinon
          on a déjà le cue géométrique. -->
-    <T.AmbientLight intensity={0.55} />
+    <!-- Lot 6.11 : ambient bumped 0.55 → 0.70 pour lift les ombres
+         et un rendu plus doux. -->
+    <T.AmbientLight intensity={0.70} />
     <T.DirectionalLight bind:ref={lightRef}
                         position={[G ? G.W * 0.35 : 200,
                                    G ? G.H * 0.20 : 100,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 7]}
-                        intensity={0.90}
+                        intensity={0.85}
                         castShadow />
     <T.DirectionalLight position={[-150, -200, 400]} intensity={0.20} />
 
@@ -288,11 +294,10 @@
              2) Path nodes    : cylindres aux centres → caps arrondies
                 aux extrémités + jonctions T/+/etc. -->
         {#if G && G.maze}
-          <!-- Path segments — Lot 6.10 : étendus de pathW * 0.3 pour
-               OVERLAP avec les nodes cylindres aux extrémités (évite
-               le Z-fighting visible aux jonctions sous tilt). Position
-               z = pathBase + pathH/2 (piste surélevée, flotte au-dessus
-               du sol). castShadow gardé pour shadow projetée sur sol. -->
+          <!-- Path segments — Lot 6.11 : RoundedBoxGeometry pour des
+               bords arrondis (au lieu de BoxGeometry vif). Args :
+               [w, h, d, segments=3, radius=0.18 (en unités unité)].
+               Scale s'applique ensuite, les corners restent doux. -->
           {#each computePathSegments(G) as seg, i (`s${i}-${seg.type}`)}
             <T.Mesh position={[seg.x, seg.y, pathBase + pathH / 2]}
                     scale={
@@ -301,17 +306,21 @@
                         : [pathW, seg.length + pathW * 0.3, pathH]
                     }
                     castShadow receiveShadow>
-              <T.BoxGeometry args={[1, 1, 1]} />
+              <T is={RoundedBoxGeometry} args={[1, 1, 1, 3, 0.18]} />
               <T.MeshStandardMaterial color={PATH_COLOR}
                                       roughness={0.82} metalness={0.04} />
             </T.Mesh>
           {/each}
 
+          <!-- Path nodes (cell centers) — Lot 6.11 : passage de
+               CylinderGeometry à RoundedBoxGeometry pour cohérence
+               avec les segments (plus de transition box→cylinder
+               visible aux jonctions). -->
           {#each computePathNodes(G) as node, i (`n${i}`)}
             <T.Mesh position={[node.x, node.y, pathBase + pathH / 2]}
-                    rotation={[Math.PI / 2, 0, 0]}
+                    scale={[pathW, pathW, pathH]}
                     castShadow receiveShadow>
-              <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 24]} />
+              <T is={RoundedBoxGeometry} args={[1, 1, 1, 3, 0.18]} />
               <T.MeshStandardMaterial color={PATH_COLOR}
                                       roughness={0.82} metalness={0.04} />
             </T.Mesh>
@@ -336,11 +345,27 @@
             </T.Mesh>
           {/each}
 
+          <!-- Neon dots à CHAQUE cell node (Lot 6.11) — lisse le
+               passage du néon aux virages entre 2 segments (corners
+               smooth). Petit disque au croisement, même intensité
+               que les segments. -->
+          {#each computePathNodes(G) as node, i (`nb${i}`)}
+            <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.42]}>
+              <T.CircleGeometry args={[neonW * 0.55, 12]} />
+              <T.MeshStandardMaterial color={neonColor}
+                                      emissive={neonColor}
+                                      emissiveIntensity={0.55}
+                                      transparent={true}
+                                      opacity={0.85} />
+            </T.Mesh>
+          {/each}
+
           <!-- Points d'intersection lumineux (cellules avec >=3 sorties).
-               Lot 6.10 : intensité baissée pour subtilité. -->
+               Lot 6.11 : Z légèrement plus haut que le dot standard
+               pour éviter Z-fighting. -->
           {#each computePathNodes(G) as node, i (`ni${i}`)}
             {#if node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.5]}>
+              <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.55]}>
                 <T.CircleGeometry args={[neonW * 1.6, 16]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
@@ -465,18 +490,18 @@
           </T.Sprite>
         {/if}
 
-        <!-- Bille — bronze brillant. Lot 6.10 : couleur plus lumineuse
-             (gold doré), emissive bumpé. Pose sur le dessus de la
-             piste extrudée et surélevée (z = pathBase + pathH + ballR). -->
+        <!-- Bille — Lot 6.11 : métal pur gold (D4AF37) avec
+             metalness=1.0 + roughness=0.15 (specs utilisateur). Plus
+             d'emissive — un metal pur reflète l'environnement, pas
+             besoin d'auto-illumination. Pose sur le dessus de la
+             piste surélevée (z = pathBase + pathH + ballR). -->
         {#if G && ballVisible}
           <T.Mesh position={[ballX, ballY, (pathBase + pathH + ballR) * fallScale]}
                   scale={[fallScale, fallScale, fallScale]}
                   castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
-            <T.MeshStandardMaterial color="#fadb88"
-                                    emissive="#8a5520"
-                                    emissiveIntensity={0.55}
-                                    roughness={0.14} metalness={0.88} />
+            <T.MeshStandardMaterial color="#D4AF37"
+                                    metalness={1.0} roughness={0.15} />
           </T.Mesh>
         {/if}
 
