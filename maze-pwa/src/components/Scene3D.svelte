@@ -115,10 +115,11 @@
   // Lot 6.3 : wallH bumpé encore (0.55 → 0.70) — relief plus prononcé,
   // côtés des murs plus visibles si la caméra change.
   $: wallH = G ? Math.min(G.cw, G.ch) * 0.70 : 20;
-  // Lot 6.3 : couleur des murs passe à un beige brun chaud (contraste
-  // net avec le sol papier clair #f1e9d3) — l'œil distingue
-  // immédiatement les murs sans dépendre des shadow maps.
-  const WALL_COLOR = '#d4b89a';
+  // Lot 6.4 : couleur des murs INVERSÉE vs Lot 6.3. Le ref montre
+  // les walls plus CLAIRS que le path/floor (look « marble maze »).
+  // Light cream #f1e9d3 sur path beige theme.trackFloor #d6cebc :
+  // contraste net dans le bon sens, walls clairement raised.
+  const WALL_COLOR = '#f1e9d3';
 
   function computeWalls(g) {
     const out = [];
@@ -261,8 +262,7 @@
           <!-- Fake AO base (Lot 6.3) : plane sombre semi-transparent
                légèrement plus large que le mur, posé juste au-dessus
                du sol. Donne un halo d'ombre sous le mur visible
-               quelle que soit la config shadow map → cue d'extrusion
-               fiable même quand les shadows runtime ne marchent pas. -->
+               quelle que soit la config shadow map. -->
           <T.Mesh position={[wall.x, wall.y, 0.4]}>
             <T.PlaneGeometry args={
               wall.type === 'h'
@@ -272,8 +272,12 @@
             <T.MeshBasicMaterial color="#000000" transparent={true}
                                  opacity={0.22} depthWrite={false} />
           </T.Mesh>
-          <!-- Mur lui-même -->
-          <T.Mesh position={[wall.x, wall.y, wallH / 2]}
+          <!-- Mur lui-même. Lot 6.4 : position z = wallH/2 + 1 pour
+               éviter le Z-fighting entre la face inférieure du wall
+               (à z=0) et le floor PlaneGeometry (à z=0). Sur GPU
+               mobile la coïncidence exacte peut faire disparaître
+               les walls dans le z-buffer. -->
+          <T.Mesh position={[wall.x, wall.y, wallH / 2 + 1]}
                   castShadow receiveShadow>
             <T.BoxGeometry args={
               wall.type === 'h'
@@ -400,10 +404,10 @@
                   scale={[fallScale, fallScale, fallScale]}
                   castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
-            <T.MeshStandardMaterial color="#e0a060"
-                                    emissive="#3a1f08"
-                                    emissiveIntensity={0.3}
-                                    roughness={0.18} metalness={0.85} />
+            <T.MeshStandardMaterial color="#f4c267"
+                                    emissive="#5a3010"
+                                    emissiveIntensity={0.4}
+                                    roughness={0.16} metalness={0.85} />
           </T.Mesh>
         {/if}
 

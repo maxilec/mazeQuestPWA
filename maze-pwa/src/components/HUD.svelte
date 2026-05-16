@@ -80,7 +80,11 @@
 <style>
   .container {
     position: relative; z-index: 10;
-    width: 100vw; height: 100vh;
+    /* Lot 6.4 : 100dvh (dynamic viewport height) au lieu de 100vh.
+       iOS Safari : 100vh = viewport avec URL bar collapsed → quand
+       URL bar visible, le content du bas tombe hors écran. 100dvh
+       s'adapte à la viewport réelle visible. */
+    width: 100vw; height: 100dvh;
     display: flex; flex-direction: column;
     align-items: stretch;
     /* Lot 6.1 — Montserrat Light pour le look papier doux du ref */

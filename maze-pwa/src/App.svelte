@@ -40,7 +40,12 @@
   :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   :global(html, body) {
     width: 100%; height: 100%;
-    background: #03000f; overflow: hidden;
+    /* Lot 6.4 : body bg crème (était #03000f sombre). Évite le
+       « black band » qui apparaissait en bas de l'écran iOS quand
+       .bg-cream fixed inset:0 ne couvrait pas exactement la
+       safe-area. Pour title/gameover, .bg-nebula (opaque dark)
+       recouvre, aucun impact. */
+    background: #f1e9d3; overflow: hidden;
     touch-action: none; user-select: none;
   }
 

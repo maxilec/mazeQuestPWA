@@ -56,9 +56,12 @@
   }
   canvas.hidden {
     border-color: transparent;
-    /* opacity 0.01 plutôt que 0 → certains navigateurs ignorent les
-       events pointer sur opacity:0. On garde la zone touchable. */
-    opacity: 0.01;
+    /* Lot 6.4 : opacity 0 (était 0.01). L'élément reste hit-testable
+       pour les touch events (opacity 0 ne désactive PAS le hit
+       testing, contrairement à display:none ou visibility:hidden).
+       Élimine tout compositing iOS Safari qui pourrait interférer
+       visuellement avec le Scene3D en arrière-plan. */
+    opacity: 0;
   }
 
   .countdown-overlay {
