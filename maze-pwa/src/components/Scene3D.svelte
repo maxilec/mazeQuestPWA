@@ -232,7 +232,30 @@
     animRaf = requestAnimationFrame(animTick);
   }
 
+  // ── Ball glow texture (Lot 6.14) ───────────────────────────────────────
+  // Texture circulaire procédurale (radial gradient) pour les trail
+  // sprites de la bille. Sans cette texture, T.SpriteMaterial rendait
+  // un carré coloré solide → bug visuel (carré jaune au centre de la
+  // bille immobile).
+  let ballGlowTexture = null;
+  function createBallGlowTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0,    'rgba(212,175,55,1)');
+    g.addColorStop(0.5,  'rgba(212,175,55,0.5)');
+    g.addColorStop(1,    'rgba(212,175,55,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+    const tex = new CanvasTexture(c);
+    tex.colorSpace = SRGBColorSpace;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
   onMount(() => {
+    ballGlowTexture = createBallGlowTexture();
     checkTextures();
     animRaf = requestAnimationFrame(animTick);
   });
@@ -241,6 +264,7 @@
     if (textureCheckRaf) cancelAnimationFrame(textureCheckRaf);
     if (animRaf)         cancelAnimationFrame(animRaf);
     if (plateauTexture)  plateauTexture.dispose();
+    if (ballGlowTexture) ballGlowTexture.dispose();
     for (const tex of Object.values(textures)) tex.dispose();
   });
 </script>
@@ -321,22 +345,16 @@
             </T.Mesh>
           {/each}
 
-          <!-- Path nodes (cell centers) — Lot 6.13 : selective geometry.
-               - openCount >= 3 (true junctions T/+) : CylinderGeometry
-                 (caps arrondies parfaites)
-               - openCount === 2 (straight passages) : RoundedBoxGeometry
-                 (match segments) -->
+          <!-- Path nodes (cell centers) — Lot 6.14 : revert à
+               CylinderGeometry pour TOUS les nodes (Lot 6.13 selective
+               geometry a créé des « blocs » visibles aux dead-ends et
+               passages droits). Cylinder = caps parfaitement circulaires
+               vue du dessus, blend lisse avec segments adjacents. -->
           {#each computePathNodes(G) as node, i (`n${i}`)}
             <T.Mesh position={[node.x, node.y, pathBase + pathH / 2]}
-                    rotation={node.openCount >= 3 ? [Math.PI / 2, 0, 0] : [0, 0, 0]}
+                    rotation={[Math.PI / 2, 0, 0]}
                     castShadow receiveShadow>
-              {#if node.openCount >= 3}
-                <!-- True junction: perfect circular caps -->
-                <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32]} />
-              {:else}
-                <!-- Straight passage: RoundedBox for consistency -->
-                <T is={RoundedBoxGeometry} args={[pathW, pathW, pathH, 3, 0.18]} />
-              {/if}
+              <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32]} />
               <T.MeshStandardMaterial color={PATH_COLOR}
                                       roughness={0.82} metalness={0.04} />
             </T.Mesh>
@@ -419,25 +437,18 @@
           {/each}
         {/if}
 
-        <!-- PointLights pour neon real light — Lot 6.13 :
-             Illumination continue le long des segments (dim) +
-             bright points aux intersections (bright). -->
+        <!-- PointLights pour neon real light — Lot 6.14 :
+             UNIQUEMENT aux intersections (5-8 lights total par niveau)
+             pour préserver les perf mobile. Lot 6.13 avait 15-20 lights
+             (segments + intersections) qui saturaient le GPU iOS.
+             Trade-off : illumination pas continue, mais 60 FPS sustained.
+             Compensation : intensity bumped 1.4→1.6, distance 1.5x→2.5x. -->
         {#if G && G.maze}
-          <!-- PointLights aux centre des segments (dim) -->
-          {#each computePathSegments(G) as seg, i (`light-seg-${i}`)}
-            <T.PointLight position={[seg.x, seg.y, pathBase + pathH + 2]}
-                          intensity={0.7}
-                          distance={Math.min(G.cw, G.ch) * 1.0}
-                          color={neonColor}
-                          decay={1.5} />
-          {/each}
-
-          <!-- PointLights aux intersections (bright) -->
           {#each computePathNodes(G) as node, i (`light-node-${i}`)}
             {#if node.isIntersection}
               <T.PointLight position={[node.x, node.y, pathBase + pathH + 2]}
-                            intensity={1.4}
-                            distance={Math.min(G.cw, G.ch) * 1.5}
+                            intensity={1.6}
+                            distance={Math.min(G.cw, G.ch) * 2.5}
                             color={neonColor}
                             decay={1.5} />
             {/if}
@@ -546,24 +557,31 @@
                                     roughness={0.15} />
           </T.Mesh>
 
-          <!-- Ball trail — Lot 6.13 : 8 sprites fade progressivement
-               derrière le vecteur de mouvement de la bille. -->
-          {#each Array(8) as _, i}
-            {@const trailPos = {
-                x: ballX - (i / 8) * (G.ball.vx || 0) * 0.5,
-                y: ballY - (i / 8) * (G.ball.vy || 0) * 0.5,
-                z: pathBase + pathH + ballR * 0.8,
-              }}
-            {@const opacity = (1 - i / 8) * 0.5}
-            {@const scale = ballR * (1 - i / 8 * 0.3)}
-            <T.Sprite position={[trailPos.x, trailPos.y, trailPos.z]}
-                      scale={[scale, scale, 1]}>
-              <T.SpriteMaterial color="#D4AF37"
-                                transparent={true}
-                                opacity={opacity}
-                                depthTest={false} />
-            </T.Sprite>
-          {/each}
+          <!-- Ball trail — Lot 6.14 : 8 sprites circulaires (texture
+               procédurale radial gradient) qui fade derrière le vecteur
+               de mouvement. Velocity gate : ne render que si la bille
+               bouge (vmag > 0.5) → pas de carré jaune au centre quand
+               immobile. -->
+          {@const vmag = Math.hypot(G.ball.vx || 0, G.ball.vy || 0)}
+          {#if vmag > 0.5 && ballGlowTexture}
+            {#each Array(8) as _, i}
+              {@const trailPos = {
+                  x: ballX - (i / 8) * (G.ball.vx || 0) * 0.5,
+                  y: ballY - (i / 8) * (G.ball.vy || 0) * 0.5,
+                  z: pathBase + pathH + ballR * 0.8,
+                }}
+              {@const opacity = (1 - i / 8) * 0.5}
+              {@const scale = ballR * 1.4 * (1 - i / 8 * 0.3)}
+              <T.Sprite position={[trailPos.x, trailPos.y, trailPos.z]}
+                        scale={[scale, scale, 1]}>
+                <T.SpriteMaterial map={ballGlowTexture}
+                                  transparent={true}
+                                  opacity={opacity}
+                                  depthTest={false}
+                                  depthWrite={false} />
+              </T.Sprite>
+            {/each}
+          {/if}
         {/if}
 
       </T.Group>
