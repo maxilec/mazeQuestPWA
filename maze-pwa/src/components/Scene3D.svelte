@@ -53,8 +53,13 @@
   // ── Camera Z ───────────────────────────────────────────────────────────
   // visibleH = hauteur visible du maze (post world-lock) dans le repère
   // caméra. En portrait c'est G.H, en landscape G.W (le maze pivote 90°).
+  // Lot 6.19 : ajoute cadreGap pour que le cadre néon (déporté) reste
+  // dans le frustum caméra.
   $: isLandscape = (deviceAngle === 90 || deviceAngle === 270);
-  $: visibleH    = G ? (isLandscape ? G.W : G.H) : 660;
+  $: cadreGap    = G ? Math.min(G.cw, G.ch) * 0.15 : 0;
+  $: visibleH    = G
+      ? (isLandscape ? G.W : G.H) + cadreGap * 2 + 8
+      : 660;
   $: cameraDist  = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.05;
 
   // Lot 6.2 — retour caméra dead-on PERMANENT. L'utilisateur reportait
@@ -82,7 +87,9 @@
   let lightRef;
   $: if (lightRef && G) {
     const s = lightRef.shadow;
-    s.mapSize.set(1024, 1024);
+    // Lot 6.19 : mapSize 1024 → 2048 (shadows plus précises + douces),
+    // bias -0.002 → -0.0001 (moins de "peter-panning" sur sol).
+    s.mapSize.set(2048, 2048);
     s.camera.left   = -G.W * 0.7;
     s.camera.right  =  G.W * 0.7;
     s.camera.top    =  G.H * 0.7;
@@ -90,8 +97,7 @@
     s.camera.near   = 1;
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
-    s.bias          = -0.002;
-    // Lot 6.11 : softer shadow edges (PCFSoftShadowMap blur radius).
+    s.bias          = -0.0001;
     s.radius        = 4;
     s.needsUpdate   = true;
   }
@@ -170,21 +176,22 @@
         //  - deadEnd (openCount=1) : demi-cylindre (cap arrondi)
         const isStraight = openCount === 2 && ((oT && oB) || (oL && oR));
         const isDeadEnd  = openCount === 1;
-        // Pour deadEnd : determiner le côté OPPOSÉ à l'ouverture (où le cap va).
-        // CylinderGeometry avec rotation [PI/2,0,0] : la moitié drawn
-        // (thetaStart=0, thetaLength=PI) pointe par défaut vers -Y. Rotation
-        // additionnelle autour de Z aligne le cap dans la bonne direction.
+        // Lot 6.19 : Pour deadEnd : rotation autour de l'axe Y du cylindre
+        // (avant le tilt X) pour orienter le cap. Utilisation de
+        // `rotation.order="YXZ"` côté template : Y appliqué AVANT X.
+        // Le cap (côté +Z en local space) doit pointer dans la direction
+        // OPPOSÉE à l'ouverture après le tilt X (où local Z→world -Y).
         // Mapping (oT/oR/oB/oL = open side) :
-        //   oT (open +Y) → cap -Y → rot 0
-        //   oL (open -X) → cap +X → rot +π/2
-        //   oB (open -Y) → cap +Y → rot π
-        //   oR (open +X) → cap -X → rot -π/2
-        let deadEndRotZ = 0;
+        //   oT (open +Y) → cap -Y → rotY 0
+        //   oL (open -X) → cap +X → rotY +π/2
+        //   oB (open -Y) → cap +Y → rotY π
+        //   oR (open +X) → cap -X → rotY -π/2
+        let deadEndRotY = 0;
         if (isDeadEnd) {
-          if (oT)      deadEndRotZ = 0;
-          else if (oL) deadEndRotZ = Math.PI/2;
-          else if (oB) deadEndRotZ = Math.PI;
-          else if (oR) deadEndRotZ = -Math.PI/2;
+          if (oT)      deadEndRotY = 0;
+          else if (oL) deadEndRotY = Math.PI/2;
+          else if (oB) deadEndRotY = Math.PI;
+          else if (oR) deadEndRotY = -Math.PI/2;
         }
         out.push({
           x: c * g.cw + g.cw / 2 - g.W / 2,
@@ -193,7 +200,7 @@
           isStraight,
           isDeadEnd,
           isIntersection: openCount >= 3,
-          deadEndRotZ,
+          deadEndRotY,
         });
       }
     }
@@ -326,41 +333,42 @@
          maintenant l'illumination globale. -->
     <Postprocess bloomStrength={0.4} bloomRadius={0.2} bloomThreshold={1.0} />
 
-    <!-- Lighting (Lot 6.18) : couleurs plus chaudes (golden) pour
-         évoquer un soleil chaud. Intensités modérées car RoomEnvironment
-         fournit aussi une partie de l'illumination. -->
-    <T.AmbientLight intensity={0.55} color="#fff0d6" />
+    <!-- Lighting (Lot 6.19) — setup "Soft Clay" per Gemini :
+         - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
+         - Directional key 1.50 (puissante), positionnée top-gauche-avant
+         - Directional fill 0.30 (warm subtle pour les zones d'ombre) -->
+    <T.AmbientLight intensity={0.80} color="#fffdf9" />
     <T.DirectionalLight bind:ref={lightRef}
-                        position={[G ? G.W * 0.35 : 200,
-                                   G ? G.H * 0.20 : 100,
-                                   (G ? Math.min(G.cw, G.ch) : 80) * 7]}
-                        intensity={0.85}
-                        color="#ffe8b8"
+                        position={[G ? -G.W * 0.4 : -200,
+                                   G ? G.H * 0.5 : 250,
+                                   (G ? Math.min(G.cw, G.ch) : 80) * 8]}
+                        intensity={1.50}
+                        color="#fff5e0"
                         castShadow />
-    <T.DirectionalLight position={[-150, -200, 400]}
-                        intensity={0.25} color="#ffdcaa" />
+    <T.DirectionalLight position={[G ? G.W * 0.3 : 150, G ? -G.H * 0.3 : -150, 400]}
+                        intensity={0.30} color="#fff0d0" />
 
     <!-- World-lock root group -->
     <T.Group rotation.z={worldLockZ}>
       <!-- Tilt 3D group -->
       <T.Group rotation.x={tiltX} rotation.y={tiltY}>
 
-        <!-- Sol (track) — texture clear : beige uniforme + ligne néon
-             visible. Mat papier (rough 0.92, metal 0). Reçoit les
-             ombres projetées par les murs (Lot 6.2).
-             Lot 6.18 : envMapIntensity=0.3 pour retrouver la couleur
-             beige (Lot 6.17 hotfix 3 avait mis à 0 = sol noir). -->
+        <!-- Sol (track) — Lot 6.19 : envMapIntensity 0.3 → 0.15 + color
+             override #bdb19c (vs theme.trackFloor #d6cebc) pour CONTRASTE
+             avec la piste #F2E8D2. Delta ~35 unités RGB, sol clairement
+             plus foncé. -->
         {#if G}
           <T.Mesh position={[0, 0, 0]} receiveShadow>
             <T.PlaneGeometry args={[G.W, G.H]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
+                                      color="#bdb19c"
                                       roughness={0.92} metalness={0.0}
-                                      envMapIntensity={0.3} />
+                                      envMapIntensity={0.15} />
             {:else}
-              <T.MeshStandardMaterial color={G?.theme?.trackFloor ?? '#d6cebc'}
+              <T.MeshStandardMaterial color="#bdb19c"
                                       roughness={0.92} metalness={0.0}
-                                      envMapIntensity={0.3} />
+                                      envMapIntensity={0.15} />
             {/if}
           </T.Mesh>
         {/if}
@@ -385,7 +393,10 @@
                         : [pathW, seg.length + pathW * 0.6, pathH]
                     }
                     castShadow receiveShadow>
-              <T is={RoundedBoxGeometry} args={[1, 1, 1, 3, 0.18]} />
+              <!-- Lot 6.19 : bevel radius 0.18 → 0.06, segments 3 → 2.
+                   Bords plus définis (look "wood/clay clear" Gemini),
+                   moins "boudin mou". -->
+              <T is={RoundedBoxGeometry} args={[1, 1, 1, 2, 0.06]} />
               <T.MeshStandardMaterial color={PATH_COLOR}
                                       roughness={0.55} metalness={0.08}
                                       envMapIntensity={0.4} />
@@ -401,9 +412,14 @@
             {#if !node.isStraight}
               {#if node.isDeadEnd}
                 <!-- Demi-cylindre orienté pour fermer l'extrémité. Le
-                     half-cylinder ne dépasse pas vers l'ouverture. -->
+                     half-cylinder ne dépasse pas vers l'ouverture.
+                     Lot 6.19 : rotation.order="YXZ" pour que la Y rotation
+                     (qui oriente le cap) soit appliquée AVANT le tilt X
+                     (qui couche le cylindre flat). Avec XYZ par défaut, la
+                     rotation Z après X était inutile (axe Z local = world -Y). -->
                 <T.Mesh position={[node.x, node.y, pathBase + pathH / 2]}
-                        rotation={[Math.PI / 2, 0, node.deadEndRotZ]}
+                        rotation.order="YXZ"
+                        rotation={[Math.PI / 2, node.deadEndRotY, 0]}
                         castShadow receiveShadow>
                   <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32, 1, false, 0, Math.PI]} />
                   <T.MeshStandardMaterial color={PATH_COLOR}
@@ -540,14 +556,14 @@
           {/each}
         {/if}
 
-        <!-- Cadre néon — Lot 6.18 : déporté À L'EXTÉRIEUR du maze avec
-             une gap pour ne pas être caché par la piste extrudée.
-             frGap = espace entre bord maze et cadre. -->
+        <!-- Cadre néon — Lot 6.19 : frGap 0.35 → 0.15 (cadre était sorti
+             du frustum caméra à 0.35). Maintenant visible avec un léger
+             écart entre maze et cadre. -->
         {#if G}
           {@const frT   = 2.5}
           {@const frH   = 2}
           {@const frZ   = 0.5}
-          {@const frGap = Math.min(G.cw, G.ch) * 0.35}
+          {@const frGap = Math.min(G.cw, G.ch) * 0.15}
           {@const frW   = G.W + (frT + frGap) * 2}
           {@const frHd  = G.H + (frT + frGap) * 2}
           <!-- top : Y = +H/2 + gap + frT/2 (au-dessus du maze) -->
