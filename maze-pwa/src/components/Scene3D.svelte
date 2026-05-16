@@ -227,8 +227,27 @@
   // ── rAF local pour animations (pulse, fade) ────────────────────────────
   let now = (typeof performance !== 'undefined') ? performance.now() : 0;
   let animRaf = null;
+
+  // ── Trail history buffer (Lot 6.16) ────────────────────────────────────
+  // Stocke les dernières positions de la bille à intervalle régulier.
+  // Le trail render basé sur cet historique → suit la trajectoire courbe
+  // de la bille (pas la velocity instantanée). Démarre court et s'allonge,
+  // se vide progressivement à l'arrêt.
+  const TRAIL_MAX        = 10;
+  const TRAIL_SAMPLE_MS  = 22;     // sample rate du trail
+  let trailHistory       = [];     // [{x, y}, ...] le plus récent en [0]
+  let lastTrailSampleT   = 0;
+
   function animTick() {
     now = performance.now();
+    // Sample du trail à intervalle fixe (indépendant du framerate)
+    if (G && G.ball && now - lastTrailSampleT >= TRAIL_SAMPLE_MS) {
+      const bx = G.ball.x - G.W / 2;
+      const by = G.H / 2 - G.ball.y;
+      // Reactive trigger : new array assignment, capped à TRAIL_MAX
+      trailHistory = [{ x: bx, y: by }, ...trailHistory].slice(0, TRAIL_MAX);
+      lastTrailSampleT = now;
+    }
     animRaf = requestAnimationFrame(animTick);
   }
 
@@ -360,17 +379,19 @@
             </T.Mesh>
           {/each}
 
-          <!-- Rainure néon sur le dessus de la piste — Lot 6.15 :
-               extension +pathW * 0.6 sur la longueur pour matcher
-               l'extension segments (continuité du néon aux jonctions).
+          <!-- Rainure néon sur le dessus de la piste — Lot 6.16 :
+               PLUS d'extension sur les neon stripes (Lot 6.15 a créé
+               des croix lumineuses aux corners L). Le néon reste à
+               seg.length stricte, et un petit dot au centre du node
+               (Lot 6.16 below) couvre la continuité aux jonctions.
                Dual-layer : white core + color halo pour match ref 2D. -->
           {#each computePathSegments(G) as seg, i (`ns${i}`)}
             <!-- White core (intense emissive) -->
             <T.Mesh position={[seg.x, seg.y, pathBase + pathH + 0.35]}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length + pathW * 0.6, neonW * 0.3]
-                  : [neonW * 0.3, seg.length + pathW * 0.6]
+                  ? [seg.length, neonW * 0.3]
+                  : [neonW * 0.3, seg.length]
               } />
               <T.MeshStandardMaterial color="#ffffff"
                                       emissive="#ffffff"
@@ -382,8 +403,8 @@
             <T.Mesh position={[seg.x, seg.y, pathBase + pathH + 0.40]}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length + pathW * 0.6, neonW * 0.7]
-                  : [neonW * 0.7, seg.length + pathW * 0.6]
+                  ? [seg.length, neonW * 0.7]
+                  : [neonW * 0.7, seg.length]
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
@@ -391,6 +412,25 @@
                                       transparent={true}
                                       opacity={0.75} />
             </T.Mesh>
+          {/each}
+
+          <!-- Lot 6.16 : petits dots de continuité néon à TOUS les
+               nodes non-intersection (corners L et straight passages).
+               Plus subtils que les dots d'intersection. Couvre le gap
+               où les stripes s'arrêtent au centre de cellule, sans
+               créer de croix lumineuses aux angles. -->
+          {#each computePathNodes(G) as node, i (`nc${i}`)}
+            {#if !node.isIntersection}
+              <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.42]}>
+                <T.CircleGeometry args={[neonW * 0.55, 16]} />
+                <T.MeshStandardMaterial color={neonColor}
+                                        emissive={neonColor}
+                                        emissiveIntensity={0.6}
+                                        transparent={true}
+                                        opacity={0.85}
+                                        toneMapped={false} />
+              </T.Mesh>
+            {/if}
           {/each}
 
           <!-- Neon dots aux INTERSECTIONS UNIQUEMENT — Lot 6.13 :
@@ -557,35 +597,29 @@
                                     roughness={0.15} />
           </T.Mesh>
 
-          <!-- Ball trail — Lot 6.15 : trainée DERRIÈRE la bille.
-               Fixes Lot 6.14 :
-               - Trail démarre à i=1 (pas i=0) pour ne pas overlap la bille
-               - Offset basé sur direction normalisée (pas velocity raw)
-                 → trail longueur fixe ∝ ballR, indépendante de vitesse
-               - Gate à vmag > 0.2 (plus permissif, trail visible plus tôt)
-               - Direction inversée : trail derrière le vecteur (-vx, -vy
-                 dans le repère 3D Y-up) -->
-          {@const vx = G.ball.vx || 0}
-          {@const vy = G.ball.vy || 0}
-          {@const vmag = Math.hypot(vx, vy)}
-          {#if vmag > 0.2 && ballGlowTexture}
-            <!-- Direction unitaire dans le repère 3D (Y inversé : canvas vy+ = 3D -Y) -->
-            {@const dirX = vx / vmag}
-            {@const dirY = -vy / vmag}
-            {#each Array(7) as _, i}
-              {@const step = (i + 1) * ballR * 0.7}
-              {@const trailX = ballX - dirX * step}
-              {@const trailY = ballY - dirY * step}
-              {@const opacity = Math.max(0, (1 - i / 7) * 0.55)}
-              {@const scale = ballR * 1.6 * (1 - i / 7 * 0.35)}
-              <T.Sprite position={[trailX, trailY, pathBase + pathH + ballR * 0.5]}
-                        scale={[scale, scale, 1]}>
-                <T.SpriteMaterial map={ballGlowTexture}
-                                  transparent={true}
-                                  opacity={opacity}
-                                  depthTest={false}
-                                  depthWrite={false} />
-              </T.Sprite>
+          <!-- Ball trail — Lot 6.16 : history buffer (positions
+               échantillonnées dans animTick). Le trail suit la
+               trajectoire courbe de la bille, pas la velocity
+               instantanée. Démarre court et grandit progressivement,
+               se vide à l'arrêt (les positions historiques sortent
+               du buffer naturellement quand la bille bouge ailleurs).
+               Skip le premier point (i==0) pour ne pas overlap la
+               bille au centre. -->
+          {#if ballGlowTexture && trailHistory.length > 1}
+            {#each trailHistory as pos, i (`trail-${i}`)}
+              {#if i > 0}
+                {@const t = (i - 1) / (TRAIL_MAX - 1)}
+                {@const opacity = Math.max(0, (1 - t) * 0.55)}
+                {@const scale = ballR * 1.6 * (1 - t * 0.5)}
+                <T.Sprite position={[pos.x, pos.y, pathBase + pathH + ballR * 0.5]}
+                          scale={[scale, scale, 1]}>
+                  <T.SpriteMaterial map={ballGlowTexture}
+                                    transparent={true}
+                                    opacity={opacity}
+                                    depthTest={false}
+                                    depthWrite={false} />
+                </T.Sprite>
+              {/if}
             {/each}
           {/if}
         {/if}
