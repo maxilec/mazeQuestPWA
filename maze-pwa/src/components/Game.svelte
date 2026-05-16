@@ -115,13 +115,14 @@
 
     let cw, ch;
     if (!isLandscape) {
-      // Lot 6 HUD (top bar 3-col + progress + bottom bar avec MENU pill)
-      // prend ~200px + safe-areas iOS. 220 = marge conservatrice.
-      const hudH = 220;
+      // Lot 6.3 : HUD top + bottom + safe-areas iOS (notch ~50, home
+      // indicator ~34) = ~210-260px en pratique. 280 laisse une marge
+      // suffisante pour ne pas couper le bouton MENU.
+      const hudH = 280;
       cw = Math.min(sw * 0.92, (sh - hudH) / aspect);
       ch = cw * aspect;
     } else {
-      const hudW = 300;
+      const hudW = 340;
       cw = Math.min(sh * 0.90, (sw - hudW) / aspect);
       ch = cw * aspect;
     }

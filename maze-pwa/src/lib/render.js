@@ -197,8 +197,9 @@ export function renderClearTexture(g) {
   const ctx  = off.getContext('2d');
   const t    = getTheme(g);
 
-  // Fond beige clair uniforme
-  ctx.fillStyle = t.trackFloor || '#d6cebc';
+  // Lot 6.3 : fond papier crème clair (override theme.trackFloor qui
+  // est calibré pour le mode 2D et trop sombre vs le mur brun en 3D).
+  ctx.fillStyle = '#f1e9d3';
   ctx.fillRect(0, 0, g.W, g.H);
 
   drawNeonLineOnly(ctx, g);

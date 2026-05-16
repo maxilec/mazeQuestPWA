@@ -74,6 +74,24 @@
     cameraRef.lookAt(0, 0, 0);
   }
 
+  // Lot 6.3 : config shadow par ref pour être SÛR que les bounds de
+  // la shadow camera + updateProjectionMatrix sont appliqués (le
+  // dotted attrs Threlte ne le fait pas systématiquement).
+  let lightRef;
+  $: if (lightRef && G) {
+    const s = lightRef.shadow;
+    s.mapSize.set(1024, 1024);
+    s.camera.left   = -G.W * 0.7;
+    s.camera.right  =  G.W * 0.7;
+    s.camera.top    =  G.H * 0.7;
+    s.camera.bottom = -G.H * 0.7;
+    s.camera.near   = 1;
+    s.camera.far    = Math.min(G.cw, G.ch) * 18;
+    s.camera.updateProjectionMatrix();
+    s.bias          = -0.002;
+    s.needsUpdate   = true;
+  }
+
   // ── Rotations (signs flipped pour compenser la chiralité Three.js ↔ CSS) ─
   // CSS (Y down) et Three.js (Y up) ont des sens de rotation opposés autour
   // des 3 axes. Sans flip, on obtenait portrait→tilt X inversé, landscape→
@@ -94,12 +112,13 @@
   // R et B toujours.
   $: walls = G ? computeWalls(G) : [];
   $: wallT = G ? Math.min(G.cw, G.ch) * 0.18 : 10;
-  // Lot 6.1 : wallH bumpé 0.40→0.55 pour relief plus visible.
-  $: wallH = G ? Math.min(G.cw, G.ch) * 0.55 : 20;
-  // Lot 6.1 : couleur de mur significativement plus claire que le sol
-  // (theme.trackFloor #d6cebc) pour rendre l'extrusion visible en
-  // vue top-down. Le theme.trackHi (#ece5d2) était trop proche.
-  const WALL_COLOR_LIGHT = '#f5ecd9';
+  // Lot 6.3 : wallH bumpé encore (0.55 → 0.70) — relief plus prononcé,
+  // côtés des murs plus visibles si la caméra change.
+  $: wallH = G ? Math.min(G.cw, G.ch) * 0.70 : 20;
+  // Lot 6.3 : couleur des murs passe à un beige brun chaud (contraste
+  // net avec le sol papier clair #f1e9d3) — l'œil distingue
+  // immédiatement les murs sans dépendre des shadow maps.
+  const WALL_COLOR = '#d4b89a';
 
   function computeWalls(g) {
     const out = [];
@@ -199,23 +218,18 @@
                          position={[0, camY, camZ]}
                          fov={FOV} near={1} far={cameraZ * 3} />
 
-    <!-- Lighting (Lot 6.2) — key directional inclinée + ambient
-         conservé. La key cast shadows pour que les murs projettent
-         leur silhouette sur le sol — c'est ce qui rend l'extrusion
-         3D visible depuis une vue top-down dead-on. -->
-    <T.AmbientLight intensity={0.50} />
-    <T.DirectionalLight position={[G ? G.W * 0.35 : 200, G ? G.H * 0.20 : 100, (G ? Math.min(G.cw, G.ch) : 80) * 6]}
-                        intensity={0.85}
-                        castShadow
-                        shadow.mapSize.width={1024}
-                        shadow.mapSize.height={1024}
-                        shadow.camera.left={G ? -G.W : -500}
-                        shadow.camera.right={G ? G.W : 500}
-                        shadow.camera.top={G ? G.H : 800}
-                        shadow.camera.bottom={G ? -G.H : -800}
-                        shadow.camera.near={1}
-                        shadow.camera.far={(G ? Math.min(G.cw, G.ch) : 80) * 15}
-                        shadow.bias={-0.002} />
+    <!-- Lighting (Lot 6.3) — bind:ref + config shadow programmatique
+         (updateProjectionMatrix appelé explicitement, plus fiable que
+         le dotted attrs parsing). Bonus visuel par-dessus le fake AO
+         des walls — si shadows runtime marchent, ombres réelles, sinon
+         on a déjà le cue géométrique. -->
+    <T.AmbientLight intensity={0.55} />
+    <T.DirectionalLight bind:ref={lightRef}
+                        position={[G ? G.W * 0.35 : 200,
+                                   G ? G.H * 0.20 : 100,
+                                   (G ? Math.min(G.cw, G.ch) : 80) * 7]}
+                        intensity={0.90}
+                        castShadow />
     <T.DirectionalLight position={[-150, -200, 400]} intensity={0.20} />
 
     <!-- World-lock root group -->
@@ -244,6 +258,21 @@
              extrusion visible en vue top-down. wallT ajouté à la longueur
              pour overlap aux jonctions (pas de gap visible). -->
         {#each walls as wall, i (i)}
+          <!-- Fake AO base (Lot 6.3) : plane sombre semi-transparent
+               légèrement plus large que le mur, posé juste au-dessus
+               du sol. Donne un halo d'ombre sous le mur visible
+               quelle que soit la config shadow map → cue d'extrusion
+               fiable même quand les shadows runtime ne marchent pas. -->
+          <T.Mesh position={[wall.x, wall.y, 0.4]}>
+            <T.PlaneGeometry args={
+              wall.type === 'h'
+                ? [wall.length + wallT * 2.2, wallT * 2.4]
+                : [wallT * 2.4, wall.length + wallT * 2.2]
+            } />
+            <T.MeshBasicMaterial color="#000000" transparent={true}
+                                 opacity={0.22} depthWrite={false} />
+          </T.Mesh>
+          <!-- Mur lui-même -->
           <T.Mesh position={[wall.x, wall.y, wallH / 2]}
                   castShadow receiveShadow>
             <T.BoxGeometry args={
@@ -251,8 +280,8 @@
                 ? [wall.length + wallT, wallT, wallH]
                 : [wallT, wall.length + wallT, wallH]
             } />
-            <T.MeshStandardMaterial color={WALL_COLOR_LIGHT}
-                                    roughness={0.78} metalness={0.05} />
+            <T.MeshStandardMaterial color={WALL_COLOR}
+                                    roughness={0.82} metalness={0.04} />
           </T.Mesh>
         {/each}
 
