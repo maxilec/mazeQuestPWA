@@ -253,41 +253,36 @@
           </T.Mesh>
         {/if}
 
-        <!-- Murs 3D extrudés (Lot 6) — BoxGeometry simple par segment.
-             Crème clair (Lot 6.1), mat, contraste plus marqué vs sol pour
-             extrusion visible en vue top-down. wallT ajouté à la longueur
-             pour overlap aux jonctions (pas de gap visible). -->
-        {#each walls as wall, i (i)}
-          <!-- Fake AO base (Lot 6.3) : plane sombre semi-transparent
-               légèrement plus large que le mur, posé juste au-dessus
-               du sol. Donne un halo d'ombre sous le mur visible
-               quelle que soit la config shadow map. -->
-          <T.Mesh position={[wall.x, wall.y, 0.4]}>
-            <T.PlaneGeometry args={
-              wall.type === 'h'
-                ? [wall.length + wallT * 2.2, wallT * 2.4]
-                : [wallT * 2.4, wall.length + wallT * 2.2]
-            } />
-            <T.MeshBasicMaterial color="#000000" transparent={true}
-                                 opacity={0.22} depthWrite={false} />
+        <!-- DEBUG TEST CUBE (Lot 6.6) — mesh hardcoded au centre du maze.
+             Si on voit ce cube magenta, le rendu T.Mesh/BoxGeometry
+             fonctionne dans le tilt group → le bug est dans la boucle
+             {#each walls}. Si on ne le voit pas, problème plus profond
+             (camera frustum, ordre de rendu, etc.). -->
+        {#if G}
+          <T.Mesh position={[0, 0, 80]}>
+            <T.BoxGeometry args={[120, 120, 120]} />
+            <T.MeshBasicMaterial color="#ff00ff" />
           </T.Mesh>
-          <!-- Mur lui-même. Lot 6.5 DEBUG : MeshBasicMaterial rouge
-               (suggestion Gemini #4) pour distinguer un problème de
-               lighting/couleur d'un problème de géométrie/rendu. Si
-               on voit du rouge → revenir à StandardMaterial avec
-               couleur ET lighting plus fort. Sinon → problème
-               géométrie/Z plus profond. Z toujours = wallH/2 + 1
-               (no Z-fighting). wallH bumpé à 1.0 * min(cw,ch) pour
-               être ULTRA visible si la géométrie marche. -->
-          <T.Mesh position={[wall.x, wall.y, wallH / 2 + 1]}>
-            <T.BoxGeometry args={
-              wall.type === 'h'
-                ? [wall.length + wallT, wallT, wallH]
-                : [wallT, wall.length + wallT, wallH]
-            } />
-            <T.MeshBasicMaterial color="#ff0000" />
-          </T.Mesh>
-        {/each}
+        {/if}
+
+        <!-- Murs 3D extrudés (Lot 6, refactor 6.6) — passage de l'each
+             réactif sur `walls` à un each direct sur computeWalls(G) +
+             unité BoxGeometry + scale, pour éliminer toute chance de
+             désynchro reactive et de geometry recréée chaque frame. -->
+        {#if G && G.maze}
+          {#each computeWalls(G) as wall, i (`${i}-${wall.type}`)}
+            <!-- Mur lui-même : MeshBasic rouge (debug Gemini). -->
+            <T.Mesh position={[wall.x, wall.y, wallH / 2 + 1]}
+                    scale={
+                      wall.type === 'h'
+                        ? [wall.length + wallT, wallT, wallH]
+                        : [wallT, wall.length + wallT, wallH]
+                    }>
+              <T.BoxGeometry args={[1, 1, 1]} />
+              <T.MeshBasicMaterial color="#ff0000" />
+            </T.Mesh>
+          {/each}
+        {/if}
 
         <!-- Checkpoints (Lot 6.1) — barres émissives au centre des
              cellules, vertes (non passées) ou jaunes (passées). Reproduit
