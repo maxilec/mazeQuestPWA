@@ -254,16 +254,19 @@
          le dotted attrs parsing). Bonus visuel par-dessus le fake AO
          des walls — si shadows runtime marchent, ombres réelles, sinon
          on a déjà le cue géométrique. -->
-    <!-- Lot 6.11 : ambient bumped 0.55 → 0.70 pour lift les ombres
-         et un rendu plus doux. -->
-    <T.AmbientLight intensity={0.70} />
+    <!-- Lot 6.12 : lighting « jour ensoleillé » — bumper toutes les
+         intensités + tint chaud (#fff8e6) sur la key directional pour
+         évoquer un soleil chaud. -->
+    <T.AmbientLight intensity={0.95} color="#fff5e0" />
     <T.DirectionalLight bind:ref={lightRef}
                         position={[G ? G.W * 0.35 : 200,
                                    G ? G.H * 0.20 : 100,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 7]}
-                        intensity={0.85}
+                        intensity={1.40}
+                        color="#fff8e6"
                         castShadow />
-    <T.DirectionalLight position={[-150, -200, 400]} intensity={0.20} />
+    <T.DirectionalLight position={[-150, -200, 400]}
+                        intensity={0.35} color="#f4eddb" />
 
     <!-- World-lock root group -->
     <T.Group rotation.z={worldLockZ}>
@@ -312,30 +315,33 @@
             </T.Mesh>
           {/each}
 
-          <!-- Path nodes (cell centers) — Lot 6.11 : passage de
-               CylinderGeometry à RoundedBoxGeometry pour cohérence
-               avec les segments (plus de transition box→cylinder
-               visible aux jonctions). -->
+          <!-- Path nodes (cell centers) — Lot 6.12 : retour à
+               CylinderGeometry pour des CAPS PARFAITEMENT CIRCULAIRES
+               aux extrémités de piste. Les segments restent en
+               RoundedBoxGeometry (bords doux le long des côtés). Le
+               cylindre fait disparaître l'effet « carré arrondi » des
+               nœuds Lot 6.11. radialSegments=32 pour cercle parfait. -->
           {#each computePathNodes(G) as node, i (`n${i}`)}
             <T.Mesh position={[node.x, node.y, pathBase + pathH / 2]}
-                    scale={[pathW, pathW, pathH]}
+                    rotation={[Math.PI / 2, 0, 0]}
                     castShadow receiveShadow>
-              <T is={RoundedBoxGeometry} args={[1, 1, 1, 3, 0.18]} />
+              <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32]} />
               <T.MeshStandardMaterial color={PATH_COLOR}
                                       roughness={0.82} metalness={0.04} />
             </T.Mesh>
           {/each}
 
-          <!-- Rainure néon sur le dessus de la piste (Lot 6.10 :
-               emissiveIntensity baissée 1.2 → 0.55 + toneMapped true
-               pour une lueur SUBTILE qui s'intègre, plus une bande
-               cyan saturée). -->
+          <!-- Rainure néon sur le dessus de la piste — Lot 6.12 :
+               PLUS d'extension pathW*0.3 (était la source des croix
+               visibles aux jonctions). Le segment néon s'arrête à la
+               longueur nominale, le disque au node prend le relais
+               pour couvrir le centre de cellule. -->
           {#each computePathSegments(G) as seg, i (`ns${i}`)}
             <T.Mesh position={[seg.x, seg.y, pathBase + pathH + 0.4]}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length + pathW * 0.3, neonW]
-                  : [neonW, seg.length + pathW * 0.3]
+                  ? [seg.length, neonW]
+                  : [neonW, seg.length]
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
@@ -345,13 +351,14 @@
             </T.Mesh>
           {/each}
 
-          <!-- Neon dots à CHAQUE cell node (Lot 6.11) — lisse le
-               passage du néon aux virages entre 2 segments (corners
-               smooth). Petit disque au croisement, même intensité
-               que les segments. -->
+          <!-- Neon dots à CHAQUE cell node — Lot 6.12 : disque
+               significativement plus GROS (neonW * 1.6 vs 0.55) pour
+               COUVRIR le centre de cellule et masquer les fines
+               extrémités des segments qui se rejoignent. Plus de croix
+               visibles aux jonctions corner. -->
           {#each computePathNodes(G) as node, i (`nb${i}`)}
-            <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.42]}>
-              <T.CircleGeometry args={[neonW * 0.55, 12]} />
+            <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.45]}>
+              <T.CircleGeometry args={[neonW * 1.6, 20]} />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
                                       emissiveIntensity={0.55}
@@ -360,18 +367,18 @@
             </T.Mesh>
           {/each}
 
-          <!-- Points d'intersection lumineux (cellules avec >=3 sorties).
-               Lot 6.11 : Z légèrement plus haut que le dot standard
-               pour éviter Z-fighting. -->
+          <!-- Points d'intersection (>=3 sorties) : disque plus
+               brillant superposé au dot standard, légèrement plus
+               grand pour distinction. -->
           {#each computePathNodes(G) as node, i (`ni${i}`)}
             {#if node.isIntersection}
               <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.55]}>
-                <T.CircleGeometry args={[neonW * 1.6, 16]} />
+                <T.CircleGeometry args={[neonW * 2.0, 20]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
-                                        emissiveIntensity={0.85}
+                                        emissiveIntensity={0.95}
                                         transparent={true}
-                                        opacity={0.85} />
+                                        opacity={0.95} />
               </T.Mesh>
             {/if}
           {/each}
