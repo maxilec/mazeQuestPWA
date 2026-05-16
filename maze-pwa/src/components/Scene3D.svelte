@@ -126,8 +126,8 @@
   // piste sur le sol renforce l'effet floating.
   $: pathBase = G ? Math.min(G.cw, G.ch) * 0.20 : 5;
   $: neonW    = G ? Math.min(G.cw, G.ch) * 0.05 : 2.5;
-  // Lot 6.11 : couleur piste teinte plus chaude #EADFCF (vs #ece5d2).
-  const PATH_COLOR = '#EADFCF';
+  // Lot 6.18 : couleur piste plus claire et chaleureuse (#F2E8D2 vs #EADFCF).
+  const PATH_COLOR = '#F2E8D2';
 
   function computePathSegments(g) {
     const out = [];
@@ -160,17 +160,41 @@
     for (let r = 0; r < g.R; r++) {
       for (let c = 0; c < g.C; c++) {
         const ce = g.maze[r][c];
-        // Une cellule a un node dès qu'au moins un côté est ouvert. Dans
-        // un maze parfait c'est toujours le cas, mais on garde la garde.
-        const openCount = (!ce.T?1:0) + (!ce.R?1:0) + (!ce.B?1:0) + (!ce.L?1:0);
-        if (openCount > 0) {
-          out.push({
-            x: c * g.cw + g.cw / 2 - g.W / 2,
-            y: g.H / 2 - r * g.ch - g.ch / 2,
-            openCount,
-            isIntersection: openCount >= 3,
-          });
+        const oT = !ce.T, oR = !ce.R, oB = !ce.B, oL = !ce.L;
+        const openCount = (oT?1:0) + (oR?1:0) + (oB?1:0) + (oL?1:0);
+        if (openCount === 0) continue;
+        // Lot 6.18 : classer le node pour render selectif :
+        //  - straight (openCount=2 colinéaire) : pas de geometry, segment suffit
+        //  - intersection (openCount>=3) : cylindre plein (jonction T/+)
+        //  - corner (openCount=2 perpendiculaire) : cylindre plein (jonction L)
+        //  - deadEnd (openCount=1) : demi-cylindre (cap arrondi)
+        const isStraight = openCount === 2 && ((oT && oB) || (oL && oR));
+        const isDeadEnd  = openCount === 1;
+        // Pour deadEnd : determiner le côté OPPOSÉ à l'ouverture (où le cap va).
+        // CylinderGeometry avec rotation [PI/2,0,0] : la moitié drawn
+        // (thetaStart=0, thetaLength=PI) pointe par défaut vers -Y. Rotation
+        // additionnelle autour de Z aligne le cap dans la bonne direction.
+        // Mapping (oT/oR/oB/oL = open side) :
+        //   oT (open +Y) → cap -Y → rot 0
+        //   oL (open -X) → cap +X → rot +π/2
+        //   oB (open -Y) → cap +Y → rot π
+        //   oR (open +X) → cap -X → rot -π/2
+        let deadEndRotZ = 0;
+        if (isDeadEnd) {
+          if (oT)      deadEndRotZ = 0;
+          else if (oL) deadEndRotZ = Math.PI/2;
+          else if (oB) deadEndRotZ = Math.PI;
+          else if (oR) deadEndRotZ = -Math.PI/2;
         }
+        out.push({
+          x: c * g.cw + g.cw / 2 - g.W / 2,
+          y: g.H / 2 - r * g.ch - g.ch / 2,
+          openCount,
+          isStraight,
+          isDeadEnd,
+          isIntersection: openCount >= 3,
+          deadEndRotZ,
+        });
       }
     }
     return out;
@@ -302,19 +326,19 @@
          maintenant l'illumination globale. -->
     <Postprocess bloomStrength={0.4} bloomRadius={0.2} bloomThreshold={1.0} />
 
-    <!-- Lighting (Lot 6.17 hotfix 2) : intensités réduites de moitié
-         car RoomEnvironment (Postprocess.svelte) fournit déjà une
-         lumière diffuse globale. Évite la sur-saturation. -->
-    <T.AmbientLight intensity={0.40} color="#fff5e0" />
+    <!-- Lighting (Lot 6.18) : couleurs plus chaudes (golden) pour
+         évoquer un soleil chaud. Intensités modérées car RoomEnvironment
+         fournit aussi une partie de l'illumination. -->
+    <T.AmbientLight intensity={0.55} color="#fff0d6" />
     <T.DirectionalLight bind:ref={lightRef}
                         position={[G ? G.W * 0.35 : 200,
                                    G ? G.H * 0.20 : 100,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 7]}
-                        intensity={0.70}
-                        color="#fff8e6"
+                        intensity={0.85}
+                        color="#ffe8b8"
                         castShadow />
     <T.DirectionalLight position={[-150, -200, 400]}
-                        intensity={0.20} color="#f4eddb" />
+                        intensity={0.25} color="#ffdcaa" />
 
     <!-- World-lock root group -->
     <T.Group rotation.z={worldLockZ}>
@@ -324,19 +348,19 @@
         <!-- Sol (track) — texture clear : beige uniforme + ligne néon
              visible. Mat papier (rough 0.92, metal 0). Reçoit les
              ombres projetées par les murs (Lot 6.2).
-             Lot 6.17 hotfix 3 : envMapIntensity=0 → le sol n'absorbe
-             PAS l'illumination du env map (qui sur-éclairait tout). -->
+             Lot 6.18 : envMapIntensity=0.3 pour retrouver la couleur
+             beige (Lot 6.17 hotfix 3 avait mis à 0 = sol noir). -->
         {#if G}
           <T.Mesh position={[0, 0, 0]} receiveShadow>
             <T.PlaneGeometry args={[G.W, G.H]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
                                       roughness={0.92} metalness={0.0}
-                                      envMapIntensity={0} />
+                                      envMapIntensity={0.3} />
             {:else}
               <T.MeshStandardMaterial color={G?.theme?.trackFloor ?? '#d6cebc'}
                                       roughness={0.92} metalness={0.0}
-                                      envMapIntensity={0} />
+                                      envMapIntensity={0.3} />
             {/if}
           </T.Mesh>
         {/if}
@@ -363,25 +387,41 @@
                     castShadow receiveShadow>
               <T is={RoundedBoxGeometry} args={[1, 1, 1, 3, 0.18]} />
               <T.MeshStandardMaterial color={PATH_COLOR}
-                                      roughness={0.82} metalness={0.04}
-                                      envMapIntensity={0} />
+                                      roughness={0.55} metalness={0.08}
+                                      envMapIntensity={0.4} />
             </T.Mesh>
           {/each}
 
-          <!-- Path nodes (cell centers) — Lot 6.14 : revert à
-               CylinderGeometry pour TOUS les nodes (Lot 6.13 selective
-               geometry a créé des « blocs » visibles aux dead-ends et
-               passages droits). Cylinder = caps parfaitement circulaires
-               vue du dessus, blend lisse avec segments adjacents. -->
+          <!-- Path nodes — Lot 6.18 : geometry selective.
+               - straight passages : PAS de node (segment suffit)
+               - intersections/corners : CylinderGeometry plein (jonction)
+               - dead-ends : demi-cylindre (cap arrondi, pas de bump
+                 dépassant côté ouverture) -->
           {#each computePathNodes(G) as node, i (`n${i}`)}
-            <T.Mesh position={[node.x, node.y, pathBase + pathH / 2]}
-                    rotation={[Math.PI / 2, 0, 0]}
-                    castShadow receiveShadow>
-              <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32]} />
-              <T.MeshStandardMaterial color={PATH_COLOR}
-                                      roughness={0.82} metalness={0.04}
-                                      envMapIntensity={0} />
-            </T.Mesh>
+            {#if !node.isStraight}
+              {#if node.isDeadEnd}
+                <!-- Demi-cylindre orienté pour fermer l'extrémité. Le
+                     half-cylinder ne dépasse pas vers l'ouverture. -->
+                <T.Mesh position={[node.x, node.y, pathBase + pathH / 2]}
+                        rotation={[Math.PI / 2, 0, node.deadEndRotZ]}
+                        castShadow receiveShadow>
+                  <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32, 1, false, 0, Math.PI]} />
+                  <T.MeshStandardMaterial color={PATH_COLOR}
+                                          roughness={0.55} metalness={0.08}
+                                          envMapIntensity={0.4} />
+                </T.Mesh>
+              {:else}
+                <!-- Intersection (T/+) ou L-corner : cylindre plein -->
+                <T.Mesh position={[node.x, node.y, pathBase + pathH / 2]}
+                        rotation={[Math.PI / 2, 0, 0]}
+                        castShadow receiveShadow>
+                  <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32]} />
+                  <T.MeshStandardMaterial color={PATH_COLOR}
+                                          roughness={0.55} metalness={0.08}
+                                          envMapIntensity={0.4} />
+                </T.Mesh>
+              {/if}
+            {/if}
           {/each}
 
           <!-- Rainure néon sur le dessus de la piste — Lot 6.16 :
@@ -500,41 +540,43 @@
           {/each}
         {/if}
 
-        <!-- Cadre néon — Lot 6.5 : frame au RAS du sol (z=0.5) avec
-             extrusion minimale (frH=2) pour éviter la parallaxe avec
-             le sol pendant le tilt. Le cadre suit le sol au pixel
-             près. emissive donne le glow sans dépendre du Z. -->
+        <!-- Cadre néon — Lot 6.18 : déporté À L'EXTÉRIEUR du maze avec
+             une gap pour ne pas être caché par la piste extrudée.
+             frGap = espace entre bord maze et cadre. -->
         {#if G}
-          {@const frT  = 2.5}
-          {@const frH  = 2}
-          {@const frZ  = 0.5}
-          <!-- top : edge à G.H/2, frame inside vers Y descendant -->
-          <T.Mesh position={[0, G.H / 2 - frT / 2, frZ]}>
-            <T.BoxGeometry args={[G.W, frT, frH]} />
+          {@const frT   = 2.5}
+          {@const frH   = 2}
+          {@const frZ   = 0.5}
+          {@const frGap = Math.min(G.cw, G.ch) * 0.35}
+          {@const frW   = G.W + (frT + frGap) * 2}
+          {@const frHd  = G.H + (frT + frGap) * 2}
+          <!-- top : Y = +H/2 + gap + frT/2 (au-dessus du maze) -->
+          <T.Mesh position={[0, G.H / 2 + frGap + frT / 2, frZ]}>
+            <T.BoxGeometry args={[frW, frT, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
                                     emissiveIntensity={1.6}
                                     toneMapped={false} />
           </T.Mesh>
           <!-- bottom -->
-          <T.Mesh position={[0, -G.H / 2 + frT / 2, frZ]}>
-            <T.BoxGeometry args={[G.W, frT, frH]} />
+          <T.Mesh position={[0, -G.H / 2 - frGap - frT / 2, frZ]}>
+            <T.BoxGeometry args={[frW, frT, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
                                     emissiveIntensity={1.6}
                                     toneMapped={false} />
           </T.Mesh>
           <!-- left -->
-          <T.Mesh position={[-G.W / 2 + frT / 2, 0, frZ]}>
-            <T.BoxGeometry args={[frT, G.H - frT * 2, frH]} />
+          <T.Mesh position={[-G.W / 2 - frGap - frT / 2, 0, frZ]}>
+            <T.BoxGeometry args={[frT, G.H + frGap * 2, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
                                     emissiveIntensity={1.6}
                                     toneMapped={false} />
           </T.Mesh>
           <!-- right -->
-          <T.Mesh position={[G.W / 2 - frT / 2, 0, frZ]}>
-            <T.BoxGeometry args={[frT, G.H - frT * 2, frH]} />
+          <T.Mesh position={[G.W / 2 + frGap + frT / 2, 0, frZ]}>
+            <T.BoxGeometry args={[frT, G.H + frGap * 2, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
                                     emissiveIntensity={1.6}
