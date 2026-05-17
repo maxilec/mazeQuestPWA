@@ -53,7 +53,6 @@
 
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera.current));
-
     bloomPass = new UnrealBloomPass(
       new Vector2(w, h),
       bloomStrength,
