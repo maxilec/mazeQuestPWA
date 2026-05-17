@@ -195,11 +195,12 @@
     cellShapes      = computeCellShapes(G);
     neonSegments    = computeNeonSegments(G);
     neonNodes       = computeNeonNodes(G);
-    // Lot 6.20 hotfix 3 — crash test : bevels désactivés pour isoler la
-    // cause du freeze. Si rendu OK sans bevels, on les réactivera plus tard.
     extrudeSettings = {
       depth: pathH,
-      bevelEnabled: false,
+      bevelEnabled: true,
+      bevelThickness: pathH * 0.06,
+      bevelSize: pathW * 0.03,
+      bevelSegments: 1,
       steps: 1,
       curveSegments: 3,
     };
@@ -523,7 +524,7 @@
              Trade-off : illumination pas continue, mais 60 FPS sustained.
              Compensation : intensity bumped 1.4→1.6, distance 1.5x→2.5x. -->
         {#if G && G.maze}
-          {#each computePathNodes(G) as node, i (`light-node-${i}`)}
+          {#each neonNodes as node, i (`light-node-${i}`)}
             {#if node.isIntersection}
               <T.PointLight position={[node.x, node.y, pathH + 2]}
                             intensity={1.6}
