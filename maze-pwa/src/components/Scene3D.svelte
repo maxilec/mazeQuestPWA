@@ -22,6 +22,7 @@
 
   import { onMount, onDestroy } from 'svelte';
   import { Canvas, T }          from '@threlte/core';
+  import { InstancedMesh, Instance } from '@threlte/extras';
   import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap, Shape, ExtrudeGeometry } from 'three';
   import { getSvgSource, svgReady } from '../lib/render.js';
   import Postprocess            from './Postprocess.svelte';
@@ -130,108 +131,242 @@
   $: neonW      = G ? Math.min(G.cw, G.ch) * 0.05 : 2.5;
   const PATH_COLOR = '#F2E8D2';
 
-  // ── Cell Shape builder (Lot 6.21) ──────────────────────────────────────
-  // 2 étapes :
-  //  1. collectCellPolygon() : retourne le tracé CCW polygonal (sharp corners)
-  //     selon les ouvertures T/R/B/L de la cellule.
-  //  2. smoothShape() : applique des arrondis quadratiques uniformes sur
-  //     chaque vertex, équivalent visuel du Canvas 2D lineCap/lineJoin='round'.
-  // CCW (Y-up math conv) = LEFT along top → DOWN along left → RIGHT along
-  // bottom → UP along right. Three.js Shape requiert CCW pour outer boundary.
-  function collectCellPolygon(cell, pathW, cw, ch) {
-    const oT = !cell.T, oR = !cell.R, oB = !cell.B, oL = !cell.L;
-    const hp = pathW / 2;
-    const hw = cw / 2;
-    const hh = ch / 2;
-    const pts = [];
+  // ── Système de tuiles Lego (Lot 6.22) ─────────────────────────────────
+  // 5 tile types (straight, corner, T, cross, deadEnd) construits une fois
+  // par niveau avec la pathW du niveau courant. Pour chaque cellule du maze,
+  // on identifie le type + la rotation et on instancie via InstancedMesh.
+  //
+  // Discrimination arrondis :
+  //   - straight : sharp rectangle, AUCUN arrondi
+  //   - corner/T/cross : arrondi UNIQUEMENT sur internal corners (pas sur
+  //     les boundary edges qui connectent aux tuiles adjacentes)
+  //   - deadEnd : cap arrondi (radius = pathW/2) pour semi-circulaire
+  //
+  // Bevel "soft clay" sans seams :
+  //   Trick d'expansion : avant ExtrudeGeometry, on EXPAND les vertices
+  //   boundary (sur cell boundary) vers l'extérieur de bevelSize.
+  //   ExtrudeGeometry shrink ensuite ce polygone de bevelSize au top face
+  //   → le top face boundary atterrit pile sur la cell boundary
+  //   → tiles adjacentes connectent sans gap visible.
 
-    if (oT) { pts.push({x:  hp, y:  hh}); pts.push({x: -hp, y:  hh}); pts.push({x: -hp, y:  hp}); }
-    else    { pts.push({x:  hp, y:  hp}); pts.push({x: -hp, y:  hp}); }
-
-    if (oL) { pts.push({x: -hw, y:  hp}); pts.push({x: -hw, y: -hp}); pts.push({x: -hp, y: -hp}); }
-    else    { pts.push({x: -hp, y: -hp}); }
-
-    if (oB) { pts.push({x: -hp, y: -hh}); pts.push({x:  hp, y: -hh}); pts.push({x:  hp, y: -hp}); }
-    else    { pts.push({x:  hp, y: -hp}); }
-
-    if (oR) { pts.push({x:  hw, y: -hp}); pts.push({x:  hw, y:  hp}); pts.push({x:  hp, y:  hp}); }
-    else    { pts.push({x:  hp, y:  hp}); }
-
-    return pts;
+  function expandBoundary(pts, cw, ch, bs) {
+    const hw = cw / 2, hh = ch / 2;
+    const eps = 1e-3;
+    return pts.map(p => {
+      let dx = 0, dy = 0;
+      if (Math.abs(p.x - hw) < eps)  dx = +bs;
+      if (Math.abs(p.x + hw) < eps)  dx = -bs;
+      if (Math.abs(p.y - hh) < eps)  dy = +bs;
+      if (Math.abs(p.y + hh) < eps)  dy = -bs;
+      return { x: p.x + dx, y: p.y + dy };
+    });
   }
 
-  // Applique des arrondis uniformes (quadraticCurveTo) sur tous les corners
-  // du polygone. radius est clampé à min(edge_length / 2) pour éviter overflow.
-  function smoothShape(points, radius) {
+  // smoothShape sélective : `smoothIndices` = Set des indices de vertices
+  // à arrondir avec quadraticCurveTo. Les autres restent sharp (lineTo).
+  function smoothShape(points, smoothIndices, radius) {
     const shape = new Shape();
+    const smooth = new Set(smoothIndices);
     const n = points.length;
     for (let i = 0; i < n; i++) {
-      const prev = points[(i - 1 + n) % n];
       const curr = points[i];
-      const next = points[(i + 1) % n];
-      const dxP = prev.x - curr.x, dyP = prev.y - curr.y;
-      const dxN = next.x - curr.x, dyN = next.y - curr.y;
-      const lenP = Math.hypot(dxP, dyP);
-      const lenN = Math.hypot(dxN, dyN);
-      if (lenP < 1e-6 || lenN < 1e-6) continue;
-      const r = Math.min(radius, lenP / 2, lenN / 2);
-      const sx = curr.x + (dxP / lenP) * r;
-      const sy = curr.y + (dyP / lenP) * r;
-      const ex = curr.x + (dxN / lenN) * r;
-      const ey = curr.y + (dyN / lenN) * r;
-      if (i === 0) shape.moveTo(sx, sy);
-      else         shape.lineTo(sx, sy);
-      shape.quadraticCurveTo(curr.x, curr.y, ex, ey);
+      if (smooth.has(i) && radius > 0) {
+        const prev = points[(i - 1 + n) % n];
+        const next = points[(i + 1) % n];
+        const dxP = prev.x - curr.x, dyP = prev.y - curr.y;
+        const dxN = next.x - curr.x, dyN = next.y - curr.y;
+        const lenP = Math.hypot(dxP, dyP);
+        const lenN = Math.hypot(dxN, dyN);
+        if (lenP < 1e-6 || lenN < 1e-6) {
+          if (i === 0) shape.moveTo(curr.x, curr.y);
+          else         shape.lineTo(curr.x, curr.y);
+          continue;
+        }
+        const r = Math.min(radius, lenP / 2, lenN / 2);
+        const sx = curr.x + (dxP / lenP) * r;
+        const sy = curr.y + (dyP / lenP) * r;
+        const ex = curr.x + (dxN / lenN) * r;
+        const ey = curr.y + (dyN / lenN) * r;
+        if (i === 0) shape.moveTo(sx, sy);
+        else         shape.lineTo(sx, sy);
+        shape.quadraticCurveTo(curr.x, curr.y, ex, ey);
+      } else {
+        if (i === 0) shape.moveTo(curr.x, curr.y);
+        else         shape.lineTo(curr.x, curr.y);
+      }
     }
     shape.closePath();
     return shape;
   }
 
-  function buildCellShape(cell, pathW, cw, ch) {
-    const pts = collectCellPolygon(cell, pathW, cw, ch);
-    return smoothShape(pts, pathW * 0.30);
+  // 5 build*Shape functions (orientations canoniques) :
+  // - straight : opens +Y et -Y (vertical)
+  // - corner   : opens +Y et +X (default TR)
+  // - T        : opens T+R+B (default closed L = -X)
+  // - cross    : opens 4 côtés
+  // - deadEnd  : opens +Y seul
+
+  function buildStraightShape(pathW, cw, ch, bs) {
+    const hp = pathW / 2, hh = ch / 2;
+    let pts = [
+      {x:  hp, y:  hh}, {x: -hp, y:  hh},
+      {x: -hp, y: -hh}, {x:  hp, y: -hh},
+    ];
+    pts = expandBoundary(pts, cw, ch, bs);
+    return smoothShape(pts, [], 0);
   }
 
-  function computeCellShapes(g) {
-    const out = [];
+  function buildCornerShape(pathW, cw, ch, bs) {
+    const hp = pathW / 2, hw = cw / 2, hh = ch / 2;
+    let pts = [
+      {x:  hp, y:  hh},  // 0 boundary
+      {x: -hp, y:  hh},  // 1 boundary
+      {x: -hp, y: -hp},  // 2 INTERNAL SW outer convex
+      {x:  hp, y: -hp},  // 3 INTERNAL SE elbow concave
+      {x:  hw, y: -hp},  // 4 boundary
+      {x:  hw, y:  hp},  // 5 boundary
+      {x:  hp, y:  hp},  // 6 INTERNAL NE elbow concave
+    ];
+    pts = expandBoundary(pts, cw, ch, bs);
+    return smoothShape(pts, [2, 3, 6], pathW * 0.30);
+  }
+
+  function buildTShape(pathW, cw, ch, bs) {
+    const hp = pathW / 2, hw = cw / 2, hh = ch / 2;
+    let pts = [
+      {x:  hp, y:  hh},  // 0 boundary
+      {x: -hp, y:  hh},  // 1 boundary
+      {x: -hp, y: -hh},  // 2 boundary (long left edge)
+      {x:  hp, y: -hh},  // 3 boundary
+      {x:  hp, y: -hp},  // 4 INTERNAL elbow
+      {x:  hw, y: -hp},  // 5 boundary
+      {x:  hw, y:  hp},  // 6 boundary
+      {x:  hp, y:  hp},  // 7 INTERNAL elbow
+    ];
+    pts = expandBoundary(pts, cw, ch, bs);
+    return smoothShape(pts, [4, 7], pathW * 0.30);
+  }
+
+  function buildCrossShape(pathW, cw, ch, bs) {
+    const hp = pathW / 2, hw = cw / 2, hh = ch / 2;
+    let pts = [
+      {x:  hp, y:  hh},  // 0  boundary
+      {x: -hp, y:  hh},  // 1  boundary
+      {x: -hp, y:  hp},  // 2  INTERNAL
+      {x: -hw, y:  hp},  // 3  boundary
+      {x: -hw, y: -hp},  // 4  boundary
+      {x: -hp, y: -hp},  // 5  INTERNAL
+      {x: -hp, y: -hh},  // 6  boundary
+      {x:  hp, y: -hh},  // 7  boundary
+      {x:  hp, y: -hp},  // 8  INTERNAL
+      {x:  hw, y: -hp},  // 9  boundary
+      {x:  hw, y:  hp},  // 10 boundary
+      {x:  hp, y:  hp},  // 11 INTERNAL
+    ];
+    pts = expandBoundary(pts, cw, ch, bs);
+    return smoothShape(pts, [2, 5, 8, 11], pathW * 0.30);
+  }
+
+  function buildDeadEndShape(pathW, cw, ch, bs) {
+    const hp = pathW / 2, hh = ch / 2;
+    let pts = [
+      {x:  hp, y:  hh},  // 0 boundary (open top right)
+      {x: -hp, y:  hh},  // 1 boundary (open top left)
+      {x: -hp, y: -hp},  // 2 INTERNAL cap left
+      {x:  hp, y: -hp},  // 3 INTERNAL cap right
+    ];
+    pts = expandBoundary(pts, cw, ch, bs);
+    return smoothShape(pts, [2, 3], pathW * 0.50);
+  }
+
+  // Détermine le type de tuile + la rotation Z pour une cellule.
+  // Retourne null si openCount === 0 (cellule isolée, skip).
+  function detectTileType(cell) {
+    const oT = !cell.T, oR = !cell.R, oB = !cell.B, oL = !cell.L;
+    const n  = (oT?1:0) + (oR?1:0) + (oB?1:0) + (oL?1:0);
+    if (n === 0) return null;
+    if (n === 4) return { type: 'cross', rot: 0 };
+    if (n === 1) {
+      if (oT) return { type: 'deadEnd', rot: 0 };
+      if (oL) return { type: 'deadEnd', rot:  Math.PI / 2 };
+      if (oB) return { type: 'deadEnd', rot:  Math.PI };
+      if (oR) return { type: 'deadEnd', rot: -Math.PI / 2 };
+    }
+    if (n === 2) {
+      if (oT && oB) return { type: 'straight', rot: 0 };
+      if (oL && oR) return { type: 'straight', rot:  Math.PI / 2 };
+      if (oT && oR) return { type: 'corner',   rot: 0 };
+      if (oR && oB) return { type: 'corner',   rot: -Math.PI / 2 };
+      if (oB && oL) return { type: 'corner',   rot:  Math.PI };
+      if (oL && oT) return { type: 'corner',   rot:  Math.PI / 2 };
+    }
+    if (n === 3) {
+      // closed side (cell.X = 1 means wall, opening on the 3 others)
+      if (cell.L) return { type: 'T', rot: 0 };
+      if (cell.B) return { type: 'T', rot:  Math.PI / 2 };
+      if (cell.R) return { type: 'T', rot:  Math.PI };
+      if (cell.T) return { type: 'T', rot: -Math.PI / 2 };
+    }
+    return null;
+  }
+
+  // Pour chaque cellule, push {x, y, rot} dans le bucket de son type.
+  function computeTileInstances(g) {
+    const out = { straight: [], corner: [], T: [], cross: [], deadEnd: [] };
     for (let r = 0; r < g.R; r++) {
       for (let c = 0; c < g.C; c++) {
-        const ce = g.maze[r][c];
-        const openCount = (!ce.T?1:0) + (!ce.R?1:0) + (!ce.B?1:0) + (!ce.L?1:0);
-        if (openCount === 0) continue;
-        out.push({
-          shape: buildCellShape(ce, pathW, g.cw, g.ch),
+        const det = detectTileType(g.maze[r][c]);
+        if (!det) continue;
+        out[det.type].push({
           x: c * g.cw + g.cw / 2 - g.W / 2,
           y: g.H / 2 - r * g.ch - g.ch / 2,
+          rot: det.rot,
         });
       }
     }
     return out;
   }
 
-  // Lot 6.20 hotfix — cache des shapes/segments/nodes + extrudeSettings.
-  // Sans cache, `{#each computeCellShapes(G)}` recompile 120 ExtrudeGeometry
-  // par frame → crash mobile Safari + freeze main thread (menu inactif).
-  // On reconstruit seulement quand le maze change (G.lvl).
-  let cellShapes      = [];
-  let neonSegments    = [];
-  let neonNodes       = [];
-  let extrudeSettings = null;
-  let lastMazeLvl     = -1;
+  // ── Cache geometries + instances (rebuild only when level changes) ─────
+  // Sans cache, on recompile 5 ExtrudeGeometry par frame → crash mobile.
+  let tileGeometries = null;
+  let tileInstances  = null;
+  let neonSegments   = [];
+  let neonNodes      = [];
+  let lastMazeLvl    = -1;
   $: if (G?.maze && G.lvl !== lastMazeLvl) {
-    cellShapes      = computeCellShapes(G);
-    neonSegments    = computeNeonSegments(G);
-    neonNodes       = computeNeonNodes(G);
-    extrudeSettings = {
+    const bs = pathH * 0.04;  // light bevel "soft clay"
+    const extrudeSettings = {
       depth: pathH,
       bevelEnabled: true,
-      bevelThickness: pathH * 0.06,
-      bevelSize: pathW * 0.03,
-      bevelSegments: 1,
+      bevelThickness: bs,
+      bevelSize: bs,
+      bevelSegments: 2,
       steps: 1,
       curveSegments: 6,
     };
-    lastMazeLvl     = G.lvl;
+    const shapes = {
+      straight: buildStraightShape(pathW, G.cw, G.ch, bs),
+      corner:   buildCornerShape  (pathW, G.cw, G.ch, bs),
+      T:        buildTShape       (pathW, G.cw, G.ch, bs),
+      cross:    buildCrossShape   (pathW, G.cw, G.ch, bs),
+      deadEnd:  buildDeadEndShape (pathW, G.cw, G.ch, bs),
+    };
+    // Dispose previous geometries to free GPU memory.
+    if (tileGeometries) {
+      for (const k of Object.keys(tileGeometries)) tileGeometries[k].dispose();
+    }
+    tileGeometries = {
+      straight: new ExtrudeGeometry(shapes.straight, extrudeSettings),
+      corner:   new ExtrudeGeometry(shapes.corner,   extrudeSettings),
+      T:        new ExtrudeGeometry(shapes.T,        extrudeSettings),
+      cross:    new ExtrudeGeometry(shapes.cross,    extrudeSettings),
+      deadEnd:  new ExtrudeGeometry(shapes.deadEnd,  extrudeSettings),
+    };
+    tileInstances = computeTileInstances(G);
+    neonSegments  = computeNeonSegments(G);
+    neonNodes     = computeNeonNodes(G);
+    lastMazeLvl   = G.lvl;
   }
 
   // Path neon segments (rainures) — réutilisation de l'ancienne logique pour
@@ -437,20 +572,21 @@
           </T.Mesh>
         {/if}
 
-        <!-- Pistes 3D — Lot 6.20 : ExtrudeGeometry par cellule.
-             Un seul mesh par cellule avec Shape polygonale (selon ouvertures
-             T/R/B/L), extrudé verticalement avec bevels intégrés.
-             Plus de bug d'orientation dead-ends (cap inclus dans la Shape).
-             Plus de pétales aux jonctions (un seul polygone par cellule). -->
-        {#if G && G.maze && extrudeSettings}
-          {#each cellShapes as cell, i (`cell-${i}`)}
-            <T.Mesh position={[cell.x, cell.y, 0]}
-                    castShadow receiveShadow>
-              <T is={ExtrudeGeometry} args={[cell.shape, extrudeSettings]} />
+        <!-- Pistes 3D — Lot 6.22 : système de tuiles Lego avec InstancedMesh.
+             5 tuiles (straight, corner, T, cross, deadEnd) générées une fois
+             par niveau avec la pathW courante. Chaque cellule du maze est
+             instanciée dans son bucket selon le type détecté. -->
+        {#if G && G.maze && tileGeometries && tileInstances}
+          {#each ['straight', 'corner', 'T', 'cross', 'deadEnd'] as tileType (tileType)}
+            <InstancedMesh geometry={tileGeometries[tileType]} castShadow receiveShadow>
               <T.MeshStandardMaterial color={PATH_COLOR}
                                       roughness={0.55} metalness={0.08}
                                       envMapIntensity={0.4} />
-            </T.Mesh>
+              {#each tileInstances[tileType] as inst, i (`${tileType}-${i}`)}
+                <Instance position={[inst.x, inst.y, 0]}
+                          rotation={[0, 0, inst.rot]} />
+              {/each}
+            </InstancedMesh>
           {/each}
 
           <!-- Rainure néon sur le dessus de la piste (Lot 6.21 : z = pathTop
