@@ -195,12 +195,11 @@
     cellShapes      = computeCellShapes(G);
     neonSegments    = computeNeonSegments(G);
     neonNodes       = computeNeonNodes(G);
+    // Lot 6.20 hotfix 3 — crash test : bevels désactivés pour isoler la
+    // cause du freeze. Si rendu OK sans bevels, on les réactivera plus tard.
     extrudeSettings = {
       depth: pathH,
-      bevelEnabled: true,
-      bevelThickness: pathH * 0.06,
-      bevelSize: pathW * 0.03,
-      bevelSegments: 1,
+      bevelEnabled: false,
       steps: 1,
       curveSegments: 3,
     };

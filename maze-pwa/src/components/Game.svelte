@@ -439,7 +439,7 @@
       // ── Phases ─────────────────────────────────────────────────────────────
       if (G.phase === 'intro') {
         const elapsed = ts - G.introT;
-        const step = elapsed < 900  ? `NVL ${G.lvl}`
+        const step = elapsed < 900  ? `Niveau ${G.lvl}`
                    : elapsed < 1700 ? '3'
                    : elapsed < 2500 ? '2'
                    : elapsed < 3300 ? '1'
