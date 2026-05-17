@@ -589,6 +589,30 @@
             </InstancedMesh>
           {/each}
 
+          <!-- Shadow halo (Lot 6.23.b) : tint dark sous chaque stripe pour
+               simuler l'ombre d'un creux. MeshBasicMaterial = pas de réaction
+               à la light (le creux reste sombre quel que soit le tilt). -->
+          {#each neonSegments as seg, i (`sh${i}`)}
+            <T.Mesh position={[seg.x, seg.y, pathTop - 0.05]}>
+              <T.PlaneGeometry args={
+                seg.type === 'h'
+                  ? [seg.length, neonW * 1.6]
+                  : [neonW * 1.6, seg.length]
+              } />
+              <T.MeshBasicMaterial color="#1a0e08"
+                                   transparent={true}
+                                   opacity={0.45} />
+            </T.Mesh>
+          {/each}
+          {#each neonNodes as node, i (`shn${i}`)}
+            <T.Mesh position={[node.x, node.y, pathTop - 0.05]}>
+              <T.CircleGeometry args={[neonW * 1.2, 24]} />
+              <T.MeshBasicMaterial color="#1a0e08"
+                                   transparent={true}
+                                   opacity={0.45} />
+            </T.Mesh>
+          {/each}
+
           <!-- Rainure néon sur le dessus de la piste (Lot 6.21 : z = pathTop
                pour être au-dessus du bevel + toneMapped=false pour bloom).
                Dual-layer : white core + color halo pour match ref 2D. -->
