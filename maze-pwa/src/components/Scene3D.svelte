@@ -115,54 +115,81 @@
   $: ballY = G ? G.H / 2 - G.ball.y : 0;
   $: ballR = G ? G.br : 10;
 
-  // ── Pistes 3D — Lot 6.20 : ExtrudeGeometry par cellule.
+  // ── Pistes 3D — Lot 6.21 : largeur dynamique selon G.trackRatio (sync 2D).
   // Pour chaque cellule du maze avec ≥1 ouverture, construire un Shape 2D
   // polygonal qui représente la vue top-down de la piste dans cette cellule.
-  // ExtrudeGeometry verticale (depth = pathH) avec bevels intégrés.
-  // Plus de cylindres / half-cylindres / segments séparés → géométrie unifiée.
+  // ExtrudeGeometry verticale (depth = pathH) avec bevels intégrés + arrondis
+  // appliqués via smoothShape sur le polygone.
   // Sol abaissé à -floorDepth pour effet de profondeur dans les fossés.
-  $: pathW      = G ? Math.min(G.cw, G.ch) * 0.75 : 30;   // largeur de piste
+  $: pathW      = G ? Math.min(G.cw, G.ch) * (G.trackRatio ?? 0.65) : 30;
   $: pathH      = G ? Math.min(G.cw, G.ch) * 0.32 : 15;   // hauteur extrusion
   $: floorDepth = pathH * 0.4;                            // profondeur sol creusé
+  // pathTop : z au-dessus du bevel top de la piste (avec marge). Utilisé
+  // pour positionner les neon stripes, dots, checkpoints et sprites.
+  $: pathTop    = pathH + pathH * 0.06 + 0.2;
   $: neonW      = G ? Math.min(G.cw, G.ch) * 0.05 : 2.5;
   const PATH_COLOR = '#F2E8D2';
 
-  // ── Cell Shape builder (Lot 6.20) ──────────────────────────────────────
-  // Construit un THREE.Shape 2D représentant la vue top-down de la piste
-  // dans une cellule du maze, selon ses ouvertures T/R/B/L.
-  // Tracé CCW autour de la cellule (4 quadrants externes).
+  // ── Cell Shape builder (Lot 6.21) ──────────────────────────────────────
+  // 2 étapes :
+  //  1. collectCellPolygon() : retourne le tracé CCW polygonal (sharp corners)
+  //     selon les ouvertures T/R/B/L de la cellule.
+  //  2. smoothShape() : applique des arrondis quadratiques uniformes sur
+  //     chaque vertex, équivalent visuel du Canvas 2D lineCap/lineJoin='round'.
   // CCW (Y-up math conv) = LEFT along top → DOWN along left → RIGHT along
-  // bottom → UP along right. Three.js Shape requiert CCW pour outer boundary
-  // (sinon normales du top face inversées → invisible depuis caméra +Z).
-  function buildCellShape(cell, pathW, cw, ch) {
+  // bottom → UP along right. Three.js Shape requiert CCW pour outer boundary.
+  function collectCellPolygon(cell, pathW, cw, ch) {
     const oT = !cell.T, oR = !cell.R, oB = !cell.B, oL = !cell.L;
     const hp = pathW / 2;
     const hw = cw / 2;
     const hh = ch / 2;
-    const s = new Shape();
+    const pts = [];
 
-    // Point de départ : top-right du T-arm si présent, sinon coin (hp, hp).
-    // Puis on va à GAUCHE le long du top (sens CCW).
-    if (oT) { s.moveTo( hp,  hh); s.lineTo(-hp,  hh); s.lineTo(-hp,  hp); }
-    else    { s.moveTo( hp,  hp); s.lineTo(-hp,  hp); }
+    if (oT) { pts.push({x:  hp, y:  hh}); pts.push({x: -hp, y:  hh}); pts.push({x: -hp, y:  hp}); }
+    else    { pts.push({x:  hp, y:  hp}); pts.push({x: -hp, y:  hp}); }
 
-    // NW → SW quadrant : passer autour de L-arm s'il existe.
-    if (oL) { s.lineTo(-hw,  hp); s.lineTo(-hw, -hp); s.lineTo(-hp, -hp); }
-    else    { s.lineTo(-hp, -hp); }
+    if (oL) { pts.push({x: -hw, y:  hp}); pts.push({x: -hw, y: -hp}); pts.push({x: -hp, y: -hp}); }
+    else    { pts.push({x: -hp, y: -hp}); }
 
-    // SW → SE quadrant : passer autour de B-arm.
-    if (oB) { s.lineTo(-hp, -hh); s.lineTo( hp, -hh); s.lineTo( hp, -hp); }
-    else    { s.lineTo( hp, -hp); }
+    if (oB) { pts.push({x: -hp, y: -hh}); pts.push({x:  hp, y: -hh}); pts.push({x:  hp, y: -hp}); }
+    else    { pts.push({x:  hp, y: -hp}); }
 
-    // SE → NE quadrant : passer autour de R-arm.
-    if (oR) { s.lineTo( hw, -hp); s.lineTo( hw,  hp); s.lineTo( hp,  hp); }
-    else    { s.lineTo( hp,  hp); }
+    if (oR) { pts.push({x:  hw, y: -hp}); pts.push({x:  hw, y:  hp}); pts.push({x:  hp, y:  hp}); }
+    else    { pts.push({x:  hp, y:  hp}); }
 
-    // NE → top-right (fermeture si T-arm présent).
-    if (oT) { s.lineTo( hp,  hh); }
+    return pts;
+  }
 
-    s.closePath();
-    return s;
+  // Applique des arrondis uniformes (quadraticCurveTo) sur tous les corners
+  // du polygone. radius est clampé à min(edge_length / 2) pour éviter overflow.
+  function smoothShape(points, radius) {
+    const shape = new Shape();
+    const n = points.length;
+    for (let i = 0; i < n; i++) {
+      const prev = points[(i - 1 + n) % n];
+      const curr = points[i];
+      const next = points[(i + 1) % n];
+      const dxP = prev.x - curr.x, dyP = prev.y - curr.y;
+      const dxN = next.x - curr.x, dyN = next.y - curr.y;
+      const lenP = Math.hypot(dxP, dyP);
+      const lenN = Math.hypot(dxN, dyN);
+      if (lenP < 1e-6 || lenN < 1e-6) continue;
+      const r = Math.min(radius, lenP / 2, lenN / 2);
+      const sx = curr.x + (dxP / lenP) * r;
+      const sy = curr.y + (dyP / lenP) * r;
+      const ex = curr.x + (dxN / lenN) * r;
+      const ey = curr.y + (dyN / lenN) * r;
+      if (i === 0) shape.moveTo(sx, sy);
+      else         shape.lineTo(sx, sy);
+      shape.quadraticCurveTo(curr.x, curr.y, ex, ey);
+    }
+    shape.closePath();
+    return shape;
+  }
+
+  function buildCellShape(cell, pathW, cw, ch) {
+    const pts = collectCellPolygon(cell, pathW, cw, ch);
+    return smoothShape(pts, pathW * 0.30);
   }
 
   function computeCellShapes(g) {
@@ -202,7 +229,7 @@
       bevelSize: pathW * 0.03,
       bevelSegments: 1,
       steps: 1,
-      curveSegments: 3,
+      curveSegments: 6,
     };
     lastMazeLvl     = G.lvl;
   }
@@ -426,11 +453,12 @@
             </T.Mesh>
           {/each}
 
-          <!-- Rainure néon sur le dessus de la piste (Lot 6.20 : z = pathH).
+          <!-- Rainure néon sur le dessus de la piste (Lot 6.21 : z = pathTop
+               pour être au-dessus du bevel + toneMapped=false pour bloom).
                Dual-layer : white core + color halo pour match ref 2D. -->
           {#each neonSegments as seg, i (`ns${i}`)}
             <!-- White core (intense emissive) -->
-            <T.Mesh position={[seg.x, seg.y, pathH + 0.35]}>
+            <T.Mesh position={[seg.x, seg.y, pathTop]}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
                   ? [seg.length, neonW * 0.3]
@@ -438,12 +466,13 @@
               } />
               <T.MeshStandardMaterial color="#ffffff"
                                       emissive="#ffffff"
-                                      emissiveIntensity={1.0}
+                                      emissiveIntensity={1.4}
+                                      toneMapped={false}
                                       transparent={true}
                                       opacity={1.0} />
             </T.Mesh>
             <!-- Color halo (glow coloré) -->
-            <T.Mesh position={[seg.x, seg.y, pathH + 0.40]}>
+            <T.Mesh position={[seg.x, seg.y, pathTop + 0.1]}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
                   ? [seg.length, neonW * 0.7]
@@ -451,7 +480,8 @@
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
-                                      emissiveIntensity={0.6}
+                                      emissiveIntensity={1.2}
+                                      toneMapped={false}
                                       transparent={true}
                                       opacity={0.75} />
             </T.Mesh>
@@ -462,11 +492,11 @@
                de cellule sans créer de croix lumineuses. -->
           {#each neonNodes as node, i (`nc${i}`)}
             {#if !node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathH + 0.42]}>
+              <T.Mesh position={[node.x, node.y, pathTop + 0.15]}>
                 <T.CircleGeometry args={[neonW * 0.55, 16]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
-                                        emissiveIntensity={0.6}
+                                        emissiveIntensity={1.0}
                                         transparent={true}
                                         opacity={0.85}
                                         toneMapped={false} />
@@ -478,7 +508,7 @@
                soft glow naturel (falloff sphérique). -->
           {#each neonNodes as node, i (`nb${i}`)}
             {#if node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathH + 0.50]}>
+              <T.Mesh position={[node.x, node.y, pathTop + 0.3]}>
                 <T.SphereGeometry args={[neonW * 0.8, 16, 8]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
@@ -501,7 +531,7 @@
             {@const cpClr   = cp.passed ? '#ffcc00' : '#00ff80'}
             {@const cpLen   = Math.min(G.cw, G.ch) * 0.50}
             {@const cpThick = neonW * 0.6}
-            <T.Mesh position={[cx, cy, pathH + 0.8]}>
+            <T.Mesh position={[cx, cy, pathTop + 0.5]}>
               <T.PlaneGeometry args={
                 cp.horizontal
                   ? [cpLen, cpThick]
@@ -526,7 +556,7 @@
         {#if G && G.maze}
           {#each neonNodes as node, i (`light-node-${i}`)}
             {#if node.isIntersection}
-              <T.PointLight position={[node.x, node.y, pathH + 2]}
+              <T.PointLight position={[node.x, node.y, pathTop + 2]}
                             intensity={1.6}
                             distance={Math.min(G.cw, G.ch) * 2.5}
                             color={neonColor}
@@ -597,7 +627,7 @@
               <!-- Lot 6.10 : z = pathH + 1.5 (au-dessus de
                    la piste surélevée) + depthTest=false → toujours
                    visible par-dessus tout. -->
-              <T.Sprite position={[cx, cy, pathH + 1.5]}
+              <T.Sprite position={[cx, cy, pathTop + 1.5]}
                         scale={[size, size, 1]}>
                 <T.SpriteMaterial map={tex} transparent={true}
                                   opacity={fade}
@@ -617,7 +647,7 @@
           {@const fpulse  = 1 + Math.sin(now * 0.003) * 0.05}
           {@const fsize   = fbase * fpulse}
           {@const fAspect = 303 / 256}
-          <T.Sprite position={[fx, fy, pathH + 1.5]}
+          <T.Sprite position={[fx, fy, pathTop + 1.5]}
                     scale={[fsize, fsize * fAspect, 1]}>
             <T.SpriteMaterial map={textures.finish} transparent={true}
                               depthWrite={false} depthTest={false} />
@@ -630,7 +660,7 @@
              la bille reflète correctement les neon PointLights aux
              intersections (teintes cyan/rose/vert selon theme). -->
         {#if G && ballVisible}
-          <T.Mesh position={[ballX, ballY, (pathH + ballR) * fallScale]}
+          <T.Mesh position={[ballX, ballY, (pathTop + ballR) * fallScale]}
                   scale={[fallScale, fallScale, fallScale]}
                   castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
@@ -653,7 +683,7 @@
                 {@const t = (i - 1) / (TRAIL_MAX - 1)}
                 {@const opacity = Math.max(0, (1 - t) * 0.55)}
                 {@const scale = ballR * 1.6 * (1 - t * 0.5)}
-                <T.Sprite position={[pos.x, pos.y, pathH + ballR * 0.5]}
+                <T.Sprite position={[pos.x, pos.y, pathTop + ballR * 0.5]}
                           scale={[scale, scale, 1]}>
                   <T.SpriteMaterial map={ballGlowTexture}
                                     transparent={true}
