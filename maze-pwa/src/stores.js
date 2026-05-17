@@ -27,4 +27,5 @@ export const settings = persist('mbSettings', {
   haptics:     true,
   zenColor:    '#00c8ff',
   engine3D:    false,    // bascule expérimentale vers la scène Threlte
+  ssao:        false,    // occlusion ambiante (3D uniquement, beta)
 });

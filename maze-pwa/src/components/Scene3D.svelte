@@ -25,6 +25,7 @@
   import { InstancedMesh, Instance } from '@threlte/extras';
   import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap, Shape, ExtrudeGeometry } from 'three';
   import { getSvgSource, svgReady } from '../lib/render.js';
+  import { settings }            from '../stores.js';
   import Postprocess            from './Postprocess.svelte';
 
   export let G            = null;
@@ -531,22 +532,24 @@
          capturer QUE les emissive HDR (toneMapped:false). Lights
          ambient/directional réduits car RoomEnvironment fournit
          maintenant l'illumination globale. -->
-    <Postprocess bloomStrength={0.4} bloomRadius={0.2} bloomThreshold={1.0} />
+    <Postprocess bloomStrength={0.4} bloomRadius={0.2} bloomThreshold={1.0}
+                 ssao={$settings.ssao} />
 
-    <!-- Lighting (Lot 6.19) — setup "Soft Clay" per Gemini :
-         - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
-         - Directional key 1.50 (puissante), positionnée top-gauche-avant
-         - Directional fill 0.30 (warm subtle pour les zones d'ombre) -->
-    <T.AmbientLight intensity={0.95} color="#fff5e0" />
+    <!-- Lighting (Lot 6.25) — setup Gemini "Zero Perf Hit" :
+         - HemisphereLight : sky #ffffff / ground #b5a48b à 0.9 → gradient
+           directionnel qui teinte les parois verticales (faux AO naturel).
+         - DirectionalLight key 1.4 #fff5e0 top-gauche-avant + castShadow
+           (PCFSoft kernel, ombres douces).
+         - (fill DirectionalLight retiré : HemisphereLight ground la
+           remplace fonctionnellement). -->
+    <T.HemisphereLight skyColor="#ffffff" groundColor="#b5a48b" intensity={0.9} />
     <T.DirectionalLight bind:ref={lightRef}
                         position={[G ? -G.W * 0.4 : -200,
                                    G ? G.H * 0.5 : 250,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 8]}
-                        intensity={1.15}
+                        intensity={1.4}
                         color="#fff5e0"
                         castShadow />
-    <T.DirectionalLight position={[G ? G.W * 0.3 : 150, G ? -G.H * 0.3 : -150, 400]}
-                        intensity={0.30} color="#fff0d0" />
 
     <!-- World-lock root group -->
     <T.Group rotation.z={worldLockZ}>
@@ -816,9 +819,11 @@
                   scale={[fallScale, fallScale, fallScale]}
                   castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
-            <T.MeshStandardMaterial color="#D4AF37"
+            <T.MeshPhysicalMaterial color="#D4AF37"
                                     metalness={1.0}
-                                    roughness={0.15} />
+                                    roughness={0.15}
+                                    clearcoat={1.0}
+                                    clearcoatRoughness={0.0} />
           </T.Mesh>
 
           <!-- Ball trail — Lot 6.16 : history buffer (positions
