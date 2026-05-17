@@ -605,12 +605,14 @@
             </T.Mesh>
           {/each}
           {#each neonNodes as node, i (`shn${i}`)}
-            <T.Mesh position={[node.x, node.y, pathTop - 0.05]}>
-              <T.CircleGeometry args={[neonW * 1.2, 24]} />
-              <T.MeshBasicMaterial color="#1a0e08"
-                                   transparent={true}
-                                   opacity={0.45} />
-            </T.Mesh>
+            {#if node.isIntersection}
+              <T.Mesh position={[node.x, node.y, pathTop - 0.05]}>
+                <T.CircleGeometry args={[neonW * 1.2, 24]} />
+                <T.MeshBasicMaterial color="#1a0e08"
+                                     transparent={true}
+                                     opacity={0.45} />
+              </T.Mesh>
+            {/if}
           {/each}
 
           <!-- Rainure néon sur le dessus de la piste (Lot 6.21 : z = pathTop
@@ -645,23 +647,6 @@
                                       transparent={true}
                                       opacity={0.75} />
             </T.Mesh>
-          {/each}
-
-          <!-- Petits dots de continuité néon aux nodes non-intersection
-               (corners L + straight passages). Couvre le gap au centre
-               de cellule sans créer de croix lumineuses. -->
-          {#each neonNodes as node, i (`nc${i}`)}
-            {#if !node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathTop + 0.15]}>
-                <T.CircleGeometry args={[neonW * 0.55, 16]} />
-                <T.MeshStandardMaterial color={neonColor}
-                                        emissive={neonColor}
-                                        emissiveIntensity={1.0}
-                                        transparent={true}
-                                        opacity={0.85}
-                                        toneMapped={false} />
-              </T.Mesh>
-            {/if}
           {/each}
 
           <!-- Dots aux INTERSECTIONS (>=3 sorties) — SphereGeometry pour
