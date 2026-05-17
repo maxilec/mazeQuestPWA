@@ -131,8 +131,9 @@
   // Construit un THREE.Shape 2D représentant la vue top-down de la piste
   // dans une cellule du maze, selon ses ouvertures T/R/B/L.
   // Tracé CCW autour de la cellule (4 quadrants externes).
-  // Pour chaque secteur entre 2 directions, soit l'arm est présent (tour
-  // autour), soit pas (cut au coin du carré central pathW × pathW).
+  // CCW (Y-up math conv) = LEFT along top → DOWN along left → RIGHT along
+  // bottom → UP along right. Three.js Shape requiert CCW pour outer boundary
+  // (sinon normales du top face inversées → invisible depuis caméra +Z).
   function buildCellShape(cell, pathW, cw, ch) {
     const oT = !cell.T, oR = !cell.R, oB = !cell.B, oL = !cell.L;
     const hp = pathW / 2;
@@ -141,23 +142,24 @@
     const s = new Shape();
 
     // Point de départ : top-right du T-arm si présent, sinon coin (hp, hp).
-    if (oT) { s.moveTo( hp,  hh); s.lineTo( hp,  hp); }
-    else    { s.moveTo( hp,  hp); }
+    // Puis on va à GAUCHE le long du top (sens CCW).
+    if (oT) { s.moveTo( hp,  hh); s.lineTo(-hp,  hh); s.lineTo(-hp,  hp); }
+    else    { s.moveTo( hp,  hp); s.lineTo(-hp,  hp); }
 
-    // NE → SE quadrant : passer autour de R-arm s'il existe.
-    if (oR) { s.lineTo( hw,  hp); s.lineTo( hw, -hp); s.lineTo( hp, -hp); }
-    else    { s.lineTo( hp, -hp); }
-
-    // SE → SW quadrant : passer autour de B-arm.
-    if (oB) { s.lineTo( hp, -hh); s.lineTo(-hp, -hh); s.lineTo(-hp, -hp); }
+    // NW → SW quadrant : passer autour de L-arm s'il existe.
+    if (oL) { s.lineTo(-hw,  hp); s.lineTo(-hw, -hp); s.lineTo(-hp, -hp); }
     else    { s.lineTo(-hp, -hp); }
 
-    // SW → NW quadrant : passer autour de L-arm.
-    if (oL) { s.lineTo(-hw, -hp); s.lineTo(-hw,  hp); s.lineTo(-hp,  hp); }
-    else    { s.lineTo(-hp,  hp); }
+    // SW → SE quadrant : passer autour de B-arm.
+    if (oB) { s.lineTo(-hp, -hh); s.lineTo( hp, -hh); s.lineTo( hp, -hp); }
+    else    { s.lineTo( hp, -hp); }
 
-    // NW → NE quadrant : passer autour de T-arm pour fermer.
-    if (oT) { s.lineTo(-hp,  hh); s.lineTo( hp,  hh); }
+    // SE → NE quadrant : passer autour de R-arm.
+    if (oR) { s.lineTo( hw, -hp); s.lineTo( hw,  hp); s.lineTo( hp,  hp); }
+    else    { s.lineTo( hp,  hp); }
+
+    // NE → top-right (fermeture si T-arm présent).
+    if (oT) { s.lineTo( hp,  hh); }
 
     s.closePath();
     return s;
@@ -196,11 +198,11 @@
     extrudeSettings = {
       depth: pathH,
       bevelEnabled: true,
-      bevelThickness: pathH * 0.08,
-      bevelSize: pathW * 0.04,
-      bevelSegments: 2,
+      bevelThickness: pathH * 0.06,
+      bevelSize: pathW * 0.03,
+      bevelSegments: 1,
       steps: 1,
-      curveSegments: 8,
+      curveSegments: 3,
     };
     lastMazeLvl     = G.lvl;
   }
