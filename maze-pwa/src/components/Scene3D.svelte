@@ -98,7 +98,7 @@
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
     s.bias          = -0.0001;
-    s.radius        = 4;
+    s.radius        = 8;
     s.needsUpdate   = true;
   }
 
@@ -129,7 +129,7 @@
   // pour positionner les neon stripes, dots, checkpoints et sprites.
   $: pathTop    = pathH + pathH * 0.06 + 0.2;
   $: neonW      = G ? Math.min(G.cw, G.ch) * 0.05 : 2.5;
-  const PATH_COLOR = '#F2E8D2';
+  const PATH_COLOR = '#E8D7BC';
 
   // ── Système de tuiles Lego (Lot 6.22) ─────────────────────────────────
   // 5 tile types (straight, corner, T, cross, deadEnd) construits une fois
@@ -537,12 +537,12 @@
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
          - Directional key 1.50 (puissante), positionnée top-gauche-avant
          - Directional fill 0.30 (warm subtle pour les zones d'ombre) -->
-    <T.AmbientLight intensity={0.95} color="#fffdf9" />
+    <T.AmbientLight intensity={0.95} color="#fff5e0" />
     <T.DirectionalLight bind:ref={lightRef}
                         position={[G ? -G.W * 0.4 : -200,
                                    G ? G.H * 0.5 : 250,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 8]}
-                        intensity={1.10}
+                        intensity={1.15}
                         color="#fff5e0"
                         castShadow />
     <T.DirectionalLight position={[G ? G.W * 0.3 : 150, G ? -G.H * 0.3 : -150, 400]}
@@ -561,11 +561,11 @@
             <T.PlaneGeometry args={[G.W, G.H]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
-                                      color="#bdb19c"
+                                      color="#b0a48a"
                                       roughness={0.92} metalness={0.0}
                                       envMapIntensity={0.15} />
             {:else}
-              <T.MeshStandardMaterial color="#bdb19c"
+              <T.MeshStandardMaterial color="#b0a48a"
                                       roughness={0.92} metalness={0.0}
                                       envMapIntensity={0.15} />
             {/if}
@@ -591,9 +591,10 @@
 
           <!-- Shadow halo (Lot 6.23.b) : tint dark sous chaque stripe pour
                simuler l'ombre d'un creux. MeshBasicMaterial = pas de réaction
-               à la light (le creux reste sombre quel que soit le tilt). -->
+               à la light (le creux reste sombre quel que soit le tilt).
+               Lot 6.24 : renderOrder=1 + depthWrite=false (fix flicker tilt). -->
           {#each neonSegments as seg, i (`sh${i}`)}
-            <T.Mesh position={[seg.x, seg.y, pathTop - 0.05]}>
+            <T.Mesh position={[seg.x, seg.y, pathTop - 0.05]} renderOrder={1}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
                   ? [seg.length, neonW * 1.6]
@@ -601,16 +602,18 @@
               } />
               <T.MeshBasicMaterial color="#1a0e08"
                                    transparent={true}
-                                   opacity={0.45} />
+                                   opacity={0.45}
+                                   depthWrite={false} />
             </T.Mesh>
           {/each}
           {#each neonNodes as node, i (`shn${i}`)}
             {#if node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathTop - 0.05]}>
+              <T.Mesh position={[node.x, node.y, pathTop - 0.05]} renderOrder={1}>
                 <T.CircleGeometry args={[neonW * 1.2, 24]} />
                 <T.MeshBasicMaterial color="#1a0e08"
                                      transparent={true}
-                                     opacity={0.45} />
+                                     opacity={0.45}
+                                     depthWrite={false} />
               </T.Mesh>
             {/if}
           {/each}
@@ -619,8 +622,9 @@
                pour être au-dessus du bevel + toneMapped=false pour bloom).
                Dual-layer : white core + color halo pour match ref 2D. -->
           {#each neonSegments as seg, i (`ns${i}`)}
-            <!-- White core (intense emissive) -->
-            <T.Mesh position={[seg.x, seg.y, pathTop]}>
+            <!-- White core (intense emissive) — Lot 6.24 : transparent=false
+                 (opacity 1.0 → opaque, écrit dans depth buffer) + renderOrder=2. -->
+            <T.Mesh position={[seg.x, seg.y, pathTop]} renderOrder={2}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
                   ? [seg.length, neonW * 0.3]
@@ -630,11 +634,11 @@
                                       emissive="#ffffff"
                                       emissiveIntensity={1.4}
                                       toneMapped={false}
-                                      transparent={true}
-                                      opacity={1.0} />
+                                      transparent={false} />
             </T.Mesh>
-            <!-- Color halo (glow coloré) -->
-            <T.Mesh position={[seg.x, seg.y, pathTop + 0.1]}>
+            <!-- Color halo (glow coloré) — Lot 6.24 : renderOrder=3 +
+                 depthWrite=false (fix flicker tilt). -->
+            <T.Mesh position={[seg.x, seg.y, pathTop + 0.1]} renderOrder={3}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
                   ? [seg.length, neonW * 0.7]
@@ -645,22 +649,25 @@
                                       emissiveIntensity={1.2}
                                       toneMapped={false}
                                       transparent={true}
-                                      opacity={0.75} />
+                                      opacity={0.75}
+                                      depthWrite={false} />
             </T.Mesh>
           {/each}
 
           <!-- Dots aux INTERSECTIONS (>=3 sorties) — SphereGeometry pour
-               soft glow naturel (falloff sphérique). -->
+               soft glow naturel (falloff sphérique). Lot 6.24 : renderOrder=4
+               + depthWrite=false (fix flicker tilt). -->
           {#each neonNodes as node, i (`nb${i}`)}
             {#if node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathTop + 0.3]}>
+              <T.Mesh position={[node.x, node.y, pathTop + 0.3]} renderOrder={4}>
                 <T.SphereGeometry args={[neonW * 0.8, 16, 8]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
                                         emissiveIntensity={1.2}
                                         transparent={true}
                                         opacity={0.95}
-                                        toneMapped={false} />
+                                        toneMapped={false}
+                                        depthWrite={false} />
               </T.Mesh>
             {/if}
           {/each}
