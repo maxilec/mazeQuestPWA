@@ -98,7 +98,7 @@
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
     s.bias          = -0.0001;
-    s.radius        = 8;
+    s.radius        = 14;
     s.needsUpdate   = true;
   }
 
@@ -128,8 +128,8 @@
   // pathTop : z au-dessus du bevel top de la piste (avec marge). Utilisé
   // pour positionner les neon stripes, dots, checkpoints et sprites.
   $: pathTop    = pathH + pathH * 0.06 + 0.2;
-  $: neonW      = G ? Math.min(G.cw, G.ch) * 0.05 : 2.5;
-  const PATH_COLOR = '#E8D7BC';
+  $: neonW      = G ? Math.min(G.cw, G.ch) * 0.07 : 3.5;
+  const PATH_COLOR = '#EACBA8';
 
   // ── Système de tuiles Lego (Lot 6.22) ─────────────────────────────────
   // 5 tile types (straight, corner, T, cross, deadEnd) construits une fois
@@ -537,16 +537,16 @@
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
          - Directional key 1.50 (puissante), positionnée top-gauche-avant
          - Directional fill 0.30 (warm subtle pour les zones d'ombre) -->
-    <T.AmbientLight intensity={0.95} color="#fff5e0" />
+    <T.AmbientLight intensity={1.10} color="#fff5e0" />
     <T.DirectionalLight bind:ref={lightRef}
                         position={[G ? -G.W * 0.4 : -200,
                                    G ? G.H * 0.5 : 250,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 8]}
-                        intensity={1.15}
+                        intensity={0.95}
                         color="#fff5e0"
                         castShadow />
     <T.DirectionalLight position={[G ? G.W * 0.3 : 150, G ? -G.H * 0.3 : -150, 400]}
-                        intensity={0.30} color="#fff0d0" />
+                        intensity={0.45} color="#fff0d0" />
 
     <!-- World-lock root group -->
     <T.Group rotation.z={worldLockZ}>
@@ -561,11 +561,11 @@
             <T.PlaneGeometry args={[G.W, G.H]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
-                                      color="#b0a48a"
+                                      color="#a08770"
                                       roughness={0.92} metalness={0.0}
                                       envMapIntensity={0.15} />
             {:else}
-              <T.MeshStandardMaterial color="#b0a48a"
+              <T.MeshStandardMaterial color="#a08770"
                                       roughness={0.92} metalness={0.0}
                                       envMapIntensity={0.15} />
             {/if}
@@ -580,8 +580,8 @@
           {#each ['straight', 'corner', 'T', 'cross', 'deadEnd'] as tileType (tileType)}
             <InstancedMesh geometry={tileGeometries[tileType]} castShadow receiveShadow>
               <T.MeshStandardMaterial color={PATH_COLOR}
-                                      roughness={0.85} metalness={0.0}
-                                      envMapIntensity={0.15} />
+                                      roughness={0.72} metalness={0.04}
+                                      envMapIntensity={0.28} />
               {#each tileInstances[tileType] as inst, i (`${tileType}-${i}`)}
                 <Instance position={[inst.x, inst.y, 0]}
                           rotation={[0, 0, inst.rot]} />
@@ -597,8 +597,8 @@
             <T.Mesh position={[seg.x, seg.y, pathTop - 0.05]} renderOrder={1}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 1.6]
-                  : [neonW * 1.6, seg.length]
+                  ? [seg.length, neonW * 1.9]
+                  : [neonW * 1.9, seg.length]
               } />
               <T.MeshBasicMaterial color="#1a0e08"
                                    transparent={true}
@@ -609,7 +609,7 @@
           {#each neonNodes as node, i (`shn${i}`)}
             {#if node.isIntersection}
               <T.Mesh position={[node.x, node.y, pathTop - 0.05]} renderOrder={1}>
-                <T.CircleGeometry args={[neonW * 1.2, 24]} />
+                <T.CircleGeometry args={[neonW * 1.5, 24]} />
                 <T.MeshBasicMaterial color="#1a0e08"
                                      transparent={true}
                                      opacity={0.45}
@@ -627,8 +627,8 @@
             <T.Mesh position={[seg.x, seg.y, pathTop]} renderOrder={2}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 0.3]
-                  : [neonW * 0.3, seg.length]
+                  ? [seg.length, neonW * 0.5]
+                  : [neonW * 0.5, seg.length]
               } />
               <T.MeshStandardMaterial color="#ffffff"
                                       emissive="#ffffff"
@@ -641,8 +641,8 @@
             <T.Mesh position={[seg.x, seg.y, pathTop + 0.1]} renderOrder={3}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 0.7]
-                  : [neonW * 0.7, seg.length]
+                  ? [seg.length, neonW * 1.2]
+                  : [neonW * 1.2, seg.length]
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
@@ -660,7 +660,7 @@
           {#each neonNodes as node, i (`nb${i}`)}
             {#if node.isIntersection}
               <T.Mesh position={[node.x, node.y, pathTop + 0.3]} renderOrder={4}>
-                <T.SphereGeometry args={[neonW * 0.8, 16, 8]} />
+                <T.SphereGeometry args={[neonW * 0.9, 16, 8]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
                                         emissiveIntensity={1.2}
