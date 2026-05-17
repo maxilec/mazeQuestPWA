@@ -57,17 +57,6 @@
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera.current));
 
-    // Lot 6.25 : SSAOPass inséré entre Render et Bloom. Créé dès le mount
-    // mais enabled=false par défaut ; toggle live via prop ssao.
-    // Params mobile-tuned : kernelRadius 4 (peu de samples), maxDistance 0.1
-    // (AO limité aux contacts proches → contact shadows uniquement).
-    ssaoPass = new SSAOPass(scene, camera.current, w, h);
-    ssaoPass.kernelRadius = 4;
-    ssaoPass.minDistance  = 0.001;
-    ssaoPass.maxDistance  = 0.1;
-    ssaoPass.enabled      = ssao;
-    composer.addPass(ssaoPass);
-
     bloomPass = new UnrealBloomPass(
       new Vector2(w, h),
       bloomStrength,
@@ -94,8 +83,23 @@
     bloomPass.threshold = bloomThreshold;
   }
 
-  // Lot 6.25 : toggle SSAO live (pass.enabled skip son rendering sans
-  // rebuild du composer).
+  // Lot 6.25.b : SSAOPass lazy. NE PAS créer au mount (alloue depth+normal
+  // render targets, peut corrompre le framebuffer sur iOS Safari même
+  // avec enabled=false). Créé uniquement au 1er toggle ON, puis on garde
+  // dans le composer et on toggle enabled.
+  $: if (composer && ssao && !ssaoPass) {
+    let w = window.innerWidth, h = window.innerHeight;
+    size.subscribe(s => {
+      if (s?.width)  w = s.width;
+      if (s?.height) h = s.height;
+    })();
+    ssaoPass = new SSAOPass(scene, camera.current, w, h);
+    ssaoPass.kernelRadius = 4;
+    ssaoPass.minDistance  = 0.001;
+    ssaoPass.maxDistance  = 0.1;
+    // Insert entre RenderPass (index 0) et UnrealBloomPass (index 1)
+    composer.insertPass(ssaoPass, 1);
+  }
   $: if (ssaoPass) ssaoPass.enabled = ssao;
 
   // Render via composer — useRender remplace automatiquement le default
