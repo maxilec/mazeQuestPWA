@@ -22,8 +22,7 @@
 
   import { onMount, onDestroy } from 'svelte';
   import { Canvas, T }          from '@threlte/core';
-  import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap } from 'three';
-  import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+  import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap, Shape, ExtrudeGeometry } from 'three';
   import { getSvgSource, svgReady } from '../lib/render.js';
   import Postprocess            from './Postprocess.svelte';
 
@@ -116,91 +115,114 @@
   $: ballY = G ? G.H / 2 - G.ball.y : 0;
   $: ballR = G ? G.br : 10;
 
-  // ── Pistes 3D extrudées (Lot 6.9) — refonte vs Lot 6.8 ───────────────
-  // Le ref montre la PISTE comme structure SURÉLEVÉE (où la bille roule),
-  // pas les murs. On extrude donc les CONNEXIONS entre cellules ouvertes :
-  //  - Segments : boxes entre paires de cellules adjacentes ouvertes
-  //  - Nodes    : cylindres aux centres de cellules (extrémités arrondies
-  //               + jonctions, intersections lumineuses).
-  // Les "murs" deviennent juste l'absence de piste (zones de void).
-  // Lot 6.13 : pathW +25% (0.60→0.75), pathBase +100% (0.10→0.20)
-  // pour renforcer le sentiment d'extrusion 3D.
-  $: pathW    = G ? Math.min(G.cw, G.ch) * 0.75 : 30;   // largeur de piste
-  $: pathH    = G ? Math.min(G.cw, G.ch) * 0.32 : 15;   // hauteur d'extrusion
-  // Lot 6.10 : gap entre le sol et le BAS de la piste — donne l'effet
-  // « piste qui flotte au-dessus du plateau ». Le shadow casté par la
-  // piste sur le sol renforce l'effet floating.
-  $: pathBase = G ? Math.min(G.cw, G.ch) * 0.20 : 5;
-  $: neonW    = G ? Math.min(G.cw, G.ch) * 0.05 : 2.5;
-  // Lot 6.18 : couleur piste plus claire et chaleureuse (#F2E8D2 vs #EADFCF).
+  // ── Pistes 3D — Lot 6.20 : ExtrudeGeometry par cellule.
+  // Pour chaque cellule du maze avec ≥1 ouverture, construire un Shape 2D
+  // polygonal qui représente la vue top-down de la piste dans cette cellule.
+  // ExtrudeGeometry verticale (depth = pathH) avec bevels intégrés.
+  // Plus de cylindres / half-cylindres / segments séparés → géométrie unifiée.
+  // Sol abaissé à -floorDepth pour effet de profondeur dans les fossés.
+  $: pathW      = G ? Math.min(G.cw, G.ch) * 0.75 : 30;   // largeur de piste
+  $: pathH      = G ? Math.min(G.cw, G.ch) * 0.32 : 15;   // hauteur extrusion
+  $: floorDepth = pathH * 0.4;                            // profondeur sol creusé
+  $: neonW      = G ? Math.min(G.cw, G.ch) * 0.05 : 2.5;
   const PATH_COLOR = '#F2E8D2';
 
-  function computePathSegments(g) {
+  // ── Cell Shape builder (Lot 6.20) ──────────────────────────────────────
+  // Construit un THREE.Shape 2D représentant la vue top-down de la piste
+  // dans une cellule du maze, selon ses ouvertures T/R/B/L.
+  // Tracé CCW autour de la cellule (4 quadrants externes).
+  // Pour chaque secteur entre 2 directions, soit l'arm est présent (tour
+  // autour), soit pas (cut au coin du carré central pathW × pathW).
+  function buildCellShape(cell, pathW, cw, ch) {
+    const oT = !cell.T, oR = !cell.R, oB = !cell.B, oL = !cell.L;
+    const hp = pathW / 2;
+    const hw = cw / 2;
+    const hh = ch / 2;
+    const s = new Shape();
+
+    // Point de départ : top-right du T-arm si présent, sinon coin (hp, hp).
+    if (oT) { s.moveTo( hp,  hh); s.lineTo( hp,  hp); }
+    else    { s.moveTo( hp,  hp); }
+
+    // NE → SE quadrant : passer autour de R-arm s'il existe.
+    if (oR) { s.lineTo( hw,  hp); s.lineTo( hw, -hp); s.lineTo( hp, -hp); }
+    else    { s.lineTo( hp, -hp); }
+
+    // SE → SW quadrant : passer autour de B-arm.
+    if (oB) { s.lineTo( hp, -hh); s.lineTo(-hp, -hh); s.lineTo(-hp, -hp); }
+    else    { s.lineTo(-hp, -hp); }
+
+    // SW → NW quadrant : passer autour de L-arm.
+    if (oL) { s.lineTo(-hw, -hp); s.lineTo(-hw,  hp); s.lineTo(-hp,  hp); }
+    else    { s.lineTo(-hp,  hp); }
+
+    // NW → NE quadrant : passer autour de T-arm pour fermer.
+    if (oT) { s.lineTo(-hp,  hh); s.lineTo( hp,  hh); }
+
+    s.closePath();
+    return s;
+  }
+
+  function computeCellShapes(g) {
+    const out = [];
+    for (let r = 0; r < g.R; r++) {
+      for (let c = 0; c < g.C; c++) {
+        const ce = g.maze[r][c];
+        const openCount = (!ce.T?1:0) + (!ce.R?1:0) + (!ce.B?1:0) + (!ce.L?1:0);
+        if (openCount === 0) continue;
+        out.push({
+          shape: buildCellShape(ce, pathW, g.cw, g.ch),
+          x: c * g.cw + g.cw / 2 - g.W / 2,
+          y: g.H / 2 - r * g.ch - g.ch / 2,
+        });
+      }
+    }
+    return out;
+  }
+
+  // ExtrudeGeometry settings (Lot 6.20) — bevels paramétrables.
+  $: extrudeSettings = {
+    depth: pathH,
+    bevelEnabled: true,
+    bevelThickness: pathH * 0.08,
+    bevelSize: pathW * 0.04,
+    bevelSegments: 2,
+    steps: 1,
+    curveSegments: 8,
+  };
+
+  // Path neon segments (rainures) — réutilisation de l'ancienne logique pour
+  // poser les neon stripes au centre des couloirs. Build une fois par changement
+  // de niveau.
+  function computeNeonSegments(g) {
     const out = [];
     for (let r = 0; r < g.R; r++) {
       for (let c = 0; c < g.C; c++) {
         const ce = g.maze[r][c];
         const cx = c * g.cw + g.cw / 2 - g.W / 2;
         const cy = g.H / 2 - r * g.ch - g.ch / 2;
-        // Connexion droite (segment horizontal vers le voisin de droite)
         if (!ce.R && c < g.C - 1) {
-          out.push({ type: 'h',
-                     x: cx + g.cw / 2,
-                     y: cy,
-                     length: g.cw });
+          out.push({ type: 'h', x: cx + g.cw / 2, y: cy, length: g.cw });
         }
-        // Connexion basse (segment vertical vers le voisin du bas)
         if (!ce.B && r < g.R - 1) {
-          out.push({ type: 'v',
-                     x: cx,
-                     y: cy - g.ch / 2,
-                     length: g.ch });
+          out.push({ type: 'v', x: cx, y: cy - g.ch / 2, length: g.ch });
         }
       }
     }
     return out;
   }
 
-  function computePathNodes(g) {
+  function computeNeonNodes(g) {
     const out = [];
     for (let r = 0; r < g.R; r++) {
       for (let c = 0; c < g.C; c++) {
         const ce = g.maze[r][c];
-        const oT = !ce.T, oR = !ce.R, oB = !ce.B, oL = !ce.L;
-        const openCount = (oT?1:0) + (oR?1:0) + (oB?1:0) + (oL?1:0);
+        const openCount = (!ce.T?1:0) + (!ce.R?1:0) + (!ce.B?1:0) + (!ce.L?1:0);
         if (openCount === 0) continue;
-        // Lot 6.18 : classer le node pour render selectif :
-        //  - straight (openCount=2 colinéaire) : pas de geometry, segment suffit
-        //  - intersection (openCount>=3) : cylindre plein (jonction T/+)
-        //  - corner (openCount=2 perpendiculaire) : cylindre plein (jonction L)
-        //  - deadEnd (openCount=1) : demi-cylindre (cap arrondi)
-        const isStraight = openCount === 2 && ((oT && oB) || (oL && oR));
-        const isDeadEnd  = openCount === 1;
-        // Lot 6.19 : Pour deadEnd : rotation autour de l'axe Y du cylindre
-        // (avant le tilt X) pour orienter le cap. Utilisation de
-        // `rotation.order="YXZ"` côté template : Y appliqué AVANT X.
-        // Le cap (côté +Z en local space) doit pointer dans la direction
-        // OPPOSÉE à l'ouverture après le tilt X (où local Z→world -Y).
-        // Mapping (oT/oR/oB/oL = open side) :
-        //   oT (open +Y) → cap -Y → rotY 0
-        //   oL (open -X) → cap +X → rotY +π/2
-        //   oB (open -Y) → cap +Y → rotY π
-        //   oR (open +X) → cap -X → rotY -π/2
-        let deadEndRotY = 0;
-        if (isDeadEnd) {
-          if (oT)      deadEndRotY = 0;
-          else if (oL) deadEndRotY = Math.PI/2;
-          else if (oB) deadEndRotY = Math.PI;
-          else if (oR) deadEndRotY = -Math.PI/2;
-        }
         out.push({
           x: c * g.cw + g.cw / 2 - g.W / 2,
           y: g.H / 2 - r * g.ch - g.ch / 2,
-          openCount,
-          isStraight,
-          isDeadEnd,
           isIntersection: openCount >= 3,
-          deadEndRotY,
         });
       }
     }
@@ -353,12 +375,11 @@
       <!-- Tilt 3D group -->
       <T.Group rotation.x={tiltX} rotation.y={tiltY}>
 
-        <!-- Sol (track) — Lot 6.19 : envMapIntensity 0.3 → 0.15 + color
-             override #bdb19c (vs theme.trackFloor #d6cebc) pour CONTRASTE
-             avec la piste #F2E8D2. Delta ~35 unités RGB, sol clairement
-             plus foncé. -->
+        <!-- Sol creusé (Lot 6.20) — abaissé à z = -floorDepth pour effet
+             de profondeur dans les fossés entre cellules de piste. La
+             piste extrudée part de z=0 → fossés visibles entre piste et sol. -->
         {#if G}
-          <T.Mesh position={[0, 0, 0]} receiveShadow>
+          <T.Mesh position={[0, 0, -floorDepth]} receiveShadow>
             <T.PlaneGeometry args={[G.W, G.H]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
@@ -373,82 +394,27 @@
           </T.Mesh>
         {/if}
 
-        <!-- Pistes 3D extrudées (Lot 6.9) — refonte structurelle.
-             On extrude les CONNEXIONS entre cellules ouvertes (piste
-             surélevée où la bille roule), pas les murs. Les "murs"
-             sont l'absence de piste (zones de void cream-floor).
-             1) Path segments : box entre paires de cellules ouvertes.
-             2) Path nodes    : cylindres aux centres → caps arrondies
-                aux extrémités + jonctions T/+/etc. -->
+        <!-- Pistes 3D — Lot 6.20 : ExtrudeGeometry par cellule.
+             Un seul mesh par cellule avec Shape polygonale (selon ouvertures
+             T/R/B/L), extrudé verticalement avec bevels intégrés.
+             Plus de bug d'orientation dead-ends (cap inclus dans la Shape).
+             Plus de pétales aux jonctions (un seul polygone par cellule). -->
         {#if G && G.maze}
-          <!-- Path segments — Lot 6.15 : extension +pathW * 0.6 (vs 0.3
-               Lot 6.11) pour mieux masquer les cylindres aux corners.
-               Les segments dépassent les nodes des deux côtés, ne
-               laissant qu'un petit "pétale" visible au max. -->
-          {#each computePathSegments(G) as seg, i (`s${i}-${seg.type}`)}
-            <T.Mesh position={[seg.x, seg.y, pathBase + pathH / 2]}
-                    scale={
-                      seg.type === 'h'
-                        ? [seg.length + pathW * 0.6, pathW, pathH]
-                        : [pathW, seg.length + pathW * 0.6, pathH]
-                    }
+          {#each computeCellShapes(G) as cell, i (`cell-${i}`)}
+            <T.Mesh position={[cell.x, cell.y, 0]}
                     castShadow receiveShadow>
-              <!-- Lot 6.19 : bevel radius 0.18 → 0.06, segments 3 → 2.
-                   Bords plus définis (look "wood/clay clear" Gemini),
-                   moins "boudin mou". -->
-              <T is={RoundedBoxGeometry} args={[1, 1, 1, 2, 0.06]} />
+              <T is={ExtrudeGeometry} args={[cell.shape, extrudeSettings]} />
               <T.MeshStandardMaterial color={PATH_COLOR}
                                       roughness={0.55} metalness={0.08}
                                       envMapIntensity={0.4} />
             </T.Mesh>
           {/each}
 
-          <!-- Path nodes — Lot 6.18 : geometry selective.
-               - straight passages : PAS de node (segment suffit)
-               - intersections/corners : CylinderGeometry plein (jonction)
-               - dead-ends : demi-cylindre (cap arrondi, pas de bump
-                 dépassant côté ouverture) -->
-          {#each computePathNodes(G) as node, i (`n${i}`)}
-            {#if !node.isStraight}
-              {#if node.isDeadEnd}
-                <!-- Demi-cylindre orienté pour fermer l'extrémité. Le
-                     half-cylinder ne dépasse pas vers l'ouverture.
-                     Lot 6.19 : rotation.order="YXZ" pour que la Y rotation
-                     (qui oriente le cap) soit appliquée AVANT le tilt X
-                     (qui couche le cylindre flat). Avec XYZ par défaut, la
-                     rotation Z après X était inutile (axe Z local = world -Y). -->
-                <T.Mesh position={[node.x, node.y, pathBase + pathH / 2]}
-                        rotation.order="YXZ"
-                        rotation={[Math.PI / 2, node.deadEndRotY, 0]}
-                        castShadow receiveShadow>
-                  <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32, 1, false, 0, Math.PI]} />
-                  <T.MeshStandardMaterial color={PATH_COLOR}
-                                          roughness={0.55} metalness={0.08}
-                                          envMapIntensity={0.4} />
-                </T.Mesh>
-              {:else}
-                <!-- Intersection (T/+) ou L-corner : cylindre plein -->
-                <T.Mesh position={[node.x, node.y, pathBase + pathH / 2]}
-                        rotation={[Math.PI / 2, 0, 0]}
-                        castShadow receiveShadow>
-                  <T.CylinderGeometry args={[pathW / 2, pathW / 2, pathH, 32]} />
-                  <T.MeshStandardMaterial color={PATH_COLOR}
-                                          roughness={0.55} metalness={0.08}
-                                          envMapIntensity={0.4} />
-                </T.Mesh>
-              {/if}
-            {/if}
-          {/each}
-
-          <!-- Rainure néon sur le dessus de la piste — Lot 6.16 :
-               PLUS d'extension sur les neon stripes (Lot 6.15 a créé
-               des croix lumineuses aux corners L). Le néon reste à
-               seg.length stricte, et un petit dot au centre du node
-               (Lot 6.16 below) couvre la continuité aux jonctions.
+          <!-- Rainure néon sur le dessus de la piste (Lot 6.20 : z = pathH).
                Dual-layer : white core + color halo pour match ref 2D. -->
-          {#each computePathSegments(G) as seg, i (`ns${i}`)}
+          {#each computeNeonSegments(G) as seg, i (`ns${i}`)}
             <!-- White core (intense emissive) -->
-            <T.Mesh position={[seg.x, seg.y, pathBase + pathH + 0.35]}>
+            <T.Mesh position={[seg.x, seg.y, pathH + 0.35]}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
                   ? [seg.length, neonW * 0.3]
@@ -461,7 +427,7 @@
                                       opacity={1.0} />
             </T.Mesh>
             <!-- Color halo (glow coloré) -->
-            <T.Mesh position={[seg.x, seg.y, pathBase + pathH + 0.40]}>
+            <T.Mesh position={[seg.x, seg.y, pathH + 0.40]}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
                   ? [seg.length, neonW * 0.7]
@@ -475,14 +441,12 @@
             </T.Mesh>
           {/each}
 
-          <!-- Lot 6.16 : petits dots de continuité néon à TOUS les
-               nodes non-intersection (corners L et straight passages).
-               Plus subtils que les dots d'intersection. Couvre le gap
-               où les stripes s'arrêtent au centre de cellule, sans
-               créer de croix lumineuses aux angles. -->
-          {#each computePathNodes(G) as node, i (`nc${i}`)}
+          <!-- Petits dots de continuité néon aux nodes non-intersection
+               (corners L + straight passages). Couvre le gap au centre
+               de cellule sans créer de croix lumineuses. -->
+          {#each computeNeonNodes(G) as node, i (`nc${i}`)}
             {#if !node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.42]}>
+              <T.Mesh position={[node.x, node.y, pathH + 0.42]}>
                 <T.CircleGeometry args={[neonW * 0.55, 16]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
@@ -494,12 +458,11 @@
             {/if}
           {/each}
 
-          <!-- Neon dots aux INTERSECTIONS UNIQUEMENT — Lot 6.13 :
-               SphereGeometry pour soft glow naturel (falloff sphérique).
-               Seules les vraies intersections (>=3 sorties) ont des dots. -->
-          {#each computePathNodes(G) as node, i (`nb${i}`)}
+          <!-- Dots aux INTERSECTIONS (>=3 sorties) — SphereGeometry pour
+               soft glow naturel (falloff sphérique). -->
+          {#each computeNeonNodes(G) as node, i (`nb${i}`)}
             {#if node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathBase + pathH + 0.50]}>
+              <T.Mesh position={[node.x, node.y, pathH + 0.50]}>
                 <T.SphereGeometry args={[neonW * 0.8, 16, 8]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
@@ -522,7 +485,7 @@
             {@const cpClr   = cp.passed ? '#ffcc00' : '#00ff80'}
             {@const cpLen   = Math.min(G.cw, G.ch) * 0.50}
             {@const cpThick = neonW * 0.6}
-            <T.Mesh position={[cx, cy, pathBase + pathH + 0.8]}>
+            <T.Mesh position={[cx, cy, pathH + 0.8]}>
               <T.PlaneGeometry args={
                 cp.horizontal
                   ? [cpLen, cpThick]
@@ -547,7 +510,7 @@
         {#if G && G.maze}
           {#each computePathNodes(G) as node, i (`light-node-${i}`)}
             {#if node.isIntersection}
-              <T.PointLight position={[node.x, node.y, pathBase + pathH + 2]}
+              <T.PointLight position={[node.x, node.y, pathH + 2]}
                             intensity={1.6}
                             distance={Math.min(G.cw, G.ch) * 2.5}
                             color={neonColor}
@@ -562,7 +525,7 @@
         {#if G}
           {@const frT   = 2.5}
           {@const frH   = 2}
-          {@const frZ   = 0.5}
+          {@const frZ   = pathH}
           {@const frGap = Math.min(G.cw, G.ch) * 0.15}
           {@const frW   = G.W + (frT + frGap) * 2}
           {@const frHd  = G.H + (frT + frGap) * 2}
@@ -615,10 +578,10 @@
                 ? 1 + (age / 400) * 0.45
                 : 1 + Math.sin(now * 0.004 + col.c + col.r) * 0.06}
               {@const size   = base * pulse}
-              <!-- Lot 6.10 : z = pathBase + pathH + 1.5 (au-dessus de
+              <!-- Lot 6.10 : z = pathH + 1.5 (au-dessus de
                    la piste surélevée) + depthTest=false → toujours
                    visible par-dessus tout. -->
-              <T.Sprite position={[cx, cy, pathBase + pathH + 1.5]}
+              <T.Sprite position={[cx, cy, pathH + 1.5]}
                         scale={[size, size, 1]}>
                 <T.SpriteMaterial map={tex} transparent={true}
                                   opacity={fade}
@@ -638,7 +601,7 @@
           {@const fpulse  = 1 + Math.sin(now * 0.003) * 0.05}
           {@const fsize   = fbase * fpulse}
           {@const fAspect = 303 / 256}
-          <T.Sprite position={[fx, fy, pathBase + pathH + 1.5]}
+          <T.Sprite position={[fx, fy, pathH + 1.5]}
                     scale={[fsize, fsize * fAspect, 1]}>
             <T.SpriteMaterial map={textures.finish} transparent={true}
                               depthWrite={false} depthTest={false} />
@@ -651,7 +614,7 @@
              la bille reflète correctement les neon PointLights aux
              intersections (teintes cyan/rose/vert selon theme). -->
         {#if G && ballVisible}
-          <T.Mesh position={[ballX, ballY, (pathBase + pathH + ballR) * fallScale]}
+          <T.Mesh position={[ballX, ballY, (pathH + ballR) * fallScale]}
                   scale={[fallScale, fallScale, fallScale]}
                   castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
@@ -674,7 +637,7 @@
                 {@const t = (i - 1) / (TRAIL_MAX - 1)}
                 {@const opacity = Math.max(0, (1 - t) * 0.55)}
                 {@const scale = ballR * 1.6 * (1 - t * 0.5)}
-                <T.Sprite position={[pos.x, pos.y, pathBase + pathH + ballR * 0.5]}
+                <T.Sprite position={[pos.x, pos.y, pathH + ballR * 0.5]}
                           scale={[scale, scale, 1]}>
                   <T.SpriteMaterial map={ballGlowTexture}
                                     transparent={true}
