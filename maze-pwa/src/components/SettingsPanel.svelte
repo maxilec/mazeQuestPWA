@@ -118,28 +118,6 @@
     </div>
   </div>
 
-  <!-- Occlusion ambiante (SSAO) — disponible en 3D uniquement.
-       Live-toggleable depuis Settings, état persisté en localStorage. -->
-  {#if $settings.engine3D}
-    <div class="sp-row sp-row--toggle">
-      <span class="sp-lbl">Occlusion ambiante <span class="sp-tag">beta</span></span>
-      <div class="sp-onoff">
-        <button
-          class="sp-toggle-btn"
-          class:active={$settings.ssao}
-          on:click={() => $settings.ssao = true}>
-          ON
-        </button>
-        <button
-          class="sp-toggle-btn"
-          class:active={!$settings.ssao}
-          on:click={() => $settings.ssao = false}>
-          OFF
-        </button>
-      </div>
-    </div>
-  {/if}
-
   {#if showClose}
     <button class="sp-close" on:click={onClose}>✕ Fermer</button>
   {/if}

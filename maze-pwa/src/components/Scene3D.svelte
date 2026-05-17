@@ -25,7 +25,6 @@
   import { InstancedMesh, Instance } from '@threlte/extras';
   import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap, Shape, ExtrudeGeometry } from 'three';
   import { getSvgSource, svgReady } from '../lib/render.js';
-  import { settings }            from '../stores.js';
   import Postprocess            from './Postprocess.svelte';
 
   export let G            = null;
@@ -532,8 +531,7 @@
          capturer QUE les emissive HDR (toneMapped:false). Lights
          ambient/directional réduits car RoomEnvironment fournit
          maintenant l'illumination globale. -->
-    <Postprocess bloomStrength={0.4} bloomRadius={0.2} bloomThreshold={1.0}
-                 ssao={$settings.ssao} />
+    <Postprocess bloomStrength={0.4} bloomRadius={0.2} bloomThreshold={1.0} />
 
     <!-- Lighting (Lot 6.25) — setup Gemini "Zero Perf Hit" :
          - HemisphereLight : sky #ffffff / ground #b5a48b à 0.9 → gradient

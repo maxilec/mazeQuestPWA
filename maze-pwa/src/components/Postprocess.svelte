@@ -21,19 +21,16 @@
   import { RenderPass }          from 'three/examples/jsm/postprocessing/RenderPass.js';
   import { UnrealBloomPass }     from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
   import { OutputPass }          from 'three/examples/jsm/postprocessing/OutputPass.js';
-  import { SSAOPass }            from 'three/examples/jsm/postprocessing/SSAOPass.js';
 
   export let bloomStrength  = 0.9;     // intensité du glow
   export let bloomRadius    = 0.5;     // étalement du halo
   export let bloomThreshold = 0.15;    // seuil luminance (emissive captured)
-  export let ssao           = false;   // Lot 6.25 : occlusion ambiante (mobile beta)
 
   const ctx = useThrelte();
   const { size, scene, camera, renderer } = ctx;
 
   let composer    = null;
   let bloomPass   = null;
-  let ssaoPass    = null;
   let envMap      = null;
   let sizeUnsub   = null;
 
@@ -82,25 +79,6 @@
     bloomPass.radius    = bloomRadius;
     bloomPass.threshold = bloomThreshold;
   }
-
-  // Lot 6.25.b : SSAOPass lazy. NE PAS créer au mount (alloue depth+normal
-  // render targets, peut corrompre le framebuffer sur iOS Safari même
-  // avec enabled=false). Créé uniquement au 1er toggle ON, puis on garde
-  // dans le composer et on toggle enabled.
-  $: if (composer && ssao && !ssaoPass) {
-    let w = window.innerWidth, h = window.innerHeight;
-    size.subscribe(s => {
-      if (s?.width)  w = s.width;
-      if (s?.height) h = s.height;
-    })();
-    ssaoPass = new SSAOPass(scene, camera.current, w, h);
-    ssaoPass.kernelRadius = 4;
-    ssaoPass.minDistance  = 0.001;
-    ssaoPass.maxDistance  = 0.1;
-    // Insert entre RenderPass (index 0) et UnrealBloomPass (index 1)
-    composer.insertPass(ssaoPass, 1);
-  }
-  $: if (ssaoPass) ssaoPass.enabled = ssao;
 
   // Render via composer — useRender remplace automatiquement le default
   // renderer.render(scene, camera). Threlte détecte useRender instances
