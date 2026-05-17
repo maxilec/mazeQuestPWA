@@ -180,16 +180,30 @@
     return out;
   }
 
-  // ExtrudeGeometry settings (Lot 6.20) — bevels paramétrables.
-  $: extrudeSettings = {
-    depth: pathH,
-    bevelEnabled: true,
-    bevelThickness: pathH * 0.08,
-    bevelSize: pathW * 0.04,
-    bevelSegments: 2,
-    steps: 1,
-    curveSegments: 8,
-  };
+  // Lot 6.20 hotfix — cache des shapes/segments/nodes + extrudeSettings.
+  // Sans cache, `{#each computeCellShapes(G)}` recompile 120 ExtrudeGeometry
+  // par frame → crash mobile Safari + freeze main thread (menu inactif).
+  // On reconstruit seulement quand le maze change (G.lvl).
+  let cellShapes      = [];
+  let neonSegments    = [];
+  let neonNodes       = [];
+  let extrudeSettings = null;
+  let lastMazeLvl     = -1;
+  $: if (G?.maze && G.lvl !== lastMazeLvl) {
+    cellShapes      = computeCellShapes(G);
+    neonSegments    = computeNeonSegments(G);
+    neonNodes       = computeNeonNodes(G);
+    extrudeSettings = {
+      depth: pathH,
+      bevelEnabled: true,
+      bevelThickness: pathH * 0.08,
+      bevelSize: pathW * 0.04,
+      bevelSegments: 2,
+      steps: 1,
+      curveSegments: 8,
+    };
+    lastMazeLvl     = G.lvl;
+  }
 
   // Path neon segments (rainures) — réutilisation de l'ancienne logique pour
   // poser les neon stripes au centre des couloirs. Build une fois par changement
@@ -399,8 +413,8 @@
              T/R/B/L), extrudé verticalement avec bevels intégrés.
              Plus de bug d'orientation dead-ends (cap inclus dans la Shape).
              Plus de pétales aux jonctions (un seul polygone par cellule). -->
-        {#if G && G.maze}
-          {#each computeCellShapes(G) as cell, i (`cell-${i}`)}
+        {#if G && G.maze && extrudeSettings}
+          {#each cellShapes as cell, i (`cell-${i}`)}
             <T.Mesh position={[cell.x, cell.y, 0]}
                     castShadow receiveShadow>
               <T is={ExtrudeGeometry} args={[cell.shape, extrudeSettings]} />
@@ -412,7 +426,7 @@
 
           <!-- Rainure néon sur le dessus de la piste (Lot 6.20 : z = pathH).
                Dual-layer : white core + color halo pour match ref 2D. -->
-          {#each computeNeonSegments(G) as seg, i (`ns${i}`)}
+          {#each neonSegments as seg, i (`ns${i}`)}
             <!-- White core (intense emissive) -->
             <T.Mesh position={[seg.x, seg.y, pathH + 0.35]}>
               <T.PlaneGeometry args={
@@ -444,7 +458,7 @@
           <!-- Petits dots de continuité néon aux nodes non-intersection
                (corners L + straight passages). Couvre le gap au centre
                de cellule sans créer de croix lumineuses. -->
-          {#each computeNeonNodes(G) as node, i (`nc${i}`)}
+          {#each neonNodes as node, i (`nc${i}`)}
             {#if !node.isIntersection}
               <T.Mesh position={[node.x, node.y, pathH + 0.42]}>
                 <T.CircleGeometry args={[neonW * 0.55, 16]} />
@@ -460,7 +474,7 @@
 
           <!-- Dots aux INTERSECTIONS (>=3 sorties) — SphereGeometry pour
                soft glow naturel (falloff sphérique). -->
-          {#each computeNeonNodes(G) as node, i (`nb${i}`)}
+          {#each neonNodes as node, i (`nb${i}`)}
             {#if node.isIntersection}
               <T.Mesh position={[node.x, node.y, pathH + 0.50]}>
                 <T.SphereGeometry args={[neonW * 0.8, 16, 8]} />
