@@ -537,12 +537,12 @@
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
          - Directional key 1.50 (puissante), positionnée top-gauche-avant
          - Directional fill 0.30 (warm subtle pour les zones d'ombre) -->
-    <T.AmbientLight intensity={0.80} color="#fffdf9" />
+    <T.AmbientLight intensity={0.95} color="#fffdf9" />
     <T.DirectionalLight bind:ref={lightRef}
                         position={[G ? -G.W * 0.4 : -200,
                                    G ? G.H * 0.5 : 250,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 8]}
-                        intensity={1.50}
+                        intensity={1.10}
                         color="#fff5e0"
                         castShadow />
     <T.DirectionalLight position={[G ? G.W * 0.3 : 150, G ? -G.H * 0.3 : -150, 400]}
@@ -580,8 +580,8 @@
           {#each ['straight', 'corner', 'T', 'cross', 'deadEnd'] as tileType (tileType)}
             <InstancedMesh geometry={tileGeometries[tileType]} castShadow receiveShadow>
               <T.MeshStandardMaterial color={PATH_COLOR}
-                                      roughness={0.55} metalness={0.08}
-                                      envMapIntensity={0.4} />
+                                      roughness={0.85} metalness={0.0}
+                                      envMapIntensity={0.15} />
               {#each tileInstances[tileType] as inst, i (`${tileType}-${i}`)}
                 <Instance position={[inst.x, inst.y, 0]}
                           rotation={[0, 0, inst.rot]} />
