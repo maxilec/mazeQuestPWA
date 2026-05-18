@@ -585,7 +585,7 @@
          capturer QUE les emissive HDR (toneMapped:false). Lights
          ambient/directional réduits car RoomEnvironment fournit
          maintenant l'illumination globale. -->
-    <Postprocess bloomStrength={0.18} bloomRadius={0.08} bloomThreshold={1.0} />
+    <Postprocess bloomStrength={0.18} bloomRadius={0.08} bloomThreshold={0.85} />
 
     <!-- Lighting (Lot 6.19) — setup "Soft Clay" per Gemini :
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
@@ -777,7 +777,7 @@
             <T.BoxGeometry args={[frW, frT, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
-                                    emissiveIntensity={1.6}
+                                    emissiveIntensity={2.0}
                                     toneMapped={false} />
           </T.Mesh>
           <!-- bottom -->
@@ -785,7 +785,7 @@
             <T.BoxGeometry args={[frW, frT, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
-                                    emissiveIntensity={1.6}
+                                    emissiveIntensity={2.0}
                                     toneMapped={false} />
           </T.Mesh>
           <!-- left -->
@@ -793,7 +793,7 @@
             <T.BoxGeometry args={[frT, G.H + frGap * 2, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
-                                    emissiveIntensity={1.6}
+                                    emissiveIntensity={2.0}
                                     toneMapped={false} />
           </T.Mesh>
           <!-- right -->
@@ -801,7 +801,7 @@
             <T.BoxGeometry args={[frT, G.H + frGap * 2, frH]} />
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
-                                    emissiveIntensity={1.6}
+                                    emissiveIntensity={2.0}
                                     toneMapped={false} />
           </T.Mesh>
         {/if}
