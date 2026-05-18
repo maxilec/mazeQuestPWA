@@ -514,8 +514,9 @@
     c.width = c.height = 64;
     const ctx = c.getContext('2d');
     const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    g.addColorStop(0.00, 'rgba(0,0,0,0.55)');
-    g.addColorStop(0.40, 'rgba(0,0,0,0.30)');
+    g.addColorStop(0.00, 'rgba(0,0,0,0.92)');
+    g.addColorStop(0.25, 'rgba(0,0,0,0.65)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.25)');
     g.addColorStop(1.00, 'rgba(0,0,0,0)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
     const tex = new CanvasTexture(c);
@@ -886,11 +887,11 @@
                compense mal sous tilt). -->
           {#if ballContactShadowTex}
             <T.Sprite position={[ballX, ballY, pathTop + 0.05]}
-                      scale={[ballR * 2.8, ballR * 2.8, 1]}
+                      scale={[ballR * 2.3, ballR * 2.3, 1]}
                       renderOrder={0}>
               <T.SpriteMaterial map={ballContactShadowTex}
                                 transparent={true}
-                                opacity={0.85 * fallScale}
+                                opacity={fallScale}
                                 depthTest={true}
                                 depthWrite={false} />
             </T.Sprite>
@@ -901,8 +902,8 @@
             <T.SphereGeometry args={[ballR, 32, 16]} />
             <T.MeshStandardMaterial color="#D4AF37"
                                     metalness={1.0}
-                                    roughness={0.22}
-                                    envMapIntensity={1.5} />
+                                    roughness={0.15}
+                                    envMapIntensity={1.6} />
           </T.Mesh>
 
           <!-- PointLight locale qui suit la bille (Lot 6.26 v2.1) :
@@ -920,12 +921,14 @@
           <!-- Bounce light (Lot 6.26 v2.7) : PointLight cyan juste au
                niveau de la piste, sous la bille. Simule la lumière
                rebondie par le rail néon → highlight cyan sur le bas
-               de la sphère métallique. Distance très courte (cell*0.6)
-               + castShadow=false (perf) → n'affecte que la bille. -->
+               de la sphère métallique. Distance courte mais suffisante
+               pour atteindre l'équateur de la bille où le highlight
+               apparaît côté caméra. v2.8 : intensity 1.4→2.6 +
+               distance 0.7→1.5 cells → reflet cyan visible. -->
           <T.PointLight position={[ballX, ballY, pathTop + ballR * 0.25]}
                         color={neonColor}
-                        intensity={1.4}
-                        distance={Math.min(G.cw, G.ch) * 0.7}
+                        intensity={2.6}
+                        distance={Math.min(G.cw, G.ch) * 1.5}
                         decay={2.0}
                         castShadow={false} />
 
