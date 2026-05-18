@@ -43,10 +43,10 @@
   // Lot 6.27 : tilt caméra fixe cavalier — expose la face avant des
   // parois inférieures des tiles. Combiné au FOV réduit (téléobjectif),
   // donne le rendu "iso-tilt soft" de la maquette.
-  // Lot 6.27.c : 22→18° (redressement léger combiné à pathH augmenté
-  // 0.32→0.40 ; la hauteur supplémentaire des parois compense la
-  // réduction d'angle pour conserver la face avant visible).
-  const CAM_TILT_DEG     = 18;
+  // Lot 6.27.c : 22→18° + pathH 0.32→0.40
+  // Lot 6.27.d : 18→12° + pathH 0.40→0.55 → presque orthographique,
+  // les parois plus hautes prennent le relais pour la sensation 3D.
+  const CAM_TILT_DEG     = 12;
 
   // ── Host positioning (cadrage sur la zone canvas) ──────────────────────
   let host;
@@ -128,7 +128,7 @@
   // appliqués via smoothShape sur le polygone.
   // Sol abaissé à -floorDepth pour effet de profondeur dans les fossés.
   $: pathW      = G ? Math.min(G.cw, G.ch) * (G.trackRatio ?? 0.65) : 30;
-  $: pathH      = G ? Math.min(G.cw, G.ch) * 0.40 : 15;   // hauteur extrusion
+  $: pathH      = G ? Math.min(G.cw, G.ch) * 0.55 : 15;   // hauteur extrusion
   $: floorDepth = pathH * 0.4;                            // profondeur sol creusé
   // pathTop : z au-dessus du bevel top de la piste (avec marge). Utilisé
   // pour positionner les neon stripes, dots, checkpoints et sprites.
