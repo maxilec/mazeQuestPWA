@@ -35,11 +35,15 @@
 
   const DEG              = Math.PI / 180;
   const MAX_TILT_DEG     = 12;
-  const FOV              = 35;
+  const FOV              = 25;
   // Lot 6 : élévation dynamique de la caméra — top-down au repos,
   // ramp jusqu'à CAM_MAX_ELEV_DEG quand l'input tilt est non nul. Donne
   // un cue 3D pendant le mouvement sans imposer d'angle au repos.
   const CAM_MAX_ELEV_DEG = 12;
+  // Lot 6.27 : tilt caméra fixe cavalier — expose la face avant des
+  // parois inférieures des tiles. Combiné au FOV réduit (téléobjectif),
+  // donne le rendu "iso-tilt soft" de la maquette.
+  const CAM_TILT_DEG     = 22;
 
   // ── Host positioning (cadrage sur la zone canvas) ──────────────────────
   let host;
@@ -60,16 +64,14 @@
   $: visibleH    = G
       ? (isLandscape ? G.W : G.H) + cadreGap * 2 + 8
       : 660;
-  $: cameraDist  = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.05;
+  $: cameraDist  = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.18;
 
-  // Lot 6.2 — retour caméra dead-on PERMANENT. L'utilisateur reportait
-  // un « rebond » : avec l'élévation dynamique, l'origine restait centrée
-  // mais le centre visuel de la maze (qui n'est pas le même point que
-  // l'origine 3D pour une projection perspective tilted) se décalait
-  // vers le bas. Avec dead-on, pas de shift. Le relief 3D vient
-  // désormais des shadows (cf. <Canvas shadows={...}>).
-  $: camY    = 0;
-  $: camZ    = cameraDist;
+  // Lot 6.27 : position caméra cavalier — reculée en -Y (côté
+  // spectateur), élevée en +Z, regardant l'origine. Le tilt fixe expose
+  // la face avant des parois. Le board tilt input continue d'agir
+  // indépendamment sur <T.Group rotation.x/y>.
+  $: camY    = -cameraDist * Math.sin(CAM_TILT_DEG * DEG);
+  $: camZ    =  cameraDist * Math.cos(CAM_TILT_DEG * DEG);
   // cameraZ utilisé pour le `far` plane (compat avec d'autres calculs).
   $: cameraZ     = cameraDist;
 
@@ -603,7 +605,7 @@
   <Canvas shadows={PCFSoftShadowMap}>
     <T.PerspectiveCamera bind:ref={cameraRef} makeDefault
                          position={[0, camY, camZ]}
-                         fov={FOV} near={1} far={cameraZ * 3} />
+                         fov={FOV} near={1} far={cameraDist * 3} />
 
     <!-- Post-process (Lot 6.17) — Bloom + Env map procédural.
          Lot 6.17 hotfix 2 : threshold 1.0 + strength 0.4 pour ne
