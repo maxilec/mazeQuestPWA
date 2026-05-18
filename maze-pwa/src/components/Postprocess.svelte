@@ -31,21 +31,22 @@
   let sizeUnsub   = null;
 
   // Construit une CanvasTexture equirectangulaire (2:1) avec gradient
-  // vertical chaud : haut crème clair (sky), équateur crème chaud
-  // (parois de "studio" virtuel), bas tan plus saturé (sol). Les surfaces
-  // métalliques metalness=1.0 reflètent ce gradient → bille gold prend
-  // des tons chauds plutôt que de paraître sombre/noire sur les côtés.
+  // vertical : sky chaud → équateur crème → sol sombre/AO. Le sol très
+  // sombre simule l'ambient occlusion vue depuis la bille metalness=1.0
+  // (le bord visible de la bille — silhouette vue de la caméra du dessus
+  // — reflète le SUD du env map, donc en assombrissant cette zone on
+  // crée un dégradé sombre sur les bords de la bille → effet AO).
   function createWarmEnvTexture() {
     const c = document.createElement('canvas');
     c.width = 512; c.height = 256;
     const cx = c.getContext('2d');
     const g = cx.createLinearGradient(0, 0, 0, 256);
     g.addColorStop(0.00, '#fff5e0');  // north pole : sky warm white
-    g.addColorStop(0.35, '#f5e5c5');  // upper hemisphere
-    g.addColorStop(0.50, '#e8d0a5');  // equator (ce que reflètent les
-                                       // côtés visibles de la bille)
-    g.addColorStop(0.65, '#d5b585');  // lower hemisphere
-    g.addColorStop(1.00, '#c89870');  // south pole : floor warm tan
+    g.addColorStop(0.30, '#f5e0c0');  // upper hemisphere
+    g.addColorStop(0.50, '#d4b58c');  // equator (refl. au-dessus du ball)
+    g.addColorStop(0.70, '#8a6242');  // lower hemisphere (refl. côtés)
+    g.addColorStop(0.85, '#4a2e1a');  // near south (refl. silhouette)
+    g.addColorStop(1.00, '#1a0c08');  // south pole : AO sombre (refl. bas)
     cx.fillStyle = g; cx.fillRect(0, 0, 512, 256);
     const tex = new CanvasTexture(c);
     tex.mapping     = EquirectangularReflectionMapping;

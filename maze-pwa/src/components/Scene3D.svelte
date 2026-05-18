@@ -511,14 +511,15 @@
   let ballContactShadowTex = null;
   function createBallContactShadow() {
     const c = document.createElement('canvas');
-    c.width = c.height = 64;
+    c.width = c.height = 128;
     const ctx = c.getContext('2d');
-    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    g.addColorStop(0.00, 'rgba(0,0,0,0.92)');
-    g.addColorStop(0.25, 'rgba(0,0,0,0.65)');
-    g.addColorStop(0.55, 'rgba(0,0,0,0.25)');
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0.00, 'rgba(0,0,0,0.78)');
+    g.addColorStop(0.20, 'rgba(0,0,0,0.65)');
+    g.addColorStop(0.50, 'rgba(0,0,0,0.38)');
+    g.addColorStop(0.80, 'rgba(0,0,0,0.12)');
     g.addColorStop(1.00, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 128);
     const tex = new CanvasTexture(c);
     tex.minFilter = LinearFilter;
     tex.magFilter = LinearFilter;
@@ -887,7 +888,7 @@
                compense mal sous tilt). -->
           {#if ballContactShadowTex}
             <T.Sprite position={[ballX, ballY, pathTop + 0.05]}
-                      scale={[ballR * 2.3, ballR * 2.3, 1]}
+                      scale={[ballR * 3.4, ballR * 3.4, 1]}
                       renderOrder={0}>
               <T.SpriteMaterial map={ballContactShadowTex}
                                 transparent={true}
@@ -927,7 +928,7 @@
                distance 0.7→1.5 cells → reflet cyan visible. -->
           <T.PointLight position={[ballX, ballY, pathTop + ballR * 0.25]}
                         color={neonColor}
-                        intensity={2.6}
+                        intensity={3.6}
                         distance={Math.min(G.cw, G.ch) * 1.5}
                         decay={2.0}
                         castShadow={false} />
