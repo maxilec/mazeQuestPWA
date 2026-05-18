@@ -4,7 +4,7 @@
   import { getTrackRatio, bfsPath,
            computeCheckpoints, computeCollectibles } from '../lib/maze-utils.js';
   import { stepPhysics, checkWallFall }           from '../lib/physics.js';
-  import { draw }                                 from '../lib/render.js';
+  import { draw, renderStaticTexture, renderClearTexture } from '../lib/render.js';
   import { getTheme, neonToRgba }                 from '../lib/theme.js';
   import { screen as appScreen, gameMode,
            runStats, settings, audioMgrStore }    from '../stores.js';
@@ -57,6 +57,24 @@
     }
   }
 
+  // ── Engine flag : la scène Threlte se monte par-dessus le canvas 2D
+  //    quand activée. Deux sources d'activation :
+  //      - $settings.engine3D (toggle UI dans les paramètres, persistant)
+  //      - ?engine=3d (override URL session-only, utile en dev)
+  //    Le canvas 2D reste en DOM pour capturer les touch events (inputMgr),
+  //    son draw() est court-circuité pour économiser le CPU.
+  const urlEngineFlag = (typeof window !== 'undefined')
+    ? new URLSearchParams(window.location.search).get('engine')
+    : null;
+  $: is3D = $settings.engine3D || urlEngineFlag === '3d';
+  let Scene3DComponent = null;
+
+  // Lazy-load à la volée : la première fois que is3D devient true, on
+  // fetch le chunk Threlte/three. Aucun coût bundle en mode 2D.
+  $: if (is3D && !Scene3DComponent && typeof window !== 'undefined') {
+    import('./Scene3D.svelte').then(mod => { Scene3DComponent = mod.default; });
+  }
+
   // ── Refs DOM & état non-réactif ────────────────────────────────────────────
   let canvas, boardWrap, worldRotateEl;
   let G          = null;
@@ -64,6 +82,11 @@
   let inputMgr   = null;
   let boardTiltX = 0;
   let boardTiltY = 0;
+
+  // En 3D : rect (top/left/width/height) de .world-rotate, mis à jour
+  // chaque frame depuis la game loop. Passé en prop à Scene3D pour qu'elle
+  // se positionne au pixel près sur la zone canvas — HUD intacte autour.
+  let scene3DRect = null;
 
   // Transition douce de la couleur néon entre niveaux (ex. lvl 5 → 6 où la
   // palette bascule). On interpole linéairement de l'ancienne à la nouvelle
@@ -92,11 +115,14 @@
 
     let cw, ch;
     if (!isLandscape) {
-      const hudH = 160;
+      // Lot 6.3 : HUD top + bottom + safe-areas iOS (notch ~50, home
+      // indicator ~34) = ~210-260px en pratique. 280 laisse une marge
+      // suffisante pour ne pas couper le bouton MENU.
+      const hudH = 280;
       cw = Math.min(sw * 0.92, (sh - hudH) / aspect);
       ch = cw * aspect;
     } else {
-      const hudW = 260;
+      const hudW = 340;
       cw = Math.min(sh * 0.90, (sw - hudW) / aspect);
       ch = cw * aspect;
     }
@@ -182,6 +208,15 @@
     chrono = currentMode === 'zen' ? '∞' : formatTime(initialTime * 1000);
     countdownText = '';
     runStats.update(s => ({ ...s, lvl: levelNum }));
+
+    // Pour le rendu Threlte (Lot 3) : pré-rendu de la couche statique
+    // (surface + piste + néon) du plateau. Sera uploadé en CanvasTexture
+    // par Scene3D et appliqué au plateau 3D. Texture invalidée à chaque
+    // initLevel (palette néon, dimensions ou maze topology peuvent changer).
+    // Lot 6 : le rendu 3D utilise la texture « clear » (sol beige uniforme +
+    // ligne néon visible, sans le fake-bevel slate). Les murs sont des meshes
+    // 3D dans Scene3D — plus besoin du look concrete texturé.
+    if (is3D) G.staticTexture = renderClearTexture(G);
   }
 
   function handleOrientationChange() {
@@ -356,22 +391,37 @@
       const MAX_DEG = 12;
       const wlRot   = -deviceAngle;
       if (boardWrap) {
-        boardWrap.style.transform = [
-          'translate(-50%, -50%)',
-          `rotate(${wlRot}deg)`,
-          'perspective(700px)',
-          `rotateX(${-boardTiltY * MAX_DEG}deg)`,
-          `rotateY(${boardTiltX * MAX_DEG}deg)`,
-        ].join(' ');
-        const haloRgba = G.theme?.neonRgba ? G.theme.neonRgba(0.18) : 'rgba(0,200,255,0.18)';
-        boardWrap.style.boxShadow =
-          `0 0 50px ${haloRgba}, ${boardTiltX * 18}px ${boardTiltY * 18 + 6}px 48px rgba(0,0,0,0.90)`;
+        if (is3D) {
+          // En 3D, la scène Threlte fait son propre tilt — on n'applique
+          // que le world-lock pour que le countdown overlay (toujours dans
+          // .board-wrap, voir Canvas.svelte) reste lisible.
+          boardWrap.style.transform = `translate(-50%, -50%) rotate(${wlRot}deg)`;
+          boardWrap.style.boxShadow = '';
+        } else {
+          boardWrap.style.transform = [
+            'translate(-50%, -50%)',
+            `rotate(${wlRot}deg)`,
+            'perspective(700px)',
+            `rotateX(${-boardTiltY * MAX_DEG}deg)`,
+            `rotateY(${boardTiltX * MAX_DEG}deg)`,
+          ].join(' ');
+          const haloRgba = G.theme?.neonRgba ? G.theme.neonRgba(0.18) : 'rgba(0,200,255,0.18)';
+          boardWrap.style.boxShadow =
+            `0 0 50px ${haloRgba}, ${boardTiltX * 18}px ${boardTiltY * 18 + 6}px 48px rgba(0,0,0,0.90)`;
+        }
       }
       if (worldRotateEl) {
         const normAngle = ((deviceAngle % 360) + 360) % 360;
         const isRot = normAngle === 90 || normAngle === 270;
         worldRotateEl.style.width  = (isRot ? canvas.height : canvas.width)  + 'px';
         worldRotateEl.style.height = (isRot ? canvas.width  : canvas.height) + 'px';
+        // En 3D, on capture le rect on-screen de .world-rotate et on le
+        // passe à Scene3D pour qu'elle se cadre exactement sur cette zone
+        // (au lieu de remplir tout le viewport et de déborder sur la HUD).
+        if (is3D) {
+          const r = worldRotateEl.getBoundingClientRect();
+          scene3DRect = { top: r.top, left: r.left, width: r.width, height: r.height };
+        }
       }
 
       // Resize sync (window resized sans rotation)
@@ -389,7 +439,7 @@
       // ── Phases ─────────────────────────────────────────────────────────────
       if (G.phase === 'intro') {
         const elapsed = ts - G.introT;
-        const step = elapsed < 900  ? `NVL ${G.lvl}`
+        const step = elapsed < 900  ? `Niveau ${G.lvl}`
                    : elapsed < 1700 ? '3'
                    : elapsed < 2500 ? '2'
                    : elapsed < 3300 ? '1'
@@ -470,10 +520,17 @@
         }
       }
 
-      draw(ctx, G, ts, boardTiltX, boardTiltY, im.tilt, {
-        active: im.joystick.active, cx: im.joystick.cx, cy: im.joystick.cy,
-        dx: im.joystick.dx, dy: im.joystick.dy, radius: JOY_RADIUS, mode: controlMode,
-      }, deviceAngle * Math.PI / 180);
+      // En mode 3D, on saute le draw() canvas 2D — Scene3D rend le visuel.
+      // On force la réactivité de Svelte sur G pour que les props poussées
+      // à Scene3D propagent (G est muté en place par stepPhysics et autres).
+      if (is3D) {
+        G = G;
+      } else {
+        draw(ctx, G, ts, boardTiltX, boardTiltY, im.tilt, {
+          active: im.joystick.active, cx: im.joystick.cx, cy: im.joystick.cy,
+          dx: im.joystick.dx, dy: im.joystick.dy, radius: JOY_RADIUS, mode: controlMode,
+        }, deviceAngle * Math.PI / 180);
+      }
 
       raf = requestAnimationFrame(loop);
     }
@@ -517,6 +574,18 @@
   });
 </script>
 
+<!-- Scène Threlte plein écran sous la HUD. Le HUD a un z-index élevé
+     pour rester au-dessus. pointer-events: none côté Scene3D → les
+     touches tombent sur le canvas 2D dessous (pour inputMgr). -->
+<!-- Scene3D mount gated on rect being ready : Threlte initialise son
+     renderer WebGL aux dims du host AU MOMENT du mount. Si le host fait
+     0×0 (rect pas encore calculé), le renderer reste cassé. On attend
+     donc la première itération de la game loop qui pose scene3DRect. -->
+{#if is3D && Scene3DComponent && scene3DRect}
+  <svelte:component this={Scene3DComponent}
+    {G} {deviceAngle} {boardTiltX} {boardTiltY} rect={scene3DRect} />
+{/if}
+
 <HUD {lvl} {chrono} {attempts} {paused} mode={currentMode} {hint} {timeLeft}
      onTogglePause={togglePause}
      on:click={handleContainerTap}>
@@ -526,6 +595,7 @@
     bind:boardWrap
     {countdownText}
     {deviceAngle}
+    hidden={is3D}
     on:click={handleCanvasTap} />
 </HUD>
 

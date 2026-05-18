@@ -15,11 +15,15 @@
   export let boardWrap      = null;  // ref DOM (bindable)
   export let countdownText  = '';
   export let deviceAngle    = 0;
+  // Quand la scène Threlte est superposée, on masque la bordure néon du
+  // canvas 2D (le canvas reste en DOM pour les touch events, mais devient
+  // visuellement transparent — la 3D occupe l'espace par-dessus).
+  export let hidden         = false;
 </script>
 
 <div class="world-rotate" bind:this={worldRotateEl}>
   <div class="board-wrap" bind:this={boardWrap}>
-    <canvas bind:this={canvas} on:click></canvas>
+    <canvas bind:this={canvas} class:hidden on:click></canvas>
 
     {#if countdownText}
       <div class="countdown-overlay">
@@ -49,6 +53,15 @@
     border: 1.5px solid var(--neon-color, #00c8ff);
     opacity: 1;
     cursor: pointer;
+  }
+  canvas.hidden {
+    border-color: transparent;
+    /* Lot 6.4 : opacity 0 (était 0.01). L'élément reste hit-testable
+       pour les touch events (opacity 0 ne désactive PAS le hit
+       testing, contrairement à display:none ou visibility:hidden).
+       Élimine tout compositing iOS Safari qui pourrait interférer
+       visuellement avec le Scene3D en arrière-plan. */
+    opacity: 0;
   }
 
   .countdown-overlay {

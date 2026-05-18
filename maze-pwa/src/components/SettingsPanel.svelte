@@ -98,6 +98,26 @@
     </div>
   {/if}
 
+  <!-- Mode 3D expérimental (Threlte / WebGL). Hot-swap : bascule sans
+       quitter la partie. Plus lourd à charger (~180 KB). -->
+  <div class="sp-row sp-row--toggle">
+    <span class="sp-lbl">Mode 3D <span class="sp-tag">beta</span></span>
+    <div class="sp-onoff">
+      <button
+        class="sp-toggle-btn"
+        class:active={$settings.engine3D}
+        on:click={() => $settings.engine3D = true}>
+        ON
+      </button>
+      <button
+        class="sp-toggle-btn"
+        class:active={!$settings.engine3D}
+        on:click={() => $settings.engine3D = false}>
+        OFF
+      </button>
+    </div>
+  </div>
+
   {#if showClose}
     <button class="sp-close" on:click={onClose}>✕ Fermer</button>
   {/if}
@@ -176,4 +196,18 @@
     transition: all 0.15s;
   }
   .sp-close:active { color: #fff; border-color: var(--neon-color, #00c8ff); }
+
+  .sp-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 5px;
+    font-size: 8px;
+    letter-spacing: 0.5px;
+    border-radius: 3px;
+    color: rgba(255,255,255,0.85);
+    background: color-mix(in srgb, var(--neon-color, #00c8ff) 35%, transparent);
+    background: rgba(0,200,255,0.35);
+    text-transform: uppercase;
+    vertical-align: middle;
+  }
 </style>
