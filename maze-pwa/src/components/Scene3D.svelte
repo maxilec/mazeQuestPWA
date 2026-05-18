@@ -52,7 +52,9 @@
   // Lot 6.27.f : anamorphose verticale ×1.10 → étire le maze en Y pour
   // remplir mieux le canvas portrait sans toucher au framing horizontal.
   // Cells deviennent légèrement rectangulaires (10% plus haut que large).
-  const WORLD_STRETCH_Y  = 1.10;
+  // Lot 6.27.g : revert à 1.00 — la déformation était visible sur la
+  // bille (elliptique au lieu de ronde). On compense par pathH augmenté.
+  const WORLD_STRETCH_Y  = 1.00;
 
   // ── Host positioning (cadrage sur la zone canvas) ──────────────────────
   let host;
@@ -134,7 +136,7 @@
   // appliqués via smoothShape sur le polygone.
   // Sol abaissé à -floorDepth pour effet de profondeur dans les fossés.
   $: pathW      = G ? Math.min(G.cw, G.ch) * (G.trackRatio ?? 0.65) : 30;
-  $: pathH      = G ? Math.min(G.cw, G.ch) * 0.55 : 15;   // hauteur extrusion
+  $: pathH      = G ? Math.min(G.cw, G.ch) * 0.70 : 15;   // hauteur extrusion
   $: floorDepth = pathH * 0.4;                            // profondeur sol creusé
   // pathTop : z au-dessus du bevel top de la piste (avec marge). Utilisé
   // pour positionner les neon stripes, dots, checkpoints et sprites.
