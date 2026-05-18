@@ -236,17 +236,21 @@
 
   function buildCornerShape(pathW, cw, ch, bs) {
     const hp = pathW / 2, hw = cw / 2, hh = ch / 2;
+    // Lot 6.30 : suppression du point colinéaire (anciennement pt 3
+    // = (hp, -hp)) qui se trouvait sur la ligne droite reliant
+    // (-hp, -hp) → (hw, -hp). Avec un bevel plus volumineux (Lot 6.30)
+    // ce vertex superflu amplifiait le risque de z-fighting de
+    // normales sur le top de la tuile (Gemini warning §4).
     let pts = [
       {x:  hp, y:  hh},  // 0 boundary
       {x: -hp, y:  hh},  // 1 boundary
       {x: -hp, y: -hp},  // 2 INTERNAL SW outer convex
-      {x:  hp, y: -hp},  // 3 INTERNAL SE elbow concave
-      {x:  hw, y: -hp},  // 4 boundary
-      {x:  hw, y:  hp},  // 5 boundary
-      {x:  hp, y:  hp},  // 6 INTERNAL NE elbow concave
+      {x:  hw, y: -hp},  // 3 boundary (était 4)
+      {x:  hw, y:  hp},  // 4 boundary (était 5)
+      {x:  hp, y:  hp},  // 5 INTERNAL NE elbow concave (était 6)
     ];
     pts = expandBoundary(pts, cw, ch, bs);
-    return smoothShape(pts, [2, 3, 6], pathW * 0.30);
+    return smoothShape(pts, [2, 5], pathW * 0.30);
   }
 
   function buildTShape(pathW, cw, ch, bs) {
@@ -353,22 +357,28 @@
   let neonNodes      = [];
   let lastMazeLvl    = -1;
   $: if (G?.maze && G.lvl !== lastMazeLvl) {
-    const bs = pathH * 0.04;  // light bevel "soft clay"
+    // Lot 6.30 : soft clay bevel — arrondi prononcé via segments lissés
+    // + inset horizontal/vertical séparés. bevelSize est passé aux
+    // build*Shape pour l'expansion boundary (trick seamless Lot 6.22) ;
+    // bevelThickness est purement vertical donc n'affecte pas le shape.
+    const bevelSize      = pathH * 0.12;   // inset horizontal
+    const bevelThickness = pathH * 0.15;   // hauteur verticale de l'arrondi
     const extrudeSettings = {
       depth: pathH,
       bevelEnabled: true,
-      bevelThickness: bs,
-      bevelSize: bs,
-      bevelSegments: 2,
+      bevelThickness,
+      bevelSize,
+      bevelOffset: 0,
+      bevelSegments: 5,     // courbe lissée vs chanfrein plat (était 2)
       steps: 1,
-      curveSegments: 6,
+      curveSegments: 24,    // arrondis fluides des virages (était 6)
     };
     const shapes = {
-      straight: buildStraightShape(pathW, G.cw, G.ch, bs),
-      corner:   buildCornerShape  (pathW, G.cw, G.ch, bs),
-      T:        buildTShape       (pathW, G.cw, G.ch, bs),
-      cross:    buildCrossShape   (pathW, G.cw, G.ch, bs),
-      deadEnd:  buildDeadEndShape (pathW, G.cw, G.ch, bs),
+      straight: buildStraightShape(pathW, G.cw, G.ch, bevelSize),
+      corner:   buildCornerShape  (pathW, G.cw, G.ch, bevelSize),
+      T:        buildTShape       (pathW, G.cw, G.ch, bevelSize),
+      cross:    buildCrossShape   (pathW, G.cw, G.ch, bevelSize),
+      deadEnd:  buildDeadEndShape (pathW, G.cw, G.ch, bevelSize),
     };
     // Dispose previous geometries to free GPU memory.
     if (tileGeometries) {
@@ -679,8 +689,8 @@
           {#each ['straight', 'corner', 'T', 'cross', 'deadEnd'] as tileType (tileType)}
             <InstancedMesh geometry={tileGeometries[tileType]} castShadow receiveShadow>
               <T.MeshStandardMaterial color={PATH_COLOR}
-                                      roughness={0.72} metalness={0.04}
-                                      envMapIntensity={0.28} />
+                                      roughness={0.65} metalness={0.02}
+                                      envMapIntensity={0.40} />
               {#each tileInstances[tileType] as inst, i (`${tileType}-${i}`)}
                 <Instance position={[inst.x, inst.y, 0]}
                           rotation={[0, 0, inst.rot]} />
