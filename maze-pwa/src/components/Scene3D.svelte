@@ -901,7 +901,7 @@
             <T.SphereGeometry args={[ballR, 32, 16]} />
             <T.MeshStandardMaterial color="#D4AF37"
                                     metalness={1.0}
-                                    roughness={0.30}
+                                    roughness={0.22}
                                     envMapIntensity={1.5} />
           </T.Mesh>
 
@@ -916,6 +916,18 @@
                         intensity={2.4}
                         distance={Math.min(G.cw, G.ch) * 2.6}
                         decay={2.0} />
+
+          <!-- Bounce light (Lot 6.26 v2.7) : PointLight cyan juste au
+               niveau de la piste, sous la bille. Simule la lumière
+               rebondie par le rail néon → highlight cyan sur le bas
+               de la sphère métallique. Distance très courte (cell*0.6)
+               + castShadow=false (perf) → n'affecte que la bille. -->
+          <T.PointLight position={[ballX, ballY, pathTop + ballR * 0.25]}
+                        color={neonColor}
+                        intensity={1.4}
+                        distance={Math.min(G.cw, G.ch) * 0.7}
+                        decay={2.0}
+                        castShadow={false} />
 
           <!-- Ball trail — Lot 6.16 : history buffer (positions
                échantillonnées dans animTick). Le trail suit la

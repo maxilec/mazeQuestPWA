@@ -1,22 +1,18 @@
 <script>
   // Lot 6.17 — Post-processing : Bloom + Environment map procédural.
+  // Lot 6.26 v2.7 — Env map remplacé par gradient warm cream custom
+  // (la RoomEnvironment grise rendait le métal de la bille trop sombre
+  // sur les côtés). Maintenant le ball metalness=1.0 reflète des tons
+  // crème/chauds → ne paraît plus "collé" sur le plateau.
   //
   // Composant inline DANS le <Canvas> Threlte pour avoir accès au
   // renderer/scene/camera via useThrelte().
-  //
-  // Effets appliqués :
-  //  1. **Env map** : PMREMGenerator + RoomEnvironment → cube map
-  //     procédural appliqué à scene.environment. La bille metalness=1.0
-  //     reflète maintenant un studio diffus au lieu d'être noire.
-  //  2. **Bloom** : EffectComposer + RenderPass + UnrealBloomPass +
-  //     OutputPass. Capture les pixels emissive (neon stripes, dots,
-  //     cadre) et applique un halo gaussien autour → glow lumineux
-  //     comme le ref 2D.
 
   import { onMount, onDestroy }  from 'svelte';
   import { useThrelte, useRender } from '@threlte/core';
-  import { Vector2, PMREMGenerator } from 'three';
-  import { RoomEnvironment }     from 'three/examples/jsm/environments/RoomEnvironment.js';
+  import { Vector2, PMREMGenerator, CanvasTexture,
+           EquirectangularReflectionMapping, SRGBColorSpace,
+           LinearFilter } from 'three';
   import { EffectComposer }      from 'three/examples/jsm/postprocessing/EffectComposer.js';
   import { RenderPass }          from 'three/examples/jsm/postprocessing/RenderPass.js';
   import { UnrealBloomPass }     from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -34,12 +30,41 @@
   let envMap      = null;
   let sizeUnsub   = null;
 
+  // Construit une CanvasTexture equirectangulaire (2:1) avec gradient
+  // vertical chaud : haut crème clair (sky), équateur crème chaud
+  // (parois de "studio" virtuel), bas tan plus saturé (sol). Les surfaces
+  // métalliques metalness=1.0 reflètent ce gradient → bille gold prend
+  // des tons chauds plutôt que de paraître sombre/noire sur les côtés.
+  function createWarmEnvTexture() {
+    const c = document.createElement('canvas');
+    c.width = 512; c.height = 256;
+    const cx = c.getContext('2d');
+    const g = cx.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0.00, '#fff5e0');  // north pole : sky warm white
+    g.addColorStop(0.35, '#f5e5c5');  // upper hemisphere
+    g.addColorStop(0.50, '#e8d0a5');  // equator (ce que reflètent les
+                                       // côtés visibles de la bille)
+    g.addColorStop(0.65, '#d5b585');  // lower hemisphere
+    g.addColorStop(1.00, '#c89870');  // south pole : floor warm tan
+    cx.fillStyle = g; cx.fillRect(0, 0, 512, 256);
+    const tex = new CanvasTexture(c);
+    tex.mapping     = EquirectangularReflectionMapping;
+    tex.colorSpace  = SRGBColorSpace;
+    tex.minFilter   = LinearFilter;
+    tex.magFilter   = LinearFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
   onMount(() => {
-    // 1. Env map procédural via RoomEnvironment + PMREMGenerator
+    // 1. Env map procédural via PMREMGenerator + texture custom warm.
     const pmrem = new PMREMGenerator(renderer);
     pmrem.compileEquirectangularShader();
-    envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    const warmTex = createWarmEnvTexture();
+    envMap = pmrem.fromEquirectangular(warmTex).texture;
     scene.environment = envMap;
+    warmTex.dispose();
     pmrem.dispose();
 
     // 2. EffectComposer pipeline : Render → Bloom → Output
