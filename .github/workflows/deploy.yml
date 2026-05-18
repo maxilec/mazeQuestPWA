@@ -7,6 +7,7 @@ on:
       - 'claude/gyroscope-marble-maze-s2CPy'
       - 'claude/refactor-game-ui-JacOS'
       - 'claude/threlte-3d-migration'
+      - 'claude/carved-groove-tiles-fCz2l'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
