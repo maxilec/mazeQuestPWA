@@ -48,9 +48,12 @@ function loadSvg(key, file) {
 }
 
 if (typeof window !== 'undefined') {
-  loadSvg('+5s',    'bonus-5s.svg');
-  loadSvg('+10s',   'bonus-10s.svg');
-  loadSvg('+30s',   'bonus-30s.svg');
+  // Lot 6.28 : nouveaux visuels bonus (fichiers +5s.svg etc.).
+  // Le `+` est URL-encodé en %2B pour éviter toute ambiguïté avec
+  // les query strings.
+  loadSvg('+5s',    '%2B5s.svg');
+  loadSvg('+10s',   '%2B10s.svg');
+  loadSvg('+30s',   '%2B30s.svg');
   loadSvg('finish', 'finish.svg');
 }
 

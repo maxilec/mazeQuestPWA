@@ -48,7 +48,8 @@
   // Lot 6.27.e : 12→8° + FOV 12→8
   // Lot 6.27.f : 8→12° + FOV 8→6 (téléobjectif encore plus fort
   // compense le tilt remonté → top reste droit, parois bien marquées)
-  const CAM_TILT_DEG     = 12;
+  // Lot 6.27.h : 12→11° (final tune)
+  const CAM_TILT_DEG     = 11;
   // Lot 6.27.f : anamorphose verticale ×1.10 → étire le maze en Y pour
   // remplir mieux le canvas portrait sans toucher au framing horizontal.
   // Cells deviennent légèrement rectangulaires (10% plus haut que large).
@@ -136,7 +137,7 @@
   // appliqués via smoothShape sur le polygone.
   // Sol abaissé à -floorDepth pour effet de profondeur dans les fossés.
   $: pathW      = G ? Math.min(G.cw, G.ch) * (G.trackRatio ?? 0.65) : 30;
-  $: pathH      = G ? Math.min(G.cw, G.ch) * 0.70 : 15;   // hauteur extrusion
+  $: pathH      = G ? Math.min(G.cw, G.ch) * 0.80 : 15;   // hauteur extrusion
   $: floorDepth = pathH * 0.4;                            // profondeur sol creusé
   // pathTop : z au-dessus du bevel top de la piste (avec marge). Utilisé
   // pour positionner les neon stripes, dots, checkpoints et sprites.
@@ -861,14 +862,15 @@
                 ? 1 + (age / 400) * 0.45
                 : 1 + Math.sin(now * 0.004 + col.c + col.r) * 0.06}
               {@const size   = base * pulse}
-              <!-- Lot 6.10 : z = pathH + 1.5 (au-dessus de
-                   la piste surélevée) + depthTest=false → toujours
-                   visible par-dessus tout. -->
+              <!-- Lot 6.10 : z = pathH + 1.5 (au-dessus de la piste).
+                   Lot 6.28 : depthTest=true → la bille (opaque, écrit
+                   le depth buffer à z=pathTop+ballR > pathTop+1.5)
+                   occlude le bonus quand elle passe dessus. -->
               <T.Sprite position={[cx, cy, pathTop + 1.5]}
                         scale={[size, size, 1]}>
                 <T.SpriteMaterial map={tex} transparent={true}
                                   opacity={fade}
-                                  depthWrite={false} depthTest={false} />
+                                  depthWrite={false} depthTest={true} />
               </T.Sprite>
             {/if}
           {/each}
