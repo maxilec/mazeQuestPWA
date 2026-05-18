@@ -98,7 +98,7 @@
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
     s.bias          = -0.0001;
-    s.radius        = 14;
+    s.radius        = 6;
     s.needsUpdate   = true;
   }
 
@@ -505,6 +505,27 @@
     return tex;
   }
 
+  // ── Contact shadow sous la bille (Lot 6.26 v2.6) ──────────────────────
+  // Disque radial noir/transparent rendu via Sprite au niveau du sol,
+  // suit la bille en XY. Grounding indépendant de la light directionnelle.
+  let ballContactShadowTex = null;
+  function createBallContactShadow() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0.00, 'rgba(0,0,0,0.55)');
+    g.addColorStop(0.40, 'rgba(0,0,0,0.30)');
+    g.addColorStop(1.00, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+    const tex = new CanvasTexture(c);
+    tex.minFilter = LinearFilter;
+    tex.magFilter = LinearFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
   // ── Groove shadow gradient (Lot 6.26 v2) ──────────────────────────────
   // alphaMap qui simule la lèvre haute d'une rainure 3D vue de dessus :
   // sombre sur la bande centrale (fond du creux), fade vers transparent
@@ -558,6 +579,7 @@
     grooveAlphaV.rotation = Math.PI / 2;
     grooveAlphaV.needsUpdate = true;
     grooveAlphaR = createGrooveRadialAlpha();
+    ballContactShadowTex = createBallContactShadow();
     checkTextures();
     animRaf = requestAnimationFrame(animTick);
   });
@@ -570,6 +592,7 @@
     grooveAlphaH?.dispose();
     grooveAlphaV?.dispose();
     grooveAlphaR?.dispose();
+    ballContactShadowTex?.dispose();
     for (const tex of Object.values(textures)) tex.dispose();
   });
 </script>
@@ -857,13 +880,29 @@
              la bille reflète correctement les neon PointLights aux
              intersections (teintes cyan/rose/vert selon theme). -->
         {#if G && ballVisible}
+          <!-- Contact shadow (Lot 6.26 v2.6) : disque sombre fade au sol
+               suivant la bille en XY. Grounding fort indépendant de la
+               light directionnelle (la real shadow reste utile mais
+               compense mal sous tilt). -->
+          {#if ballContactShadowTex}
+            <T.Sprite position={[ballX, ballY, pathTop + 0.05]}
+                      scale={[ballR * 2.8, ballR * 2.8, 1]}
+                      renderOrder={0}>
+              <T.SpriteMaterial map={ballContactShadowTex}
+                                transparent={true}
+                                opacity={0.85 * fallScale}
+                                depthTest={true}
+                                depthWrite={false} />
+            </T.Sprite>
+          {/if}
           <T.Mesh position={[ballX, ballY, (pathTop + ballR) * fallScale]}
                   scale={[fallScale, fallScale, fallScale]}
                   castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
             <T.MeshStandardMaterial color="#D4AF37"
                                     metalness={1.0}
-                                    roughness={0.15} />
+                                    roughness={0.30}
+                                    envMapIntensity={1.5} />
           </T.Mesh>
 
           <!-- PointLight locale qui suit la bille (Lot 6.26 v2.1) :
