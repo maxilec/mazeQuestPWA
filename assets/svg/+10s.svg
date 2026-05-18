@@ -4,16 +4,12 @@
       <feGaussianBlur stdDeviation="4"/>
     </filter>
     <filter id="blurSmPurple">
-      <feGaussianBlur stdDeviation="2"/>
+      <feGaussianBlur stdDeviation="3"/>
     </filter>
   </defs>
   <circle cx="60" cy="60" r="42" fill="#2b3b4a"/>
   <circle cx="60" cy="60" r="42" fill="none" stroke="#a855f7" stroke-width="6" filter="url(#blurLgPurple)"/>
-  <text x="60" y="70" font-family="sans-serif" font-weight="900" font-size="28" fill="#a855f7" filter="url(#blurSmPurple)" text-anchor="middle">
-    +10s
-  </text>
+  <text x="60" y="60" font-family="sans-serif" font-weight="900" font-size="50" fill="#a855f7" filter="url(#blurSmPurple)" text-anchor="middle" dominant-baseline="central">10</text>
   <circle cx="60" cy="60" r="42" fill="none" stroke="#ffffff" stroke-width="2.5"/>
-  <text x="60" y="70" font-family="sans-serif" font-weight="900" font-size="28" fill="#ffffff" text-anchor="middle">
-    +10s
-  </text>
+  <text x="60" y="60" font-family="sans-serif" font-weight="900" font-size="50" fill="#ffffff" text-anchor="middle" dominant-baseline="central">10</text>
 </svg>
