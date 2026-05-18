@@ -856,7 +856,7 @@
             {@const age     = col.collected ? now - col.collectT : 0}
             {@const visible = !col.collected || age < 400}
             {#if tex && visible}
-              {@const base   = G.br * 2.8}
+              {@const base   = G.br * 4.2}
               {@const fade   = col.collected ? Math.max(0, 1 - age / 400) : 1}
               {@const pulse  = col.collected
                 ? 1 + (age / 400) * 0.45
@@ -865,9 +865,14 @@
               <!-- Lot 6.10 : z = pathH + 1.5 (au-dessus de la piste).
                    Lot 6.28 : depthTest=true → la bille (opaque, écrit
                    le depth buffer à z=pathTop+ballR > pathTop+1.5)
-                   occlude le bonus quand elle passe dessus. -->
+                   occlude le bonus quand elle passe dessus.
+                   Lot 6.28.b : renderOrder=5 > neon (2-4) → le bonus
+                   dessine APRÈS le neon white core (qui écrit depth)
+                   et passe par-dessus via depth test. Sans renderOrder,
+                   le neon dessinait après et effaçait le bonus. -->
               <T.Sprite position={[cx, cy, pathTop + 1.5]}
-                        scale={[size, size, 1]}>
+                        scale={[size, size, 1]}
+                        renderOrder={5}>
                 <T.SpriteMaterial map={tex} transparent={true}
                                   opacity={fade}
                                   depthWrite={false} depthTest={true} />
