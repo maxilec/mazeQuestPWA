@@ -585,7 +585,7 @@
          capturer QUE les emissive HDR (toneMapped:false). Lights
          ambient/directional réduits car RoomEnvironment fournit
          maintenant l'illumination globale. -->
-    <Postprocess bloomStrength={0.28} bloomRadius={0.12} bloomThreshold={1.0} />
+    <Postprocess bloomStrength={0.38} bloomRadius={0.18} bloomThreshold={1.0} />
 
     <!-- Lighting (Lot 6.19) — setup "Soft Clay" per Gemini :
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
@@ -688,12 +688,12 @@
             <T.Mesh position={[seg.x, seg.y, pathTop]} renderOrder={2}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 0.5]
-                  : [neonW * 0.5, seg.length]
+                  ? [seg.length, neonW * 0.6]
+                  : [neonW * 0.6, seg.length]
               } />
               <T.MeshStandardMaterial color="#ffffff"
                                       emissive="#ffffff"
-                                      emissiveIntensity={1.2}
+                                      emissiveIntensity={1.6}
                                       toneMapped={false}
                                       transparent={false} />
             </T.Mesh>
@@ -702,15 +702,15 @@
             <T.Mesh position={[seg.x, seg.y, pathTop + 0.1]} renderOrder={3}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 0.8]
-                  : [neonW * 0.8, seg.length]
+                  ? [seg.length, neonW * 1.0]
+                  : [neonW * 1.0, seg.length]
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
-                                      emissiveIntensity={0.7}
+                                      emissiveIntensity={1.1}
                                       toneMapped={false}
                                       transparent={true}
-                                      opacity={0.55}
+                                      opacity={0.75}
                                       depthWrite={false} />
             </T.Mesh>
           {/each}
@@ -721,12 +721,12 @@
           {#each neonNodes as node, i (`nb${i}`)}
             {#if node.isIntersection}
               <T.Mesh position={[node.x, node.y, pathTop + 0.3]} renderOrder={4}>
-                <T.SphereGeometry args={[neonW * 0.75, 16, 8]} />
+                <T.SphereGeometry args={[neonW * 0.8, 16, 8]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
-                                        emissiveIntensity={0.8}
+                                        emissiveIntensity={1.1}
                                         transparent={true}
-                                        opacity={0.85}
+                                        opacity={0.95}
                                         toneMapped={false}
                                         depthWrite={false} />
               </T.Mesh>
@@ -864,6 +864,15 @@
                                     roughness={0.15} />
           </T.Mesh>
 
+          <!-- PointLight locale qui suit la bille (Lot 6.26 v2.1) :
+               teinte du néon courant, courte portée → reflet bleu sur
+               la bille métallique sans polluer le reste des couloirs. -->
+          <T.PointLight position={[ballX, ballY, pathTop + ballR * 1.5]}
+                        color={neonColor}
+                        intensity={0.7}
+                        distance={Math.min(G.cw, G.ch) * 1.4}
+                        decay={2.0} />
+
           <!-- Ball trail — Lot 6.16 : history buffer (positions
                échantillonnées dans animTick). Le trail suit la
                trajectoire courbe de la bille, pas la velocity
@@ -883,7 +892,7 @@
                   <T.SpriteMaterial map={ballGlowTexture}
                                     transparent={true}
                                     opacity={opacity}
-                                    depthTest={false}
+                                    depthTest={true}
                                     depthWrite={false} />
                 </T.Sprite>
               {/if}
