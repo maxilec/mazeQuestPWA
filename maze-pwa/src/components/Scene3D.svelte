@@ -868,11 +868,14 @@
 
           <!-- PointLight locale qui suit la bille (Lot 6.26 v2.1) :
                teinte du néon courant, courte portée → reflet bleu sur
-               la bille métallique sans polluer le reste des couloirs. -->
+               la bille métallique + groove lighting effect autour.
+               v2.3 : intensity 0.7→1.6 + distance 1.4→2.0 cells →
+               la cyan light spille sur la piste autour de la bille,
+               compensant la perte de glow par bloom resserré. -->
           <T.PointLight position={[ballX, ballY, pathTop + ballR * 1.5]}
                         color={neonColor}
-                        intensity={0.7}
-                        distance={Math.min(G.cw, G.ch) * 1.4}
+                        intensity={1.6}
+                        distance={Math.min(G.cw, G.ch) * 2.0}
                         decay={2.0} />
 
           <!-- Ball trail — Lot 6.16 : history buffer (positions
