@@ -35,7 +35,7 @@
 
   const DEG              = Math.PI / 180;
   const MAX_TILT_DEG     = 12;
-  const FOV              = 12;
+  const FOV              = 8;
   // Lot 6 : élévation dynamique de la caméra — top-down au repos,
   // ramp jusqu'à CAM_MAX_ELEV_DEG quand l'input tilt est non nul. Donne
   // un cue 3D pendant le mouvement sans imposer d'angle au repos.
@@ -44,9 +44,11 @@
   // parois inférieures des tiles. Combiné au FOV réduit (téléobjectif),
   // donne le rendu "iso-tilt soft" de la maquette.
   // Lot 6.27.c : 22→18° + pathH 0.32→0.40
-  // Lot 6.27.d : 18→12° + pathH 0.40→0.55 → presque orthographique,
-  // les parois plus hautes prennent le relais pour la sensation 3D.
-  const CAM_TILT_DEG     = 12;
+  // Lot 6.27.d : 18→12° + pathH 0.40→0.55
+  // Lot 6.27.e : 12→8° + FOV 12→8 → top du plateau redressé,
+  // perspective quasi-orthographique. Les parois (pathH 0.55) restent
+  // l'unique source de sensation 3D.
+  const CAM_TILT_DEG     = 8;
 
   // ── Host positioning (cadrage sur la zone canvas) ──────────────────────
   let host;
