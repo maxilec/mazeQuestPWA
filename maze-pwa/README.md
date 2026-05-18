@@ -1,13 +1,14 @@
-# 🎯 Labyrinthe — Bille de métal (PWA)
+# 🎯 Labyrinthe — Bille de métal (PWA 3D)
 
-Jeu de labyrinthe procédural contrôlé par gyroscope.
-Stack : **Svelte 4 + Vite 5 + vite-plugin-pwa**.
+Jeu de labyrinthe procédural contrôlé par gyroscope, rendu **3D temps-réel**
+via Threlte (wrapper Svelte de three.js).
 
-> **Branche en cours :** `claude/refactor-game-ui-JacOS`
-> Refonte progressive de l'interface graphique : on continue de **factoriser**
-> ce qui peut l'être et de **découper en composants Svelte** réutilisables
-> (HUD, boutons, panneaux, jauges…). Voir la section
-> [Architecture & refactoring](#-architecture--refactoring).
+Stack : **Svelte 4 + Vite 5 + Threlte 7 + three.js 0.160 + vite-plugin-pwa**.
+
+> **Branche en cours :** `claude/carved-groove-tiles-fCz2l`
+> Polish visuel 3D : matières, lumières, post-processing, géométrie tuiles.
+> Voir le [Rapport de conception 3D](docs/3D_DESIGN_REPORT.md) pour
+> l'historique détaillé des décisions et leur justification.
 
 ---
 
@@ -51,7 +52,9 @@ Ouvre `http://localhost:5173` dans ton navigateur.
 npm run build
 ```
 
-Le build (avec icônes + Service Worker) est généré dans `dist/`.
+Le build (avec icônes + Service Worker + WebGL Threlte) est généré
+dans `dist/`. Note : le chunk `Scene3D` fait ~775 KB (gzip 204 KB)
+incluant three.js et threlte.
 
 ### 5. Tester le build localement
 
@@ -83,6 +86,9 @@ Ouvre `http://localhost:4173`.
 N'importe quel hébergement statique fonctionne.
 L'app doit être servie en **HTTPS** pour que le gyroscope fonctionne.
 
+GitHub Pages est configuré via `.github/workflows/deploy.yml` —
+push sur les branches listées déclenche le build + déploiement automatique.
+
 ### Vercel (recommandé, gratuit)
 ```bash
 npm i -g vercel
@@ -93,12 +99,6 @@ vercel
 ```bash
 npm run build
 # puis glisse-dépose le dossier dist/ sur netlify.com/drop
-```
-
-### GitHub Pages
-```bash
-npm run build
-# pousse dist/ sur la branche gh-pages
 ```
 
 ---
@@ -138,6 +138,15 @@ export const GRAVITY  = 0.40;  // sensibilité à l'inclinaison
 export const BOUNCE   = 0.22;  // rebond sur les murs (0 = aucun, 1 = élastique)
 ```
 
+Constantes visuelles 3D → `src/components/Scene3D.svelte` (haut du
+script) :
+```js
+const FOV              = 6;     // téléobjectif extrême (perspective aplatie)
+const CAM_TILT_DEG     = 11;    // angle caméra cavalier
+const WORLD_STRETCH_Y  = 1.00;  // anamorphose verticale (1.0 = aucune)
+// pathH = min(cw,ch) * 0.80    // hauteur d'extrusion des tiles
+```
+
 ---
 
 ## 📁 Structure du projet
@@ -150,52 +159,70 @@ maze-pwa/
 ├── scripts/
 │   └── gen-icons.mjs           # Génération icônes PNG (Node natif)
 ├── public/
-│   ├── assets/                 # Musique, sons, SVG
+│   ├── assets/                 # Musique, sons, SVG bonus (+5s, +10s, +30s)
 │   └── icons/                  # Icônes PWA
+├── docs/
+│   └── 3D_DESIGN_REPORT.md     # Rapport de conception 3D détaillé
 └── src/
     ├── main.js                 # Bootstrap Svelte
     ├── App.svelte              # Aiguillage écran (title / game / gameover)
     ├── stores.js               # État global (Svelte stores + persistance)
     ├── components/             # Composants UI
     │   ├── TitleScreen.svelte
-    │   ├── Game.svelte         # ⚠️ gros composant — cible de découpage
+    │   ├── Game.svelte         # Game loop, input, physics
+    │   ├── Scene3D.svelte      # Rendu 3D Threlte (tiles, bille, bonus...)
+    │   ├── Postprocess.svelte  # Bloom + env map (PMREMGenerator)
+    │   ├── Canvas.svelte       # Canvas 2D legacy (capture input)
+    │   ├── HUD.svelte          # UI top : niveau, chrono, record
     │   ├── GameOver.svelte
-    │   └── SettingsPanel.svelte
+    │   ├── SettingsPanel.svelte
+    │   └── PauseOverlay.svelte
     └── lib/                    # Logique pure (sans Svelte)
-        ├── constants.js        # Constantes physiques et de jeu
+        ├── constants.js        # Palette néon, ratios, constantes physiques
+        ├── theme.js            # Thèmes par niveau / zen color
         ├── maze.js             # Génération DFS du labyrinthe
-        ├── maze-utils.js       # Helpers maze (distance, solution…)
+        ├── maze-utils.js       # bfsPath, trackRatio, collectibles
         ├── physics.js          # Intégration bille (friction, rebonds)
-        ├── render.js           # Dessin canvas
+        ├── render.js           # SVG loader + rasterizer (bonus textures)
         └── audio.js            # Gestionnaire audio (musique + SFX)
 ```
 
 ---
 
-## 🏗️ Architecture & refactoring
+## 🏗️ Architecture
 
-Cette branche poursuit deux objectifs :
+### Séparation logique / rendu
+- **Logique métier** (`src/lib/`) : modules JS purs, aucune dépendance
+  Svelte ni three.js. Physique 2D, génération maze, audio.
+- **UI 2D** (`src/components/HUD.svelte`, etc.) : composants Svelte
+  classiques pour les surcouches (HUD, menus, overlays).
+- **Rendu 3D** (`src/components/Scene3D.svelte`, `Postprocess.svelte`) :
+  Threlte + three.js. Lit l'état `G` (game state) calculé par
+  `Game.svelte` et le matérialise en 3D. **Le mesh 3D est purement
+  visuel — la physique reste 2D** (sur la grille `maze[r][c]`).
 
-### 1. Modularité
-La logique métier vit dans `src/lib/` sous forme de **modules JS purs**
-(aucune dépendance Svelte). Cela rend chaque brique testable, remplaçable
-et réutilisable hors du composant.
+### Système de tuiles "Lego" (Lot 6.22+)
+Le labyrinthe est composé de 5 types de tuiles ré-utilisables :
+`straight`, `corner`, `T`, `cross`, `deadEnd`. Chacune est extrudée
+une fois par niveau (avec la `pathW` courante) puis instanciée via
+`InstancedMesh` dans chaque cellule du maze. Permet de tenir 60 FPS
+mobile avec un maze 10×6 et des bevels arrondis.
 
-### 2. Composants réutilisables
-L'écran de jeu (`Game.svelte`, ~1000 lignes) reste le plus gros morceau
-à éclater. Cibles de découpage à venir :
+### Pipeline de rendu
+1. **Géométrie** : `ExtrudeGeometry` par tile, avec bevel "soft clay"
+   et arrondis sélectifs sur les coins INTERNES (les coins boundary
+   restent sharp pour seamless connection entre tiles adjacentes).
+2. **Matériaux** : `MeshStandardMaterial` pour les tiles, ball en
+   metalness=1.0 / roughness=0.15.
+3. **Lumières** : ambient warm + 2 directionnelles + PointLight
+   bounce sous la bille (suit la bille pour reflet néon local).
+4. **Post-processing** : Bloom (UnrealBloomPass) + env map procédurale
+   chaude (PMREMGenerator sur CanvasTexture gradient vertical).
 
-- **HUD** — niveau, chutes, jauge de temps, mode courant
-- **Boutons d'action** — pause, settings, retour (style commun)
-- **Jauges** — composant générique (temps, énergie, etc.)
-- **Overlay pause / permission gyro** — modales réutilisables
-- **Joystick virtuel** — composant isolé
-- **Panneau de réglages** — déjà extrait, à affiner
+Voir [`docs/3D_DESIGN_REPORT.md`](docs/3D_DESIGN_REPORT.md) pour le
+détail des choix et leurs itérations.
 
-Règle générale : **dès qu'un bloc visuel est utilisé à 2 endroits
-ou dépasse ~80 lignes**, on en fait un composant dans `src/components/`.
-
-### 3. État partagé
+### État partagé
 `src/stores.js` centralise :
 - `screen` — écran actif (`title` / `game` / `gameover`)
 - `gameMode` — mode courant
@@ -209,9 +236,16 @@ ou dépasse ~80 lignes**, on en fait un composant dans `src/components/`.
 ## 🔧 Algorithme de génération
 
 Le labyrinthe est généré par **DFS itératif (backtracking)** :
-- Garantit un labyrinthe *parfait* : une seule solution, toutes cellules accessibles
-- Paramétrable : `makeMaze(rows, cols)` → grille de cellules `{T, R, B, L}`
-- Le trou est placé dans la cellule la plus éloignée du point de départ (distance Manhattan)
+- Garantit un labyrinthe *parfait* : une seule solution, toutes
+  cellules accessibles
+- `makeMaze(rows, cols)` → grille de cellules `{T, R, B, L}` (walls)
+- Le trou est placé dans la cellule la plus éloignée du point de
+  départ (BFS distance)
+
+La fonction `getTrackRatio(lvl)` détermine la largeur de la piste :
+`0.65 - floor((lvl-1)/5) × 0.05`, plancher 0.35. Note : le sweet-spot
+`0.50` (lvl 16-20) est nudgé à `0.48` pour éviter une dégénérescence
+géométrique (cf. Lot 6.29 dans le rapport).
 
 ---
 
