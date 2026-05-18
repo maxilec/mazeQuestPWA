@@ -143,9 +143,17 @@
   $: pathW      = G ? Math.min(G.cw, G.ch) * (G.trackRatio ?? 0.65) : 30;
   $: pathH      = G ? Math.min(G.cw, G.ch) * 0.80 : 15;   // hauteur extrusion
   $: floorDepth = pathH * 0.4;                            // profondeur sol creusé
-  // pathTop : z au-dessus du bevel top de la piste (avec marge). Utilisé
-  // pour positionner les neon stripes, dots, checkpoints et sprites.
-  $: pathTop    = pathH + pathH * 0.06 + 0.2;
+  // Lot 6.30 : bevel soft clay — coefficients hissés au niveau global
+  // (réactifs) pour que pathTop puisse se caler EXACTEMENT au-dessus
+  // du top bevel. Sinon les neon/checkpoints/bonus se retrouvent
+  // enterrés quand bevelThickness augmente.
+  $: bevelSize      = pathH * 0.12;   // inset horizontal du bevel
+  $: bevelThickness = pathH * 0.15;   // hauteur verticale du bevel
+  // pathTop : z juste au-dessus du top du bevel de la piste (avec marge
+  // 0.5). Utilisé pour positionner les neon stripes, dots, checkpoints
+  // et sprites. ExtrudeGeometry étend la géométrie de bevelThickness
+  // au-dessus de depth=pathH → top réel à pathH + bevelThickness.
+  $: pathTop    = pathH + bevelThickness + 0.5;
   $: neonW      = G ? Math.min(G.cw, G.ch) * 0.07 : 3.5;
   const PATH_COLOR = '#E5C29C';
 
@@ -357,12 +365,11 @@
   let neonNodes      = [];
   let lastMazeLvl    = -1;
   $: if (G?.maze && G.lvl !== lastMazeLvl) {
-    // Lot 6.30 : soft clay bevel — arrondi prononcé via segments lissés
-    // + inset horizontal/vertical séparés. bevelSize est passé aux
-    // build*Shape pour l'expansion boundary (trick seamless Lot 6.22) ;
-    // bevelThickness est purement vertical donc n'affecte pas le shape.
-    const bevelSize      = pathH * 0.12;   // inset horizontal
-    const bevelThickness = pathH * 0.15;   // hauteur verticale de l'arrondi
+    // Lot 6.30 : soft clay bevel — bevelSize/bevelThickness définis
+    // au niveau global (lignes 148-149) pour que pathTop puisse s'y
+    // référer. bevelSize est passé aux build*Shape pour l'expansion
+    // boundary (trick seamless Lot 6.22) ; bevelThickness est purement
+    // vertical donc n'affecte pas le shape 2D.
     const extrudeSettings = {
       depth: pathH,
       bevelEnabled: true,
