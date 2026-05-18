@@ -35,7 +35,7 @@
 
   const DEG              = Math.PI / 180;
   const MAX_TILT_DEG     = 12;
-  const FOV              = 25;
+  const FOV              = 12;
   // Lot 6 : élévation dynamique de la caméra — top-down au repos,
   // ramp jusqu'à CAM_MAX_ELEV_DEG quand l'input tilt est non nul. Donne
   // un cue 3D pendant le mouvement sans imposer d'angle au repos.
@@ -64,7 +64,7 @@
   $: visibleH    = G
       ? (isLandscape ? G.W : G.H) + cadreGap * 2 + 8
       : 660;
-  $: cameraDist  = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.18;
+  $: cameraDist  = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.10;
 
   // Lot 6.27 : position caméra cavalier — reculée en -Y (côté
   // spectateur), élevée en +Z, regardant l'origine. Le tilt fixe expose
@@ -605,7 +605,7 @@
   <Canvas shadows={PCFSoftShadowMap}>
     <T.PerspectiveCamera bind:ref={cameraRef} makeDefault
                          position={[0, camY, camZ]}
-                         fov={FOV} near={1} far={cameraDist * 3} />
+                         fov={FOV} near={cameraDist * 0.5} far={cameraDist * 1.5} />
 
     <!-- Post-process (Lot 6.17) — Bloom + Env map procédural.
          Lot 6.17 hotfix 2 : threshold 1.0 + strength 0.4 pour ne
