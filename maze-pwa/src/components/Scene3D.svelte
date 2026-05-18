@@ -35,7 +35,7 @@
 
   const DEG              = Math.PI / 180;
   const MAX_TILT_DEG     = 12;
-  const FOV              = 8;
+  const FOV              = 6;
   // Lot 6 : élévation dynamique de la caméra — top-down au repos,
   // ramp jusqu'à CAM_MAX_ELEV_DEG quand l'input tilt est non nul. Donne
   // un cue 3D pendant le mouvement sans imposer d'angle au repos.
@@ -45,10 +45,14 @@
   // donne le rendu "iso-tilt soft" de la maquette.
   // Lot 6.27.c : 22→18° + pathH 0.32→0.40
   // Lot 6.27.d : 18→12° + pathH 0.40→0.55
-  // Lot 6.27.e : 12→8° + FOV 12→8 → top du plateau redressé,
-  // perspective quasi-orthographique. Les parois (pathH 0.55) restent
-  // l'unique source de sensation 3D.
-  const CAM_TILT_DEG     = 8;
+  // Lot 6.27.e : 12→8° + FOV 12→8
+  // Lot 6.27.f : 8→12° + FOV 8→6 (téléobjectif encore plus fort
+  // compense le tilt remonté → top reste droit, parois bien marquées)
+  const CAM_TILT_DEG     = 12;
+  // Lot 6.27.f : anamorphose verticale ×1.10 → étire le maze en Y pour
+  // remplir mieux le canvas portrait sans toucher au framing horizontal.
+  // Cells deviennent légèrement rectangulaires (10% plus haut que large).
+  const WORLD_STRETCH_Y  = 1.10;
 
   // ── Host positioning (cadrage sur la zone canvas) ──────────────────────
   let host;
@@ -634,8 +638,10 @@
     <T.DirectionalLight position={[G ? G.W * 0.3 : 150, G ? -G.H * 0.3 : -150, 400]}
                         intensity={0.45} color="#ffe0b0" />
 
-    <!-- World-lock root group -->
-    <T.Group rotation.z={worldLockZ}>
+    <!-- World-lock root group. scale.y={WORLD_STRETCH_Y} : anamorphose
+         verticale Lot 6.27.f → étire le maze en Y pour remplir le canvas
+         portrait sans changer la largeur. -->
+    <T.Group rotation.z={worldLockZ} scale.y={WORLD_STRETCH_Y}>
       <!-- Tilt 3D group -->
       <T.Group rotation.x={tiltX} rotation.y={tiltY}>
 
