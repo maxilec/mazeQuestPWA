@@ -585,7 +585,7 @@
          capturer QUE les emissive HDR (toneMapped:false). Lights
          ambient/directional réduits car RoomEnvironment fournit
          maintenant l'illumination globale. -->
-    <Postprocess bloomStrength={0.38} bloomRadius={0.18} bloomThreshold={1.0} />
+    <Postprocess bloomStrength={0.18} bloomRadius={0.08} bloomThreshold={1.0} />
 
     <!-- Lighting (Lot 6.19) — setup "Soft Clay" per Gemini :
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
@@ -688,29 +688,31 @@
             <T.Mesh position={[seg.x, seg.y, pathTop]} renderOrder={2}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 0.6]
-                  : [neonW * 0.6, seg.length]
+                  ? [seg.length, neonW * 0.32]
+                  : [neonW * 0.32, seg.length]
               } />
               <T.MeshStandardMaterial color="#ffffff"
                                       emissive="#ffffff"
-                                      emissiveIntensity={1.6}
+                                      emissiveIntensity={2.2}
                                       toneMapped={false}
                                       transparent={false} />
             </T.Mesh>
-            <!-- Color halo (glow coloré) — Lot 6.24 : renderOrder=3 +
-                 depthWrite=false (fix flicker tilt). -->
+            <!-- Color halo (liseré bleu crisp) — Lot 6.24 : renderOrder=3 +
+                 depthWrite=false (fix flicker tilt). Lot 6.26 v2.2 : largeur
+                 resserrée + emissive haute + opacity haute → liseré net sans
+                 bloom diffus. -->
             <T.Mesh position={[seg.x, seg.y, pathTop + 0.1]} renderOrder={3}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 1.0]
-                  : [neonW * 1.0, seg.length]
+                  ? [seg.length, neonW * 0.7]
+                  : [neonW * 0.7, seg.length]
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
-                                      emissiveIntensity={1.1}
+                                      emissiveIntensity={1.5}
                                       toneMapped={false}
                                       transparent={true}
-                                      opacity={0.75}
+                                      opacity={0.9}
                                       depthWrite={false} />
             </T.Mesh>
           {/each}
@@ -721,10 +723,10 @@
           {#each neonNodes as node, i (`nb${i}`)}
             {#if node.isIntersection}
               <T.Mesh position={[node.x, node.y, pathTop + 0.3]} renderOrder={4}>
-                <T.SphereGeometry args={[neonW * 0.8, 16, 8]} />
+                <T.SphereGeometry args={[neonW * 0.6, 16, 8]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
-                                        emissiveIntensity={1.1}
+                                        emissiveIntensity={1.5}
                                         transparent={true}
                                         opacity={0.95}
                                         toneMapped={false}
