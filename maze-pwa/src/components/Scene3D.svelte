@@ -50,6 +50,10 @@
   // compense le tilt remonté → top reste droit, parois bien marquées)
   // Lot 6.27.h : 12→11° (final tune)
   const CAM_TILT_DEG     = 11;
+  // Précalcul de sin(tilt) pour positionner les Sprites (billboards face
+  // caméra) en z assez haut pour que leur bord bas ne plonge pas dans
+  // les parois 3D quand pathH est grand.
+  const CAM_TILT_SIN     = Math.sin(11 * Math.PI / 180);
   // Lot 6.27.f : anamorphose verticale ×1.10 → étire le maze en Y pour
   // remplir mieux le canvas portrait sans toucher au framing horizontal.
   // Cells deviennent légèrement rectangulaires (10% plus haut que large).
@@ -862,15 +866,14 @@
                 ? 1 + (age / 400) * 0.45
                 : 1 + Math.sin(now * 0.004 + col.c + col.r) * 0.06}
               {@const size   = base * pulse}
-              <!-- Lot 6.10 : z = pathH + 1.5 (au-dessus de la piste).
-                   Lot 6.28 : depthTest=true → la bille (opaque, écrit
-                   le depth buffer à z=pathTop+ballR > pathTop+1.5)
-                   occlude le bonus quand elle passe dessus.
-                   Lot 6.28.b : renderOrder=5 > neon (2-4) → le bonus
-                   dessine APRÈS le neon white core (qui écrit depth)
-                   et passe par-dessus via depth test. Sans renderOrder,
-                   le neon dessinait après et effaçait le bonus. -->
-              <T.Sprite position={[cx, cy, pathTop + 1.5]}
+              <!-- Lot 6.28.c : z dynamique pour éviter que le sprite
+                   (billboard face caméra tiltée) plonge dans les parois.
+                   Le bord bas du sprite descend en world-Z de
+                   size/2 * sin(tilt) ; on rajoute ce delta + une marge
+                   au pathTop pour garantir que le bord reste au-dessus
+                   du sommet des parois quelle que soit la taille. -->
+              {@const spriteZ = pathTop + size * CAM_TILT_SIN * 0.5 + 2}
+              <T.Sprite position={[cx, cy, spriteZ]}
                         scale={[size, size, 1]}
                         renderOrder={5}>
                 <T.SpriteMaterial map={tex} transparent={true}
