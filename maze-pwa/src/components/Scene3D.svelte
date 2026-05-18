@@ -585,7 +585,7 @@
          capturer QUE les emissive HDR (toneMapped:false). Lights
          ambient/directional réduits car RoomEnvironment fournit
          maintenant l'illumination globale. -->
-    <Postprocess bloomStrength={0.18} bloomRadius={0.08} bloomThreshold={0.85} />
+    <Postprocess bloomStrength={0.24} bloomRadius={0.10} bloomThreshold={0.85} />
 
     <!-- Lighting (Lot 6.19) — setup "Soft Clay" per Gemini :
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
@@ -709,7 +709,7 @@
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
-                                      emissiveIntensity={1.5}
+                                      emissiveIntensity={1.9}
                                       toneMapped={false}
                                       transparent={true}
                                       opacity={0.9}
@@ -869,13 +869,13 @@
           <!-- PointLight locale qui suit la bille (Lot 6.26 v2.1) :
                teinte du néon courant, courte portée → reflet bleu sur
                la bille métallique + groove lighting effect autour.
-               v2.3 : intensity 0.7→1.6 + distance 1.4→2.0 cells →
-               la cyan light spille sur la piste autour de la bille,
-               compensant la perte de glow par bloom resserré. -->
+               v2.5 : intensity 1.6→2.4 + distance 2.0→2.6 cells →
+               highlight spéculaire visible sur la sphère metalness=1.0
+               + spill cyan plus présent sur la piste autour. -->
           <T.PointLight position={[ballX, ballY, pathTop + ballR * 1.5]}
                         color={neonColor}
-                        intensity={1.6}
-                        distance={Math.min(G.cw, G.ch) * 2.0}
+                        intensity={2.4}
+                        distance={Math.min(G.cw, G.ch) * 2.6}
                         decay={2.0} />
 
           <!-- Ball trail — Lot 6.16 : history buffer (positions
