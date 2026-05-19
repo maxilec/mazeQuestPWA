@@ -34,7 +34,7 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div class="container" on:click>
 
-  <!-- Top bar : Niveau / Timer / Record + gauge -->
+  <!-- Top bar : Niveau / Timer / Record (sans gauge) -->
   <div class="top-bar">
     <div class="top-row">
       <div class="top-left">
@@ -56,9 +56,15 @@
         {/if}
       </div>
     </div>
-    <div class="progress" class:alert={gaugeAlert}>
-      <div class="progress-fill" style="width: {gaugePct * 100}%"></div>
-    </div>
+  </div>
+  <!-- Lot 7.0.c : jauge gauge sortie du top-bar pour pouvoir être :
+       - Portrait : horizontale juste au-dessus du canvas (rapprochée)
+       - Landscape : verticale, positionnée côté gauche du canvas
+       Le pct est passé via CSS var --fill pour permettre l'alternance
+       width vs height en CSS uniquement (pas de double binding JS). -->
+  <div class="progress" class:alert={gaugeAlert}
+       style="--fill: {gaugePct * 100}%">
+    <div class="progress-fill"></div>
   </div>
 
   <!-- Board slot (Canvas + Scene3D montés par Game.svelte) -->
@@ -152,19 +158,28 @@
     flex-shrink: 0;
   }
 
-  /* ── Progress bar (gauge horizontal) ─────────────────────────────── */
+  /* ── Progress bar (gauge) ─────────────────────────────────────────
+     Lot 7.0.c : sortie du top-bar pour pouvoir être positionnée près
+     du canvas (portrait : juste au-dessus / landscape : sur le côté).
+     Le pct vient via --fill (CSS var inline) → la même structure
+     fonctionne en width (portrait) ou height (landscape). ─────────── */
   .progress {
     height: 7px;
     width: 100%;
     border-radius: 4px;
     background: rgba(0,0,0,0.06);
     overflow: hidden;
+    flex-shrink: 0;
+    /* Marge négative pour rapprocher du board-area (override le gap
+       container 6-8px). */
+    margin-bottom: -2px;
   }
   .progress-fill {
+    width: var(--fill, 0%);
     height: 100%;
     background: var(--neon-color, #00c8ff);
     box-shadow: 0 0 8px var(--neon-color, #00c8ff);
-    transition: width 200ms linear;
+    transition: width 200ms linear, height 200ms linear;
   }
   .progress.alert .progress-fill {
     background: #ff5555;
@@ -234,6 +249,29 @@
     .timer-icon {
       width:  clamp(24px, 7vh, 38px);
       height: clamp(24px, 7vh, 38px);
+    }
+
+    /* Lot 7.0.c : jauge verticale sur le côté gauche du canvas
+       (positionnée absolument, alignée avec la zone du board).
+       La hauteur s'adapte via top/bottom et le fill grandit en
+       height au lieu de width. */
+    .progress {
+      position: absolute;
+      left: max(6px, env(safe-area-inset-left));
+      /* top : juste sous le top-bar (~52px en landscape compact) */
+      top: 56px;
+      /* bottom : juste au-dessus du bottom-bar (~48px) */
+      bottom: 52px;
+      width: 7px;
+      height: auto;
+      margin: 0;
+      /* Fill grandit du bas vers le haut */
+      display: flex;
+      align-items: flex-end;
+    }
+    .progress-fill {
+      width: 100%;
+      height: var(--fill, 0%);
     }
   }
 </style>
