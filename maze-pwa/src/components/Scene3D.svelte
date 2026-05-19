@@ -863,9 +863,9 @@
           {#each G.checkpoints as cp, i (i)}
             {@const cx      = cp.c * G.cw + G.cw / 2 - G.W / 2}
             {@const cy      = G.H / 2 - (cp.r * G.ch + G.ch / 2)}
-            {@const cpClr   = cp.passed ? '#ffcc00' : '#00ff80'}
-            {@const cpLen   = pathW * 0.70}
-            {@const cpThick = neonW * 0.6}
+            {@const cpClr   = cp.passed ? '#ffd633' : '#33ff66'}
+            {@const cpLen   = pathW * 0.90}
+            {@const cpThick = neonW * 0.85}
             <T.Mesh position={[cx, cy, pathTop + 0.5]}>
               <T.PlaneGeometry args={
                 cp.horizontal
@@ -874,10 +874,10 @@
               } />
               <T.MeshStandardMaterial color={cpClr}
                                       emissive={cpClr}
-                                      emissiveIntensity={1.5}
+                                      emissiveIntensity={2.6}
                                       toneMapped={false}
                                       transparent={true}
-                                      opacity={0.95} />
+                                      opacity={1.0} />
             </T.Mesh>
           {/each}
         {/if}
@@ -956,15 +956,21 @@
                light directionnelle (la real shadow reste utile mais
                compense mal sous tilt). -->
           {#if ballContactShadowTex}
-            <T.Sprite position={[ballX, ballY, pathTop + 0.05]}
-                      scale={[ballR * 3.4, ballR * 3.4, 1]}
-                      renderOrder={0}>
-              <T.SpriteMaterial map={ballContactShadowTex}
-                                transparent={true}
-                                opacity={fallScale}
-                                depthTest={true}
-                                depthWrite={false} />
-            </T.Sprite>
+            <!-- Lot 6.31.d : Mesh+PlaneGeometry au lieu de Sprite. Un
+                 Sprite est un billboard qui s'incline avec la caméra,
+                 donc son bord bas descend sous le top du bevel et se
+                 fait couper par les parois adjacentes (depthTest). Une
+                 PlaneGeometry à plat reste parallèle au sol → bord
+                 toujours au-dessus du bevel. -->
+            <T.Mesh position={[ballX, ballY, pathTop + 0.05]}
+                    renderOrder={0}>
+              <T.PlaneGeometry args={[ballR * 3.4, ballR * 3.4]} />
+              <T.MeshBasicMaterial map={ballContactShadowTex}
+                                   transparent={true}
+                                   opacity={fallScale}
+                                   depthTest={true}
+                                   depthWrite={false} />
+            </T.Mesh>
           {/if}
           <T.Mesh position={[ballX, ballY, (pathTop + ballR) * fallScale]}
                   scale={[fallScale, fallScale, fallScale]}
