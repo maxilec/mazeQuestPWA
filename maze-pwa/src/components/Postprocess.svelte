@@ -59,6 +59,15 @@
   }
 
   onMount(() => {
+    // Lot 6.31 : canvas transparent — clearColor cream + clearAlpha 0.
+    // - Si le contexte WebGL a été créé avec alpha:true (rendererParameters
+    //   côté <Canvas>), le clearAlpha=0 rend le canvas vraiment transparent
+    //   → HUD cream du DOM transparait derrière.
+    // - Sinon (alpha buffer désactivé), le clearColor cream rest opaque
+    //   mais visuellement intégré au HUD (même teinte).
+    // Double safety net.
+    renderer.setClearColor(0xf1e9d9, 0);
+
     // 1. Env map procédural via PMREMGenerator + texture custom warm.
     const pmrem = new PMREMGenerator(renderer);
     pmrem.compileEquirectangularShader();

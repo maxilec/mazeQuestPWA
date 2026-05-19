@@ -23,7 +23,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Canvas, T }          from '@threlte/core';
   import { InstancedMesh, Instance } from '@threlte/extras';
-  import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap, Shape, ExtrudeGeometry, LinearFilter } from 'three';
+  import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap, Shape, Path, ExtrudeGeometry, LinearFilter } from 'three';
   import { getSvgSource, svgReady } from '../lib/render.js';
   import Postprocess            from './Postprocess.svelte';
 
@@ -49,11 +49,12 @@
   // Lot 6.27.f : 8→12° + FOV 8→6 (téléobjectif encore plus fort
   // compense le tilt remonté → top reste droit, parois bien marquées)
   // Lot 6.27.h : 12→11° (final tune)
-  const CAM_TILT_DEG     = 11;
+  // Lot 6.31 : 11→10° (redresse 1° de plus pour rectangle quasi parfait)
+  const CAM_TILT_DEG     = 10;
   // Précalcul de sin(tilt) pour positionner les Sprites (billboards face
   // caméra) en z assez haut pour que leur bord bas ne plonge pas dans
   // les parois 3D quand pathH est grand.
-  const CAM_TILT_SIN     = Math.sin(11 * Math.PI / 180);
+  const CAM_TILT_SIN     = Math.sin(10 * Math.PI / 180);
   // Lot 6.27.f : anamorphose verticale ×1.10 → étire le maze en Y pour
   // remplir mieux le canvas portrait sans toucher au framing horizontal.
   // Cells deviennent légèrement rectangulaires (10% plus haut que large).
@@ -80,7 +81,7 @@
   $: visibleH    = G
       ? (isLandscape ? G.W : G.H) + cadreGap * 2 + 8
       : 660;
-  $: cameraDist  = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.10;
+  $: cameraDist  = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.15;
 
   // Lot 6.27 : position caméra cavalier — reculée en -Y (côté
   // spectateur), élevée en +Z, regardant l'origine. Le tilt fixe expose
@@ -155,7 +156,7 @@
   // au-dessus de depth=pathH → top réel à pathH + bevelThickness.
   $: pathTop    = pathH + bevelThickness + 0.5;
   $: neonW      = G ? Math.min(G.cw, G.ch) * 0.07 : 3.5;
-  const PATH_COLOR = '#E5C29C';
+  const PATH_COLOR = '#F0D9B8';
 
   // ── Système de tuiles Lego (Lot 6.22) ─────────────────────────────────
   // 5 tile types (straight, corner, T, cross, deadEnd) construits une fois
@@ -231,6 +232,39 @@
   // - T        : opens T+R+B (default closed L = -X)
   // - cross    : opens 4 côtés
   // - deadEnd  : opens +Y seul
+
+  // Lot 6.31 : cadre néon en rounded rectangle frame (un seul Shape
+  // avec un trou rectangulaire arrondi pour creuser le centre).
+  // W,H = dimensions extérieures, t = épaisseur du frame, r = radius coins.
+  function buildFrameShape(W, H, t, r) {
+    const ox = W / 2, oy = H / 2;
+    const shape = new Shape();
+    // Rectangle extérieur arrondi (CCW)
+    shape.moveTo(ox - r,  oy);
+    shape.lineTo(-ox + r, oy);
+    shape.quadraticCurveTo(-ox, oy, -ox, oy - r);
+    shape.lineTo(-ox, -oy + r);
+    shape.quadraticCurveTo(-ox, -oy, -ox + r, -oy);
+    shape.lineTo(ox - r, -oy);
+    shape.quadraticCurveTo(ox, -oy, ox, -oy + r);
+    shape.lineTo(ox, oy - r);
+    shape.quadraticCurveTo(ox, oy, ox - r, oy);
+    // Trou intérieur arrondi (CW pour winding opposé = three.js Path)
+    const ix = ox - t, iy = oy - t;
+    const ir = Math.max(r - t * 0.5, 0.5);
+    const hole = new Path();
+    hole.moveTo(ix - ir, iy);
+    hole.quadraticCurveTo(ix, iy, ix, iy - ir);
+    hole.lineTo(ix, -iy + ir);
+    hole.quadraticCurveTo(ix, -iy, ix - ir, -iy);
+    hole.lineTo(-ix + ir, -iy);
+    hole.quadraticCurveTo(-ix, -iy, -ix, -iy + ir);
+    hole.lineTo(-ix, iy - ir);
+    hole.quadraticCurveTo(-ix, iy, -ix + ir, iy);
+    hole.lineTo(ix - ir, iy);
+    shape.holes.push(hole);
+    return shape;
+  }
 
   function buildStraightShape(pathW, cw, ch, bs) {
     const hp = pathW / 2, hh = ch / 2;
@@ -363,6 +397,7 @@
   let tileInstances  = null;
   let neonSegments   = [];
   let neonNodes      = [];
+  let frameGeometry  = null;   // Lot 6.31 : cadre néon rounded
   let lastMazeLvl    = -1;
   $: if (G?.maze && G.lvl !== lastMazeLvl) {
     // Lot 6.30 : soft clay bevel — bevelSize/bevelThickness définis
@@ -401,6 +436,21 @@
     tileInstances = computeTileInstances(G);
     neonSegments  = computeNeonSegments(G);
     neonNodes     = computeNeonNodes(G);
+
+    // Lot 6.31 : cadre néon avec coins arrondis — un seul ExtrudeGeometry
+    // depuis un Shape rounded-rectangle avec un hole rounded-rectangle.
+    if (frameGeometry) frameGeometry.dispose();
+    const frT_   = 2.5;
+    const frH_   = 2;
+    const frGap_ = Math.min(G.cw, G.ch) * 0.15;
+    const frW_   = G.W + (frT_ + frGap_) * 2;
+    const frHd_  = G.H + (frT_ + frGap_) * 2;
+    const frR_   = Math.min(G.cw, G.ch) * 0.18;
+    frameGeometry = new ExtrudeGeometry(
+      buildFrameShape(frW_, frHd_, frT_, frR_),
+      { depth: frH_, bevelEnabled: false }
+    );
+
     lastMazeLvl   = G.lvl;
   }
 
@@ -630,12 +680,16 @@
     grooveAlphaV?.dispose();
     grooveAlphaR?.dispose();
     ballContactShadowTex?.dispose();
+    frameGeometry?.dispose();
+    if (tileGeometries) {
+      for (const k of Object.keys(tileGeometries)) tileGeometries[k].dispose();
+    }
     for (const tex of Object.values(textures)) tex.dispose();
   });
 </script>
 
 <div class="threlte-host" bind:this={host}>
-  <Canvas shadows={PCFSoftShadowMap}>
+  <Canvas shadows={PCFSoftShadowMap} rendererParameters={{ alpha: true }}>
     <T.PerspectiveCamera bind:ref={cameraRef} makeDefault
                          position={[0, camY, camZ]}
                          fov={FOV} near={cameraDist * 0.5} far={cameraDist * 1.5} />
@@ -677,7 +731,7 @@
             <T.PlaneGeometry args={[G.W, G.H]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
-                                      color="#a08770"
+                                      color="#8c715a"
                                       roughness={0.92} metalness={0.0}
                                       envMapIntensity={0.15} />
             {:else}
@@ -824,43 +878,12 @@
           {/each}
         {/if}
 
-        <!-- Cadre néon — Lot 6.19 : frGap 0.35 → 0.15 (cadre était sorti
-             du frustum caméra à 0.35). Maintenant visible avec un léger
-             écart entre maze et cadre. -->
-        {#if G}
-          {@const frT   = 2.5}
-          {@const frH   = 2}
-          {@const frZ   = pathH}
-          {@const frGap = Math.min(G.cw, G.ch) * 0.15}
-          {@const frW   = G.W + (frT + frGap) * 2}
-          {@const frHd  = G.H + (frT + frGap) * 2}
-          <!-- top : Y = +H/2 + gap + frT/2 (au-dessus du maze) -->
-          <T.Mesh position={[0, G.H / 2 + frGap + frT / 2, frZ]}>
-            <T.BoxGeometry args={[frW, frT, frH]} />
-            <T.MeshStandardMaterial color={neonColor}
-                                    emissive={neonColor}
-                                    emissiveIntensity={2.0}
-                                    toneMapped={false} />
-          </T.Mesh>
-          <!-- bottom -->
-          <T.Mesh position={[0, -G.H / 2 - frGap - frT / 2, frZ]}>
-            <T.BoxGeometry args={[frW, frT, frH]} />
-            <T.MeshStandardMaterial color={neonColor}
-                                    emissive={neonColor}
-                                    emissiveIntensity={2.0}
-                                    toneMapped={false} />
-          </T.Mesh>
-          <!-- left -->
-          <T.Mesh position={[-G.W / 2 - frGap - frT / 2, 0, frZ]}>
-            <T.BoxGeometry args={[frT, G.H + frGap * 2, frH]} />
-            <T.MeshStandardMaterial color={neonColor}
-                                    emissive={neonColor}
-                                    emissiveIntensity={2.0}
-                                    toneMapped={false} />
-          </T.Mesh>
-          <!-- right -->
-          <T.Mesh position={[G.W / 2 + frGap + frT / 2, 0, frZ]}>
-            <T.BoxGeometry args={[frT, G.H + frGap * 2, frH]} />
+        <!-- Cadre néon — Lot 6.31 : un seul ExtrudeGeometry rounded
+             rectangle frame (au lieu de 4 BoxGeometry à angles droits).
+             Coins arrondis match maquette. Cache `frameGeometry`
+             reconstruit uniquement au changement de niveau. -->
+        {#if G && frameGeometry}
+          <T.Mesh geometry={frameGeometry} position={[0, 0, pathH]}>
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
                                     emissiveIntensity={2.0}
