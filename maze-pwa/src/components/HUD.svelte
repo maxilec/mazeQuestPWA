@@ -43,7 +43,14 @@
       </div>
       <div class="top-center">
         <span class="timer">{chrono}</span>
-        <span class="timer-icon">⏱</span>
+        <svg class="timer-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+             xmlns="http://www.w3.org/2000/svg">
+          <path d="M21 12H25" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="12" cy="13" r="9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 9V13L14.5 15.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 3V6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M9 2H15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
       </div>
       <div class="top-right">
         {#if bestLvl > 0}
@@ -131,13 +138,19 @@
   }
   .timer {
     font-weight: 500;
-    font-size: clamp(22px, 5.5vw, 36px);
+    /* Lot 7.0 : chrono large façon maquette (était 22-36px) */
+    font-size: clamp(38px, 11vw, 64px);
     letter-spacing: 0;
     line-height: 1;
   }
   .timer-icon {
-    font-size: clamp(16px, 4vw, 26px);
+    /* Lot 7.0 : SVG inline (était emoji ⏱) — dimensions via width/height
+       au lieu de font-size. currentColor hérite du parent (#2d3138). */
+    width:  clamp(24px, 6.5vw, 36px);
+    height: clamp(24px, 6.5vw, 36px);
+    color: #2d3138;
     opacity: 0.65;
+    flex-shrink: 0;
   }
 
   /* ── Progress bar (gauge horizontal) ─────────────────────────────── */
@@ -218,7 +231,10 @@
   @media (orientation: landscape) and (max-height: 500px) {
     .container { gap: 6px; padding-top: 6px; padding-bottom: 6px; }
     .top-row   { grid-template-columns: 1fr 1.4fr 1fr; }
-    .timer     { font-size: clamp(20px, 5vh, 32px); }
-    .timer-icon { font-size: clamp(16px, 4vh, 24px); }
+    .timer     { font-size: clamp(32px, 9vh, 48px); }
+    .timer-icon {
+      width:  clamp(20px, 5.5vh, 30px);
+      height: clamp(20px, 5.5vh, 30px);
+    }
   }
 </style>
