@@ -43,13 +43,10 @@
       </div>
       <div class="top-center">
         <span class="timer">{chrono}</span>
-        <svg class="timer-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"
-             xmlns="http://www.w3.org/2000/svg">
-          <path d="M21 12H25" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <circle cx="12" cy="13" r="9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M12 9V13L14.5 15.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M12 3V6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M9 2H15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- Lot 7.0.b : icône timer style Material Symbol (solid fill) -->
+        <svg class="timer-icon" viewBox="0 -960 960 960" fill="currentColor"
+             aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+          <path d="M360-840v-80h240v80H360Zm80 440h80v-240h-80v240Zm-99.5 291.5Q275-137 226-186t-77.5-114.5Q120-366 120-440t28.5-139.5Q177-645 226-694t114.5-77.5Q406-800 480-800q62 0 119 20t107 58l56-56 56 56-56 56q38 50 58 107t20 119q0 74-28.5 139.5T734-186q-49 49-114.5 77.5T480-80q-74 0-139.5-28.5ZM678-242q82-82 82-198t-82-198q-82-82-198-82t-198 82q-82 82-82 198t82 198q82 82 198 82t198-82ZM480-440Z"/>
         </svg>
       </div>
       <div class="top-right">
@@ -137,17 +134,19 @@
     color: #2d3138;
   }
   .timer {
-    font-weight: 500;
-    /* Lot 7.0 : chrono large façon maquette (était 22-36px) */
-    font-size: clamp(38px, 11vw, 64px);
+    /* Lot 7.0.b : police Gruppo (Google Fonts), import via index.html.
+       Style display "tech" qui s'aligne avec la signalétique néon. */
+    font-family: 'Gruppo', 'Montserrat', sans-serif;
+    font-weight: 400;          /* Gruppo n'existe qu'en regular */
+    font-size: clamp(52px, 14vw, 88px);   /* encore + grand */
     letter-spacing: 0;
     line-height: 1;
   }
   .timer-icon {
-    /* Lot 7.0 : SVG inline (était emoji ⏱) — dimensions via width/height
-       au lieu de font-size. currentColor hérite du parent (#2d3138). */
-    width:  clamp(24px, 6.5vw, 36px);
-    height: clamp(24px, 6.5vw, 36px);
+    /* SVG inline Material Symbol, dimensions via width/height.
+       currentColor hérite du parent (#2d3138). */
+    width:  clamp(28px, 7.5vw, 44px);
+    height: clamp(28px, 7.5vw, 44px);
     color: #2d3138;
     opacity: 0.65;
     flex-shrink: 0;
@@ -231,10 +230,10 @@
   @media (orientation: landscape) and (max-height: 500px) {
     .container { gap: 6px; padding-top: 6px; padding-bottom: 6px; }
     .top-row   { grid-template-columns: 1fr 1.4fr 1fr; }
-    .timer     { font-size: clamp(32px, 9vh, 48px); }
+    .timer     { font-size: clamp(40px, 11vh, 64px); }
     .timer-icon {
-      width:  clamp(20px, 5.5vh, 30px);
-      height: clamp(20px, 5.5vh, 30px);
+      width:  clamp(24px, 7vh, 38px);
+      height: clamp(24px, 7vh, 38px);
     }
   }
 </style>
