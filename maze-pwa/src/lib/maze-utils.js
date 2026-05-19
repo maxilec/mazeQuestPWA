@@ -1,5 +1,14 @@
 export function getTrackRatio(lvl) {
-  return Math.max(0.35, 0.65 - Math.floor((lvl - 1) / 5) * 0.05);
+  const raw = Math.max(0.35, 0.65 - Math.floor((lvl - 1) / 5) * 0.05);
+  // Lot 6.29 : évite trackRatio = 0.50 exactement. À cette valeur
+  // pathW = wallWidth = cs/2, ce qui crée une symétrie parfaite
+  // dans buildCornerShape (Scene3D.svelte) où le smoothShape
+  // dégénère en quadratique collinéaire — earcut produit des
+  // triangles quasi zéro-aire visibles comme bords flous aux
+  // niveaux 16-20. Nudge à 0.48 → conserve l'intent (paths plus
+  // étroits à mesure que le niveau monte) sans la dégénérescence.
+  if (Math.abs(raw - 0.50) < 1e-6) return 0.48;
+  return raw;
 }
 
 export function bfsPath(maze, R, C, spawn, hole) {

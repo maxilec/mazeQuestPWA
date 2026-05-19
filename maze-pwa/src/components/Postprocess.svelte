@@ -1,22 +1,18 @@
 <script>
   // Lot 6.17 — Post-processing : Bloom + Environment map procédural.
+  // Lot 6.26 v2.7 — Env map remplacé par gradient warm cream custom
+  // (la RoomEnvironment grise rendait le métal de la bille trop sombre
+  // sur les côtés). Maintenant le ball metalness=1.0 reflète des tons
+  // crème/chauds → ne paraît plus "collé" sur le plateau.
   //
   // Composant inline DANS le <Canvas> Threlte pour avoir accès au
   // renderer/scene/camera via useThrelte().
-  //
-  // Effets appliqués :
-  //  1. **Env map** : PMREMGenerator + RoomEnvironment → cube map
-  //     procédural appliqué à scene.environment. La bille metalness=1.0
-  //     reflète maintenant un studio diffus au lieu d'être noire.
-  //  2. **Bloom** : EffectComposer + RenderPass + UnrealBloomPass +
-  //     OutputPass. Capture les pixels emissive (neon stripes, dots,
-  //     cadre) et applique un halo gaussien autour → glow lumineux
-  //     comme le ref 2D.
 
   import { onMount, onDestroy }  from 'svelte';
   import { useThrelte, useRender } from '@threlte/core';
-  import { Vector2, PMREMGenerator } from 'three';
-  import { RoomEnvironment }     from 'three/examples/jsm/environments/RoomEnvironment.js';
+  import { Vector2, PMREMGenerator, CanvasTexture,
+           EquirectangularReflectionMapping, SRGBColorSpace,
+           LinearFilter } from 'three';
   import { EffectComposer }      from 'three/examples/jsm/postprocessing/EffectComposer.js';
   import { RenderPass }          from 'three/examples/jsm/postprocessing/RenderPass.js';
   import { UnrealBloomPass }     from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -34,12 +30,49 @@
   let envMap      = null;
   let sizeUnsub   = null;
 
+  // Construit une CanvasTexture equirectangulaire (2:1) avec gradient
+  // vertical : sky chaud → équateur crème → sol sombre/AO. Le sol très
+  // sombre simule l'ambient occlusion vue depuis la bille metalness=1.0
+  // (le bord visible de la bille — silhouette vue de la caméra du dessus
+  // — reflète le SUD du env map, donc en assombrissant cette zone on
+  // crée un dégradé sombre sur les bords de la bille → effet AO).
+  function createWarmEnvTexture() {
+    const c = document.createElement('canvas');
+    c.width = 512; c.height = 256;
+    const cx = c.getContext('2d');
+    const g = cx.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0.00, '#fff5e0');  // north pole : sky warm white
+    g.addColorStop(0.30, '#f5e0c0');  // upper hemisphere
+    g.addColorStop(0.50, '#d4b58c');  // equator (refl. au-dessus du ball)
+    g.addColorStop(0.70, '#8a6242');  // lower hemisphere (refl. côtés)
+    g.addColorStop(0.85, '#4a2e1a');  // near south (refl. silhouette)
+    g.addColorStop(1.00, '#1a0c08');  // south pole : AO sombre (refl. bas)
+    cx.fillStyle = g; cx.fillRect(0, 0, 512, 256);
+    const tex = new CanvasTexture(c);
+    tex.mapping     = EquirectangularReflectionMapping;
+    tex.colorSpace  = SRGBColorSpace;
+    tex.minFilter   = LinearFilter;
+    tex.magFilter   = LinearFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
   onMount(() => {
-    // 1. Env map procédural via RoomEnvironment + PMREMGenerator
+    // Lot 6.31.c : transparence vraie. Threlte v7 crée le WebGLRenderer
+    // avec alpha:true par défaut (vérifié dans @threlte/core/.../useRenderer.js
+    // ligne 26). Il suffit donc d'appeler setClearAlpha(0) pour que le
+    // canvas soit réellement transparent → le .bg-cream du HUD DOM (avec
+    // ses radial gradients) transparait derrière la scène 3D.
+    renderer.setClearAlpha(0);
+
+    // 1. Env map procédural via PMREMGenerator + texture custom warm.
     const pmrem = new PMREMGenerator(renderer);
     pmrem.compileEquirectangularShader();
-    envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    const warmTex = createWarmEnvTexture();
+    envMap = pmrem.fromEquirectangular(warmTex).texture;
     scene.environment = envMap;
+    warmTex.dispose();
     pmrem.dispose();
 
     // 2. EffectComposer pipeline : Render → Bloom → Output
@@ -93,6 +126,8 @@
       composer.passes.forEach(p => p.dispose?.());
       composer.dispose?.();
     }
-    if (scene) scene.environment = null;
+    if (scene) {
+      scene.environment = null;
+    }
   });
 </script>

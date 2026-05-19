@@ -23,7 +23,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Canvas, T }          from '@threlte/core';
   import { InstancedMesh, Instance } from '@threlte/extras';
-  import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap, Shape, ExtrudeGeometry } from 'three';
+  import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap, Shape, Path, ExtrudeGeometry, LinearFilter } from 'three';
   import { getSvgSource, svgReady } from '../lib/render.js';
   import Postprocess            from './Postprocess.svelte';
 
@@ -35,11 +35,33 @@
 
   const DEG              = Math.PI / 180;
   const MAX_TILT_DEG     = 12;
-  const FOV              = 35;
+  const FOV              = 7;
   // Lot 6 : élévation dynamique de la caméra — top-down au repos,
   // ramp jusqu'à CAM_MAX_ELEV_DEG quand l'input tilt est non nul. Donne
   // un cue 3D pendant le mouvement sans imposer d'angle au repos.
   const CAM_MAX_ELEV_DEG = 12;
+  // Lot 6.27 : tilt caméra fixe cavalier — expose la face avant des
+  // parois inférieures des tiles. Combiné au FOV réduit (téléobjectif),
+  // donne le rendu "iso-tilt soft" de la maquette.
+  // Lot 6.27.c : 22→18° + pathH 0.32→0.40
+  // Lot 6.27.d : 18→12° + pathH 0.40→0.55
+  // Lot 6.27.e : 12→8° + FOV 12→8
+  // Lot 6.27.f : 8→12° + FOV 8→6 (téléobjectif encore plus fort
+  // compense le tilt remonté → top reste droit, parois bien marquées)
+  // Lot 6.27.h : 12→11° (final tune)
+  // Lot 6.31 : 11→10°
+  // Lot 6.31.b : 10→7° + FOV 6→7 → plateau quasi rectangle parfait
+  const CAM_TILT_DEG     = 7;
+  // Précalcul de sin(tilt) pour positionner les Sprites (billboards face
+  // caméra) en z assez haut pour que leur bord bas ne plonge pas dans
+  // les parois 3D quand pathH est grand.
+  const CAM_TILT_SIN     = Math.sin(7 * Math.PI / 180);
+  // Lot 6.27.f : anamorphose verticale ×1.10 → étire le maze en Y pour
+  // remplir mieux le canvas portrait sans toucher au framing horizontal.
+  // Cells deviennent légèrement rectangulaires (10% plus haut que large).
+  // Lot 6.27.g : revert à 1.00 — la déformation était visible sur la
+  // bille (elliptique au lieu de ronde). On compense par pathH augmenté.
+  const WORLD_STRETCH_Y  = 1.00;
 
   // ── Host positioning (cadrage sur la zone canvas) ──────────────────────
   let host;
@@ -60,16 +82,14 @@
   $: visibleH    = G
       ? (isLandscape ? G.W : G.H) + cadreGap * 2 + 8
       : 660;
-  $: cameraDist  = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.05;
+  $: cameraDist  = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.15;
 
-  // Lot 6.2 — retour caméra dead-on PERMANENT. L'utilisateur reportait
-  // un « rebond » : avec l'élévation dynamique, l'origine restait centrée
-  // mais le centre visuel de la maze (qui n'est pas le même point que
-  // l'origine 3D pour une projection perspective tilted) se décalait
-  // vers le bas. Avec dead-on, pas de shift. Le relief 3D vient
-  // désormais des shadows (cf. <Canvas shadows={...}>).
-  $: camY    = 0;
-  $: camZ    = cameraDist;
+  // Lot 6.27 : position caméra cavalier — reculée en -Y (côté
+  // spectateur), élevée en +Z, regardant l'origine. Le tilt fixe expose
+  // la face avant des parois. Le board tilt input continue d'agir
+  // indépendamment sur <T.Group rotation.x/y>.
+  $: camY    = -cameraDist * Math.sin(CAM_TILT_DEG * DEG);
+  $: camZ    =  cameraDist * Math.cos(CAM_TILT_DEG * DEG);
   // cameraZ utilisé pour le `far` plane (compat avec d'autres calculs).
   $: cameraZ     = cameraDist;
 
@@ -98,7 +118,7 @@
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
     s.bias          = -0.0001;
-    s.radius        = 14;
+    s.radius        = 10;
     s.needsUpdate   = true;
   }
 
@@ -123,13 +143,21 @@
   // appliqués via smoothShape sur le polygone.
   // Sol abaissé à -floorDepth pour effet de profondeur dans les fossés.
   $: pathW      = G ? Math.min(G.cw, G.ch) * (G.trackRatio ?? 0.65) : 30;
-  $: pathH      = G ? Math.min(G.cw, G.ch) * 0.32 : 15;   // hauteur extrusion
+  $: pathH      = G ? Math.min(G.cw, G.ch) * 0.80 : 15;   // hauteur extrusion
   $: floorDepth = pathH * 0.4;                            // profondeur sol creusé
-  // pathTop : z au-dessus du bevel top de la piste (avec marge). Utilisé
-  // pour positionner les neon stripes, dots, checkpoints et sprites.
-  $: pathTop    = pathH + pathH * 0.06 + 0.2;
+  // Lot 6.30 : bevel soft clay — coefficients hissés au niveau global
+  // (réactifs) pour que pathTop puisse se caler EXACTEMENT au-dessus
+  // du top bevel. Sinon les neon/checkpoints/bonus se retrouvent
+  // enterrés quand bevelThickness augmente.
+  $: bevelSize      = pathH * 0.12;   // inset horizontal du bevel
+  $: bevelThickness = pathH * 0.15;   // hauteur verticale du bevel
+  // pathTop : z juste au-dessus du top du bevel de la piste (avec marge
+  // 0.5). Utilisé pour positionner les neon stripes, dots, checkpoints
+  // et sprites. ExtrudeGeometry étend la géométrie de bevelThickness
+  // au-dessus de depth=pathH → top réel à pathH + bevelThickness.
+  $: pathTop    = pathH + bevelThickness + 0.5;
   $: neonW      = G ? Math.min(G.cw, G.ch) * 0.07 : 3.5;
-  const PATH_COLOR = '#EACBA8';
+  const PATH_COLOR = '#F0D9B8';
 
   // ── Système de tuiles Lego (Lot 6.22) ─────────────────────────────────
   // 5 tile types (straight, corner, T, cross, deadEnd) construits une fois
@@ -206,6 +234,39 @@
   // - cross    : opens 4 côtés
   // - deadEnd  : opens +Y seul
 
+  // Lot 6.31 : cadre néon en rounded rectangle frame (un seul Shape
+  // avec un trou rectangulaire arrondi pour creuser le centre).
+  // W,H = dimensions extérieures, t = épaisseur du frame, r = radius coins.
+  function buildFrameShape(W, H, t, r) {
+    const ox = W / 2, oy = H / 2;
+    const shape = new Shape();
+    // Rectangle extérieur arrondi (CCW)
+    shape.moveTo(ox - r,  oy);
+    shape.lineTo(-ox + r, oy);
+    shape.quadraticCurveTo(-ox, oy, -ox, oy - r);
+    shape.lineTo(-ox, -oy + r);
+    shape.quadraticCurveTo(-ox, -oy, -ox + r, -oy);
+    shape.lineTo(ox - r, -oy);
+    shape.quadraticCurveTo(ox, -oy, ox, -oy + r);
+    shape.lineTo(ox, oy - r);
+    shape.quadraticCurveTo(ox, oy, ox - r, oy);
+    // Trou intérieur arrondi (CW pour winding opposé = three.js Path)
+    const ix = ox - t, iy = oy - t;
+    const ir = Math.max(r - t * 0.5, 0.5);
+    const hole = new Path();
+    hole.moveTo(ix - ir, iy);
+    hole.quadraticCurveTo(ix, iy, ix, iy - ir);
+    hole.lineTo(ix, -iy + ir);
+    hole.quadraticCurveTo(ix, -iy, ix - ir, -iy);
+    hole.lineTo(-ix + ir, -iy);
+    hole.quadraticCurveTo(-ix, -iy, -ix, -iy + ir);
+    hole.lineTo(-ix, iy - ir);
+    hole.quadraticCurveTo(-ix, iy, -ix + ir, iy);
+    hole.lineTo(ix - ir, iy);
+    shape.holes.push(hole);
+    return shape;
+  }
+
   function buildStraightShape(pathW, cw, ch, bs) {
     const hp = pathW / 2, hh = ch / 2;
     let pts = [
@@ -218,17 +279,21 @@
 
   function buildCornerShape(pathW, cw, ch, bs) {
     const hp = pathW / 2, hw = cw / 2, hh = ch / 2;
+    // Lot 6.30 : suppression du point colinéaire (anciennement pt 3
+    // = (hp, -hp)) qui se trouvait sur la ligne droite reliant
+    // (-hp, -hp) → (hw, -hp). Avec un bevel plus volumineux (Lot 6.30)
+    // ce vertex superflu amplifiait le risque de z-fighting de
+    // normales sur le top de la tuile (Gemini warning §4).
     let pts = [
       {x:  hp, y:  hh},  // 0 boundary
       {x: -hp, y:  hh},  // 1 boundary
       {x: -hp, y: -hp},  // 2 INTERNAL SW outer convex
-      {x:  hp, y: -hp},  // 3 INTERNAL SE elbow concave
-      {x:  hw, y: -hp},  // 4 boundary
-      {x:  hw, y:  hp},  // 5 boundary
-      {x:  hp, y:  hp},  // 6 INTERNAL NE elbow concave
+      {x:  hw, y: -hp},  // 3 boundary (était 4)
+      {x:  hw, y:  hp},  // 4 boundary (était 5)
+      {x:  hp, y:  hp},  // 5 INTERNAL NE elbow concave (était 6)
     ];
     pts = expandBoundary(pts, cw, ch, bs);
-    return smoothShape(pts, [2, 3, 6], pathW * 0.30);
+    return smoothShape(pts, [2, 5], pathW * 0.30);
   }
 
   function buildTShape(pathW, cw, ch, bs) {
@@ -333,24 +398,30 @@
   let tileInstances  = null;
   let neonSegments   = [];
   let neonNodes      = [];
+  let frameGeometry  = null;   // Lot 6.31 : cadre néon rounded
   let lastMazeLvl    = -1;
   $: if (G?.maze && G.lvl !== lastMazeLvl) {
-    const bs = pathH * 0.04;  // light bevel "soft clay"
+    // Lot 6.30 : soft clay bevel — bevelSize/bevelThickness définis
+    // au niveau global (lignes 148-149) pour que pathTop puisse s'y
+    // référer. bevelSize est passé aux build*Shape pour l'expansion
+    // boundary (trick seamless Lot 6.22) ; bevelThickness est purement
+    // vertical donc n'affecte pas le shape 2D.
     const extrudeSettings = {
       depth: pathH,
       bevelEnabled: true,
-      bevelThickness: bs,
-      bevelSize: bs,
-      bevelSegments: 2,
+      bevelThickness,
+      bevelSize,
+      bevelOffset: 0,
+      bevelSegments: 5,     // courbe lissée vs chanfrein plat (était 2)
       steps: 1,
-      curveSegments: 6,
+      curveSegments: 24,    // arrondis fluides des virages (était 6)
     };
     const shapes = {
-      straight: buildStraightShape(pathW, G.cw, G.ch, bs),
-      corner:   buildCornerShape  (pathW, G.cw, G.ch, bs),
-      T:        buildTShape       (pathW, G.cw, G.ch, bs),
-      cross:    buildCrossShape   (pathW, G.cw, G.ch, bs),
-      deadEnd:  buildDeadEndShape (pathW, G.cw, G.ch, bs),
+      straight: buildStraightShape(pathW, G.cw, G.ch, bevelSize),
+      corner:   buildCornerShape  (pathW, G.cw, G.ch, bevelSize),
+      T:        buildTShape       (pathW, G.cw, G.ch, bevelSize),
+      cross:    buildCrossShape   (pathW, G.cw, G.ch, bevelSize),
+      deadEnd:  buildDeadEndShape (pathW, G.cw, G.ch, bevelSize),
     };
     // Dispose previous geometries to free GPU memory.
     if (tileGeometries) {
@@ -366,6 +437,24 @@
     tileInstances = computeTileInstances(G);
     neonSegments  = computeNeonSegments(G);
     neonNodes     = computeNeonNodes(G);
+
+    // Lot 6.31 : cadre néon avec coins arrondis — un seul ExtrudeGeometry
+    // depuis un Shape rounded-rectangle avec un hole rounded-rectangle.
+    // Lot 6.31.b : frT 2.5→4.5 (fix moirage : la fine ligne emissive
+    // aliaisait à l'écran ; +épaisseur = trame stable + plus de pixels
+    // pour le bloom). frR ajusté en conséquence.
+    if (frameGeometry) frameGeometry.dispose();
+    const frT_   = 4.5;
+    const frH_   = 2;
+    const frGap_ = Math.min(G.cw, G.ch) * 0.15;
+    const frW_   = G.W + (frT_ + frGap_) * 2;
+    const frHd_  = G.H + (frT_ + frGap_) * 2;
+    const frR_   = Math.min(G.cw, G.ch) * 0.22;
+    frameGeometry = new ExtrudeGeometry(
+      buildFrameShape(frW_, frHd_, frT_, frR_),
+      { depth: frH_, bevelEnabled: false }
+    );
+
     lastMazeLvl   = G.lvl;
   }
 
@@ -505,8 +594,83 @@
     return tex;
   }
 
+  // ── Contact shadow sous la bille (Lot 6.26 v2.6) ──────────────────────
+  // Disque radial noir/transparent rendu via Sprite au niveau du sol,
+  // suit la bille en XY. Grounding indépendant de la light directionnelle.
+  let ballContactShadowTex = null;
+  function createBallContactShadow() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0.00, 'rgba(0,0,0,0.78)');
+    g.addColorStop(0.20, 'rgba(0,0,0,0.65)');
+    g.addColorStop(0.50, 'rgba(0,0,0,0.38)');
+    g.addColorStop(0.80, 'rgba(0,0,0,0.12)');
+    g.addColorStop(1.00, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 128);
+    const tex = new CanvasTexture(c);
+    tex.minFilter = LinearFilter;
+    tex.magFilter = LinearFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  // ── Groove shadow gradient (Lot 6.26 v2) ──────────────────────────────
+  // alphaMap qui simule la lèvre haute d'une rainure 3D vue de dessus :
+  // sombre sur la bande centrale (fond du creux), fade vers transparent
+  // aux bords (haut des parois). Trois variantes : H/V pour segments
+  // linéaires, radiale pour intersections.
+  let grooveAlphaH = null;
+  let grooveAlphaV = null;
+  let grooveAlphaR = null;
+
+  function createGrooveLinearAlpha() {
+    const c = document.createElement('canvas');
+    c.width = 8; c.height = 64;
+    const ctx = c.getContext('2d');
+    const g = ctx.createLinearGradient(0, 0, 0, 64);
+    g.addColorStop(0.00, 'rgba(0,0,0,0)');
+    g.addColorStop(0.35, 'rgba(0,0,0,0.55)');
+    g.addColorStop(0.50, 'rgba(0,0,0,0.85)');
+    g.addColorStop(0.65, 'rgba(0,0,0,0.55)');
+    g.addColorStop(1.00, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 8, 64);
+    const tex = new CanvasTexture(c);
+    tex.minFilter = LinearFilter;
+    tex.magFilter = LinearFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  function createGrooveRadialAlpha() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0.0,  'rgba(0,0,0,0.85)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.45)');
+    g.addColorStop(1.0,  'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+    const tex = new CanvasTexture(c);
+    tex.minFilter = LinearFilter;
+    tex.magFilter = LinearFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
   onMount(() => {
     ballGlowTexture = createBallGlowTexture();
+    grooveAlphaH = createGrooveLinearAlpha();
+    grooveAlphaV = createGrooveLinearAlpha();
+    grooveAlphaV.center.set(0.5, 0.5);
+    grooveAlphaV.rotation = Math.PI / 2;
+    grooveAlphaV.needsUpdate = true;
+    grooveAlphaR = createGrooveRadialAlpha();
+    ballContactShadowTex = createBallContactShadow();
     checkTextures();
     animRaf = requestAnimationFrame(animTick);
   });
@@ -516,6 +680,14 @@
     if (animRaf)         cancelAnimationFrame(animRaf);
     if (plateauTexture)  plateauTexture.dispose();
     if (ballGlowTexture) ballGlowTexture.dispose();
+    grooveAlphaH?.dispose();
+    grooveAlphaV?.dispose();
+    grooveAlphaR?.dispose();
+    ballContactShadowTex?.dispose();
+    frameGeometry?.dispose();
+    if (tileGeometries) {
+      for (const k of Object.keys(tileGeometries)) tileGeometries[k].dispose();
+    }
     for (const tex of Object.values(textures)) tex.dispose();
   });
 </script>
@@ -524,32 +696,34 @@
   <Canvas shadows={PCFSoftShadowMap}>
     <T.PerspectiveCamera bind:ref={cameraRef} makeDefault
                          position={[0, camY, camZ]}
-                         fov={FOV} near={1} far={cameraZ * 3} />
+                         fov={FOV} near={cameraDist * 0.5} far={cameraDist * 1.5} />
 
     <!-- Post-process (Lot 6.17) — Bloom + Env map procédural.
          Lot 6.17 hotfix 2 : threshold 1.0 + strength 0.4 pour ne
          capturer QUE les emissive HDR (toneMapped:false). Lights
          ambient/directional réduits car RoomEnvironment fournit
          maintenant l'illumination globale. -->
-    <Postprocess bloomStrength={0.4} bloomRadius={0.2} bloomThreshold={1.0} />
+    <Postprocess bloomStrength={0.24} bloomRadius={0.10} bloomThreshold={0.85} />
 
     <!-- Lighting (Lot 6.19) — setup "Soft Clay" per Gemini :
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
          - Directional key 1.50 (puissante), positionnée top-gauche-avant
          - Directional fill 0.30 (warm subtle pour les zones d'ombre) -->
-    <T.AmbientLight intensity={1.10} color="#fff5e0" />
+    <T.AmbientLight intensity={1.05} color="#fbe9c8" />
     <T.DirectionalLight bind:ref={lightRef}
                         position={[G ? -G.W * 0.4 : -200,
                                    G ? G.H * 0.5 : 250,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 8]}
                         intensity={0.95}
-                        color="#fff5e0"
+                        color="#ffeec7"
                         castShadow />
     <T.DirectionalLight position={[G ? G.W * 0.3 : 150, G ? -G.H * 0.3 : -150, 400]}
-                        intensity={0.45} color="#fff0d0" />
+                        intensity={0.45} color="#ffe0b0" />
 
-    <!-- World-lock root group -->
-    <T.Group rotation.z={worldLockZ}>
+    <!-- World-lock root group. scale.y={WORLD_STRETCH_Y} : anamorphose
+         verticale Lot 6.27.f → étire le maze en Y pour remplir le canvas
+         portrait sans changer la largeur. -->
+    <T.Group rotation.z={worldLockZ} scale.y={WORLD_STRETCH_Y}>
       <!-- Tilt 3D group -->
       <T.Group rotation.x={tiltX} rotation.y={tiltY}>
 
@@ -561,11 +735,11 @@
             <T.PlaneGeometry args={[G.W, G.H]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
-                                      color="#a08770"
+                                      color={PATH_COLOR}
                                       roughness={0.92} metalness={0.0}
                                       envMapIntensity={0.15} />
             {:else}
-              <T.MeshStandardMaterial color="#a08770"
+              <T.MeshStandardMaterial color={PATH_COLOR}
                                       roughness={0.92} metalness={0.0}
                                       envMapIntensity={0.15} />
             {/if}
@@ -580,8 +754,8 @@
           {#each ['straight', 'corner', 'T', 'cross', 'deadEnd'] as tileType (tileType)}
             <InstancedMesh geometry={tileGeometries[tileType]} castShadow receiveShadow>
               <T.MeshStandardMaterial color={PATH_COLOR}
-                                      roughness={0.72} metalness={0.04}
-                                      envMapIntensity={0.28} />
+                                      roughness={0.65} metalness={0.02}
+                                      envMapIntensity={0.40} />
               {#each tileInstances[tileType] as inst, i (`${tileType}-${i}`)}
                 <Instance position={[inst.x, inst.y, 0]}
                           rotation={[0, 0, inst.rot]} />
@@ -589,34 +763,41 @@
             </InstancedMesh>
           {/each}
 
-          <!-- Shadow halo (Lot 6.23.b) : tint dark sous chaque stripe pour
-               simuler l'ombre d'un creux. MeshBasicMaterial = pas de réaction
-               à la light (le creux reste sombre quel que soit le tilt).
-               Lot 6.24 : renderOrder=1 + depthWrite=false (fix flicker tilt). -->
-          {#each neonSegments as seg, i (`sh${i}`)}
-            <T.Mesh position={[seg.x, seg.y, pathTop - 0.05]} renderOrder={1}>
-              <T.PlaneGeometry args={
-                seg.type === 'h'
-                  ? [seg.length, neonW * 1.9]
-                  : [neonW * 1.9, seg.length]
-              } />
-              <T.MeshBasicMaterial color="#1a0e08"
-                                   transparent={true}
-                                   opacity={0.45}
-                                   depthWrite={false} />
-            </T.Mesh>
-          {/each}
-          {#each neonNodes as node, i (`shn${i}`)}
-            {#if node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathTop - 0.05]} renderOrder={1}>
-                <T.CircleGeometry args={[neonW * 1.5, 24]} />
+          <!-- Shadow groove (Lot 6.26 v2) : alphaMap gradient (sombre au
+               centre, fade aux bords) qui simule la lèvre haute d'une
+               rainure 3D. MeshBasicMaterial = pas de réaction à la light
+               (creux reste sombre quel que soit le tilt). renderOrder=1
+               + depthWrite=false : invariants anti-flicker Lot 6.24. -->
+          {#if grooveAlphaH && grooveAlphaV}
+            {#each neonSegments as seg, i (`sh${i}`)}
+              <T.Mesh position={[seg.x, seg.y, pathTop - 0.05]} renderOrder={1}>
+                <T.PlaneGeometry args={
+                  seg.type === 'h'
+                    ? [seg.length, neonW * 2.8]
+                    : [neonW * 2.8, seg.length]
+                } />
                 <T.MeshBasicMaterial color="#1a0e08"
+                                     alphaMap={seg.type === 'h' ? grooveAlphaH : grooveAlphaV}
                                      transparent={true}
-                                     opacity={0.45}
+                                     opacity={0.55}
                                      depthWrite={false} />
               </T.Mesh>
-            {/if}
-          {/each}
+            {/each}
+          {/if}
+          {#if grooveAlphaR}
+            {#each neonNodes as node, i (`shn${i}`)}
+              {#if node.isIntersection}
+                <T.Mesh position={[node.x, node.y, pathTop - 0.05]} renderOrder={1}>
+                  <T.CircleGeometry args={[neonW * 2.2, 24]} />
+                  <T.MeshBasicMaterial color="#1a0e08"
+                                       alphaMap={grooveAlphaR}
+                                       transparent={true}
+                                       opacity={0.55}
+                                       depthWrite={false} />
+                </T.Mesh>
+              {/if}
+            {/each}
+          {/if}
 
           <!-- Rainure néon sur le dessus de la piste (Lot 6.21 : z = pathTop
                pour être au-dessus du bevel + toneMapped=false pour bloom).
@@ -627,29 +808,31 @@
             <T.Mesh position={[seg.x, seg.y, pathTop]} renderOrder={2}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 0.5]
-                  : [neonW * 0.5, seg.length]
+                  ? [seg.length, neonW * 0.32]
+                  : [neonW * 0.32, seg.length]
               } />
               <T.MeshStandardMaterial color="#ffffff"
                                       emissive="#ffffff"
-                                      emissiveIntensity={1.4}
+                                      emissiveIntensity={2.2}
                                       toneMapped={false}
                                       transparent={false} />
             </T.Mesh>
-            <!-- Color halo (glow coloré) — Lot 6.24 : renderOrder=3 +
-                 depthWrite=false (fix flicker tilt). -->
+            <!-- Color halo (liseré bleu crisp) — Lot 6.24 : renderOrder=3 +
+                 depthWrite=false (fix flicker tilt). Lot 6.26 v2.2 : largeur
+                 resserrée + emissive haute + opacity haute → liseré net sans
+                 bloom diffus. -->
             <T.Mesh position={[seg.x, seg.y, pathTop + 0.1]} renderOrder={3}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 1.2]
-                  : [neonW * 1.2, seg.length]
+                  ? [seg.length, neonW * 0.85]
+                  : [neonW * 0.85, seg.length]
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
-                                      emissiveIntensity={1.2}
+                                      emissiveIntensity={2.4}
                                       toneMapped={false}
                                       transparent={true}
-                                      opacity={0.75}
+                                      opacity={0.95}
                                       depthWrite={false} />
             </T.Mesh>
           {/each}
@@ -660,10 +843,10 @@
           {#each neonNodes as node, i (`nb${i}`)}
             {#if node.isIntersection}
               <T.Mesh position={[node.x, node.y, pathTop + 0.3]} renderOrder={4}>
-                <T.SphereGeometry args={[neonW * 0.9, 16, 8]} />
+                <T.SphereGeometry args={[neonW * 0.6, 16, 8]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
-                                        emissiveIntensity={1.2}
+                                        emissiveIntensity={1.5}
                                         transparent={true}
                                         opacity={0.95}
                                         toneMapped={false}
@@ -680,9 +863,9 @@
           {#each G.checkpoints as cp, i (i)}
             {@const cx      = cp.c * G.cw + G.cw / 2 - G.W / 2}
             {@const cy      = G.H / 2 - (cp.r * G.ch + G.ch / 2)}
-            {@const cpClr   = cp.passed ? '#ffcc00' : '#00ff80'}
-            {@const cpLen   = Math.min(G.cw, G.ch) * 0.50}
-            {@const cpThick = neonW * 0.6}
+            {@const cpClr   = cp.passed ? '#ffcc00' : '#88ff66'}
+            {@const cpLen   = pathW * 1.20}
+            {@const cpThick = neonW * 1.3}
             <T.Mesh position={[cx, cy, pathTop + 0.5]}>
               <T.PlaneGeometry args={
                 cp.horizontal
@@ -694,69 +877,20 @@
                                       emissiveIntensity={1.5}
                                       toneMapped={false}
                                       transparent={true}
-                                      opacity={0.95} />
+                                      opacity={1.0} />
             </T.Mesh>
           {/each}
         {/if}
 
-        <!-- PointLights pour neon real light — Lot 6.14 :
-             UNIQUEMENT aux intersections (5-8 lights total par niveau)
-             pour préserver les perf mobile. Lot 6.13 avait 15-20 lights
-             (segments + intersections) qui saturaient le GPU iOS.
-             Trade-off : illumination pas continue, mais 60 FPS sustained.
-             Compensation : intensity bumped 1.4→1.6, distance 1.5x→2.5x. -->
-        {#if G && G.maze}
-          {#each neonNodes as node, i (`light-node-${i}`)}
-            {#if node.isIntersection}
-              <T.PointLight position={[node.x, node.y, pathTop + 2]}
-                            intensity={1.6}
-                            distance={Math.min(G.cw, G.ch) * 2.5}
-                            color={neonColor}
-                            decay={1.5} />
-            {/if}
-          {/each}
-        {/if}
-
-        <!-- Cadre néon — Lot 6.19 : frGap 0.35 → 0.15 (cadre était sorti
-             du frustum caméra à 0.35). Maintenant visible avec un léger
-             écart entre maze et cadre. -->
-        {#if G}
-          {@const frT   = 2.5}
-          {@const frH   = 2}
-          {@const frZ   = pathH}
-          {@const frGap = Math.min(G.cw, G.ch) * 0.15}
-          {@const frW   = G.W + (frT + frGap) * 2}
-          {@const frHd  = G.H + (frT + frGap) * 2}
-          <!-- top : Y = +H/2 + gap + frT/2 (au-dessus du maze) -->
-          <T.Mesh position={[0, G.H / 2 + frGap + frT / 2, frZ]}>
-            <T.BoxGeometry args={[frW, frT, frH]} />
+        <!-- Cadre néon — Lot 6.31 : un seul ExtrudeGeometry rounded
+             rectangle frame (au lieu de 4 BoxGeometry à angles droits).
+             Coins arrondis match maquette. Cache `frameGeometry`
+             reconstruit uniquement au changement de niveau. -->
+        {#if G && frameGeometry}
+          <T.Mesh geometry={frameGeometry} position={[0, 0, pathH]}>
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
-                                    emissiveIntensity={1.6}
-                                    toneMapped={false} />
-          </T.Mesh>
-          <!-- bottom -->
-          <T.Mesh position={[0, -G.H / 2 - frGap - frT / 2, frZ]}>
-            <T.BoxGeometry args={[frW, frT, frH]} />
-            <T.MeshStandardMaterial color={neonColor}
-                                    emissive={neonColor}
-                                    emissiveIntensity={1.6}
-                                    toneMapped={false} />
-          </T.Mesh>
-          <!-- left -->
-          <T.Mesh position={[-G.W / 2 - frGap - frT / 2, 0, frZ]}>
-            <T.BoxGeometry args={[frT, G.H + frGap * 2, frH]} />
-            <T.MeshStandardMaterial color={neonColor}
-                                    emissive={neonColor}
-                                    emissiveIntensity={1.6}
-                                    toneMapped={false} />
-          </T.Mesh>
-          <!-- right -->
-          <T.Mesh position={[G.W / 2 + frGap + frT / 2, 0, frZ]}>
-            <T.BoxGeometry args={[frT, G.H + frGap * 2, frH]} />
-            <T.MeshStandardMaterial color={neonColor}
-                                    emissive={neonColor}
-                                    emissiveIntensity={1.6}
+                                    emissiveIntensity={2.0}
                                     toneMapped={false} />
           </T.Mesh>
         {/if}
@@ -770,20 +904,25 @@
             {@const age     = col.collected ? now - col.collectT : 0}
             {@const visible = !col.collected || age < 400}
             {#if tex && visible}
-              {@const base   = G.br * 2.8}
+              {@const base   = G.br * 4.2}
               {@const fade   = col.collected ? Math.max(0, 1 - age / 400) : 1}
               {@const pulse  = col.collected
                 ? 1 + (age / 400) * 0.45
                 : 1 + Math.sin(now * 0.004 + col.c + col.r) * 0.06}
               {@const size   = base * pulse}
-              <!-- Lot 6.10 : z = pathH + 1.5 (au-dessus de
-                   la piste surélevée) + depthTest=false → toujours
-                   visible par-dessus tout. -->
-              <T.Sprite position={[cx, cy, pathTop + 1.5]}
-                        scale={[size, size, 1]}>
+              <!-- Lot 6.28.c : z dynamique pour éviter que le sprite
+                   (billboard face caméra tiltée) plonge dans les parois.
+                   Le bord bas du sprite descend en world-Z de
+                   size/2 * sin(tilt) ; on rajoute ce delta + une marge
+                   au pathTop pour garantir que le bord reste au-dessus
+                   du sommet des parois quelle que soit la taille. -->
+              {@const spriteZ = pathTop + size * CAM_TILT_SIN * 0.5 + 2}
+              <T.Sprite position={[cx, cy, spriteZ]}
+                        scale={[size, size, 1]}
+                        renderOrder={5}>
                 <T.SpriteMaterial map={tex} transparent={true}
                                   opacity={fade}
-                                  depthWrite={false} depthTest={false} />
+                                  depthWrite={false} depthTest={true} />
               </T.Sprite>
             {/if}
           {/each}
@@ -812,14 +951,62 @@
              la bille reflète correctement les neon PointLights aux
              intersections (teintes cyan/rose/vert selon theme). -->
         {#if G && ballVisible}
+          <!-- Contact shadow (Lot 6.26 v2.6) : disque sombre fade au sol
+               suivant la bille en XY. Grounding fort indépendant de la
+               light directionnelle (la real shadow reste utile mais
+               compense mal sous tilt). -->
+          {#if ballContactShadowTex}
+            <!-- Lot 6.31.d : Mesh+PlaneGeometry au lieu de Sprite. Un
+                 Sprite est un billboard qui s'incline avec la caméra,
+                 donc son bord bas descend sous le top du bevel et se
+                 fait couper par les parois adjacentes (depthTest). Une
+                 PlaneGeometry à plat reste parallèle au sol → bord
+                 toujours au-dessus du bevel. -->
+            <T.Mesh position={[ballX, ballY, pathTop + 0.05]}
+                    renderOrder={0}>
+              <T.PlaneGeometry args={[ballR * 3.4, ballR * 3.4]} />
+              <T.MeshBasicMaterial map={ballContactShadowTex}
+                                   transparent={true}
+                                   opacity={fallScale}
+                                   depthTest={true}
+                                   depthWrite={false} />
+            </T.Mesh>
+          {/if}
           <T.Mesh position={[ballX, ballY, (pathTop + ballR) * fallScale]}
                   scale={[fallScale, fallScale, fallScale]}
                   castShadow>
             <T.SphereGeometry args={[ballR, 32, 16]} />
             <T.MeshStandardMaterial color="#D4AF37"
                                     metalness={1.0}
-                                    roughness={0.15} />
+                                    roughness={0.15}
+                                    envMapIntensity={1.6} />
           </T.Mesh>
+
+          <!-- PointLight locale qui suit la bille (Lot 6.26 v2.1) :
+               teinte du néon courant, courte portée → reflet bleu sur
+               la bille métallique + groove lighting effect autour.
+               v2.5 : intensity 1.6→2.4 + distance 2.0→2.6 cells →
+               highlight spéculaire visible sur la sphère metalness=1.0
+               + spill cyan plus présent sur la piste autour. -->
+          <T.PointLight position={[ballX, ballY, pathTop + ballR * 1.5]}
+                        color={neonColor}
+                        intensity={2.4}
+                        distance={Math.min(G.cw, G.ch) * 2.6}
+                        decay={2.0} />
+
+          <!-- Bounce light (Lot 6.26 v2.7) : PointLight cyan juste au
+               niveau de la piste, sous la bille. Simule la lumière
+               rebondie par le rail néon → highlight cyan sur le bas
+               de la sphère métallique. Distance courte mais suffisante
+               pour atteindre l'équateur de la bille où le highlight
+               apparaît côté caméra. v2.8 : intensity 1.4→2.6 +
+               distance 0.7→1.5 cells → reflet cyan visible. -->
+          <T.PointLight position={[ballX, ballY, pathTop + ballR * 0.25]}
+                        color={neonColor}
+                        intensity={3.6}
+                        distance={Math.min(G.cw, G.ch) * 1.5}
+                        decay={2.0}
+                        castShadow={false} />
 
           <!-- Ball trail — Lot 6.16 : history buffer (positions
                échantillonnées dans animTick). Le trail suit la
@@ -840,7 +1027,7 @@
                   <T.SpriteMaterial map={ballGlowTexture}
                                     transparent={true}
                                     opacity={opacity}
-                                    depthTest={false}
+                                    depthTest={true}
                                     depthWrite={false} />
                 </T.Sprite>
               {/if}
