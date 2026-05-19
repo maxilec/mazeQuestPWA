@@ -863,9 +863,9 @@
           {#each G.checkpoints as cp, i (i)}
             {@const cx      = cp.c * G.cw + G.cw / 2 - G.W / 2}
             {@const cy      = G.H / 2 - (cp.r * G.ch + G.ch / 2)}
-            {@const cpClr   = cp.passed ? '#ffd633' : '#33ff66'}
-            {@const cpLen   = pathW * 0.90}
-            {@const cpThick = neonW * 0.85}
+            {@const cpClr   = cp.passed ? '#ffcc00' : '#00ff22'}
+            {@const cpLen   = pathW * 1.05}
+            {@const cpThick = neonW * 1.0}
             <T.Mesh position={[cx, cy, pathTop + 0.5]}>
               <T.PlaneGeometry args={
                 cp.horizontal
