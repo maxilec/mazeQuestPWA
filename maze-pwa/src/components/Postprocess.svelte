@@ -10,7 +10,7 @@
 
   import { onMount, onDestroy }  from 'svelte';
   import { useThrelte, useRender } from '@threlte/core';
-  import { Vector2, PMREMGenerator, CanvasTexture,
+  import { Vector2, PMREMGenerator, CanvasTexture, Color,
            EquirectangularReflectionMapping, SRGBColorSpace,
            LinearFilter } from 'three';
   import { EffectComposer }      from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -59,14 +59,12 @@
   }
 
   onMount(() => {
-    // Lot 6.31 : canvas transparent — clearColor cream + clearAlpha 0.
-    // - Si le contexte WebGL a été créé avec alpha:true (rendererParameters
-    //   côté <Canvas>), le clearAlpha=0 rend le canvas vraiment transparent
-    //   → HUD cream du DOM transparait derrière.
-    // - Sinon (alpha buffer désactivé), le clearColor cream rest opaque
-    //   mais visuellement intégré au HUD (même teinte).
-    // Double safety net.
-    renderer.setClearColor(0xf1e9d9, 0);
+    // Lot 6.31.b : fond solide cream — garantit que la zone du canvas
+    // hors géométrie 3D affiche la même teinte que le HUD du DOM. Le
+    // rendererParameters alpha:true n'était pas propagé par Threlte v7
+    // → l'approche transparency n'a pas marché. scene.background est
+    // une approche robuste, indépendante du contexte WebGL.
+    scene.background = new Color(0xf1e9d9);
 
     // 1. Env map procédural via PMREMGenerator + texture custom warm.
     const pmrem = new PMREMGenerator(renderer);
@@ -128,6 +126,9 @@
       composer.passes.forEach(p => p.dispose?.());
       composer.dispose?.();
     }
-    if (scene) scene.environment = null;
+    if (scene) {
+      scene.environment = null;
+      scene.background  = null;
+    }
   });
 </script>

@@ -35,7 +35,7 @@
 
   const DEG              = Math.PI / 180;
   const MAX_TILT_DEG     = 12;
-  const FOV              = 6;
+  const FOV              = 7;
   // Lot 6 : élévation dynamique de la caméra — top-down au repos,
   // ramp jusqu'à CAM_MAX_ELEV_DEG quand l'input tilt est non nul. Donne
   // un cue 3D pendant le mouvement sans imposer d'angle au repos.
@@ -49,12 +49,13 @@
   // Lot 6.27.f : 8→12° + FOV 8→6 (téléobjectif encore plus fort
   // compense le tilt remonté → top reste droit, parois bien marquées)
   // Lot 6.27.h : 12→11° (final tune)
-  // Lot 6.31 : 11→10° (redresse 1° de plus pour rectangle quasi parfait)
-  const CAM_TILT_DEG     = 10;
+  // Lot 6.31 : 11→10°
+  // Lot 6.31.b : 10→7° + FOV 6→7 → plateau quasi rectangle parfait
+  const CAM_TILT_DEG     = 7;
   // Précalcul de sin(tilt) pour positionner les Sprites (billboards face
   // caméra) en z assez haut pour que leur bord bas ne plonge pas dans
   // les parois 3D quand pathH est grand.
-  const CAM_TILT_SIN     = Math.sin(10 * Math.PI / 180);
+  const CAM_TILT_SIN     = Math.sin(7 * Math.PI / 180);
   // Lot 6.27.f : anamorphose verticale ×1.10 → étire le maze en Y pour
   // remplir mieux le canvas portrait sans toucher au framing horizontal.
   // Cells deviennent légèrement rectangulaires (10% plus haut que large).
@@ -439,13 +440,16 @@
 
     // Lot 6.31 : cadre néon avec coins arrondis — un seul ExtrudeGeometry
     // depuis un Shape rounded-rectangle avec un hole rounded-rectangle.
+    // Lot 6.31.b : frT 2.5→4.5 (fix moirage : la fine ligne emissive
+    // aliaisait à l'écran ; +épaisseur = trame stable + plus de pixels
+    // pour le bloom). frR ajusté en conséquence.
     if (frameGeometry) frameGeometry.dispose();
-    const frT_   = 2.5;
+    const frT_   = 4.5;
     const frH_   = 2;
     const frGap_ = Math.min(G.cw, G.ch) * 0.15;
     const frW_   = G.W + (frT_ + frGap_) * 2;
     const frHd_  = G.H + (frT_ + frGap_) * 2;
-    const frR_   = Math.min(G.cw, G.ch) * 0.18;
+    const frR_   = Math.min(G.cw, G.ch) * 0.22;
     frameGeometry = new ExtrudeGeometry(
       buildFrameShape(frW_, frHd_, frT_, frR_),
       { depth: frH_, bevelEnabled: false }
@@ -689,7 +693,7 @@
 </script>
 
 <div class="threlte-host" bind:this={host}>
-  <Canvas shadows={PCFSoftShadowMap} rendererParameters={{ alpha: true }}>
+  <Canvas shadows={PCFSoftShadowMap}>
     <T.PerspectiveCamera bind:ref={cameraRef} makeDefault
                          position={[0, camY, camZ]}
                          fov={FOV} near={cameraDist * 0.5} far={cameraDist * 1.5} />
@@ -820,15 +824,15 @@
             <T.Mesh position={[seg.x, seg.y, pathTop + 0.1]} renderOrder={3}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 0.7]
-                  : [neonW * 0.7, seg.length]
+                  ? [seg.length, neonW * 0.85]
+                  : [neonW * 0.85, seg.length]
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
-                                      emissiveIntensity={1.9}
+                                      emissiveIntensity={2.4}
                                       toneMapped={false}
                                       transparent={true}
-                                      opacity={0.9}
+                                      opacity={0.95}
                                       depthWrite={false} />
             </T.Mesh>
           {/each}
@@ -860,7 +864,7 @@
             {@const cx      = cp.c * G.cw + G.cw / 2 - G.W / 2}
             {@const cy      = G.H / 2 - (cp.r * G.ch + G.ch / 2)}
             {@const cpClr   = cp.passed ? '#ffcc00' : '#00ff80'}
-            {@const cpLen   = Math.min(G.cw, G.ch) * 0.50}
+            {@const cpLen   = pathW * 0.70}
             {@const cpThick = neonW * 0.6}
             <T.Mesh position={[cx, cy, pathTop + 0.5]}>
               <T.PlaneGeometry args={
