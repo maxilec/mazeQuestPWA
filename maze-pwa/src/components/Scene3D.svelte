@@ -864,8 +864,8 @@
             {@const cx      = cp.c * G.cw + G.cw / 2 - G.W / 2}
             {@const cy      = G.H / 2 - (cp.r * G.ch + G.ch / 2)}
             {@const cpClr   = cp.passed ? '#ffcc00' : '#00ff22'}
-            {@const cpLen   = pathW * 1.05}
-            {@const cpThick = neonW * 1.0}
+            {@const cpLen   = pathW * 1.20}
+            {@const cpThick = neonW * 1.3}
             <T.Mesh position={[cx, cy, pathTop + 0.5]}>
               <T.PlaneGeometry args={
                 cp.horizontal
@@ -874,7 +874,7 @@
               } />
               <T.MeshStandardMaterial color={cpClr}
                                       emissive={cpClr}
-                                      emissiveIntensity={2.6}
+                                      emissiveIntensity={1.5}
                                       toneMapped={false}
                                       transparent={true}
                                       opacity={1.0} />
