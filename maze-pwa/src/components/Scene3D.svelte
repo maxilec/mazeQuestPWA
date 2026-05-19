@@ -118,7 +118,7 @@
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
     s.bias          = -0.0001;
-    s.radius        = 6;
+    s.radius        = 10;
     s.needsUpdate   = true;
   }
 
@@ -735,11 +735,11 @@
             <T.PlaneGeometry args={[G.W, G.H]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
-                                      color="#8c715a"
+                                      color={PATH_COLOR}
                                       roughness={0.92} metalness={0.0}
                                       envMapIntensity={0.15} />
             {:else}
-              <T.MeshStandardMaterial color="#a08770"
+              <T.MeshStandardMaterial color={PATH_COLOR}
                                       roughness={0.92} metalness={0.0}
                                       envMapIntensity={0.15} />
             {/if}
