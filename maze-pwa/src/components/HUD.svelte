@@ -248,15 +248,13 @@
        inhérent à l'aspect ratio non-fitté apparaît AU-DESSUS du
        canvas (vers le top-bar) plutôt qu'en bas. Bouton MENU au
        plus près du maze.
-       Lot 7.1 : plateau légèrement creusé (effet "inset") sur le
-       fond cream — le canvas 3D transparent y est posé, le cadre
-       néon 3D s'inscrit dans cette zone. */
+       Lot 7.1.b : inset shadow retiré (transparait à travers le
+       canvas Threlte transparent → créait une zone grise visible
+       autour du cadre néon). Si on veut un plateau visuel plus
+       tard, il faudra l'implémenter côté 3D (subtle floor plane). */
     flex: 1 1 auto; min-height: 0;
     position: relative;
     display: flex; align-items: flex-end; justify-content: center;
-    border-radius: 16px;
-    box-shadow: inset 3px 3px 8px rgba(0,0,0,0.08),
-                inset -2px -2px 6px rgba(255,255,255,0.55);
   }
 
   /* ── Bottom bar ──────────────────────────────────────────────────── */
