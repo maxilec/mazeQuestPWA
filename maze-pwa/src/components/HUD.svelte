@@ -160,9 +160,10 @@
   }
   .timer {
     /* Lot 7.0.b : police Gruppo (Google Fonts), import via index.html.
-       Lot 7.1 : taille modérée (~2.5rem maquette), couleur slate-600
-       plus douce que charcoal pur, scaleY retiré (Gruppo affirme sa
-       silhouette à taille naturelle). */
+       Lot 7.1 : taille modérée slate-600.
+       Lot 7.1.c : scaleY(2.0) → hauteur du texte doublée comme
+       demandé. Le scaleY ne touche pas les largeurs (chars fixed-width
+       conservent leur position). */
     display: flex;
     align-items: center;
     font-family: 'Gruppo', 'Montserrat', sans-serif;
@@ -171,6 +172,8 @@
     line-height: 1;
     letter-spacing: 0;
     color: #4b5563;
+    transform: scaleY(2.0);
+    transform-origin: center;
   }
   .timer .ch {
     /* Chaque digit occupe une largeur fixe = 0.55em. Le ":" plus étroit
@@ -202,8 +205,10 @@
      Le pct vient via --fill (CSS var inline) → la même structure
      fonctionne en width (portrait) ou height (landscape). ─────────── */
   .progress {
-    /* Lot 7.1 : pilule neumorphism creusée ; le inset shadow simule
-       la profondeur de la piste sur le fond cream du HUD. */
+    /* Lot 7.1 : pilule neumorphism creusée.
+       Lot 7.1.c : margin-top positif pour absorber le débordement
+       visuel du chrono scaleY(2.0) (extension verticale ~22px) ;
+       margin-bottom négatif pour rapprocher du canvas. */
     height: 10px;
     width: 100%;
     border-radius: 999px;
@@ -212,7 +217,8 @@
                 inset -2px -2px 5px rgba(255,255,255,0.7);
     overflow: hidden;
     flex-shrink: 0;
-    margin-bottom: 0;
+    margin-top: 20px;
+    margin-bottom: -8px;
   }
   .progress-fill {
     width: var(--fill, 0%);

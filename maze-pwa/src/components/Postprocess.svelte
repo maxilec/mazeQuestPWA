@@ -10,7 +10,7 @@
 
   import { onMount, onDestroy }  from 'svelte';
   import { useThrelte, useRender } from '@threlte/core';
-  import { Vector2, PMREMGenerator, CanvasTexture,
+  import { Vector2, PMREMGenerator, CanvasTexture, Color,
            EquirectangularReflectionMapping, SRGBColorSpace,
            LinearFilter } from 'three';
   import { EffectComposer }      from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -59,12 +59,14 @@
   }
 
   onMount(() => {
-    // Lot 6.31.c : transparence vraie. Threlte v7 crée le WebGLRenderer
-    // avec alpha:true par défaut (vérifié dans @threlte/core/.../useRenderer.js
-    // ligne 26). Il suffit donc d'appeler setClearAlpha(0) pour que le
-    // canvas soit réellement transparent → le .bg-cream du HUD DOM (avec
-    // ses radial gradients) transparait derrière la scène 3D.
-    renderer.setClearAlpha(0);
+    // Lot 7.1.c : surface cream uniforme derrière toute la scène 3D.
+    // setClearAlpha(0) seul ne suffisait pas — le compositing WebGL
+    // créait des artefacts gris (anti-aliasing, edge blending). En
+    // posant scene.background = Color cream, on garantit un fond
+    // uniforme identique au HUD .bg-cream du DOM. Équivalent fonctionnel
+    // d'une PlaneGeometry infinie posée derrière toute la géométrie.
+    // Couleur #f1e9d9 = même base que .bg-cream dans App.svelte.
+    scene.background = new Color(0xf1e9d9);
 
     // 1. Env map procédural via PMREMGenerator + texture custom warm.
     const pmrem = new PMREMGenerator(renderer);
@@ -128,6 +130,7 @@
     }
     if (scene) {
       scene.environment = null;
+      scene.background  = null;
     }
   });
 </script>
