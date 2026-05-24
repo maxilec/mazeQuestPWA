@@ -23,6 +23,13 @@
   // Record (meilleur niveau atteint dans le mode courant).
   $: bestLvl = $highScores?.[mode]?.lvl ?? 0;
 
+  // Lot 7.0.d : pad le chrono à "MM:SS" 5 chars (au lieu de "M:SS")
+  // pour que chaque digit garde sa position (pas de shift à l'écran
+  // quand on passe de 9:59 à 10:00). Skip si format spécial (zen "∞").
+  $: displayChrono = (chrono && chrono.length === 4 && chrono.includes(':'))
+    ? '0' + chrono
+    : chrono;
+
   // Pourcentage de remplissage de la barre (0..1 pour ≤120s ; overflow >1
   // si bonus pousse au-delà — clamp visuel à 1, l'overflow est rendu plus
   // brillant). En mode zen le timer compte à l'envers, pas de gauge utile.
@@ -42,8 +49,18 @@
         <span class="value">{lvl}</span>
       </div>
       <div class="top-center">
-        <span class="timer">{chrono}</span>
-        <!-- Lot 7.0.b : icône timer style Material Symbol (solid fill) -->
+        <!-- Lot 7.0.d : chaque char dans un span à largeur fixe pour
+             que la position des digits ne shift pas quand le format
+             change. Le ":" est centré horizontalement par le flex
+             parent, donc le chrono est aligné sur le ":". -->
+        <div class="timer">
+          {#each displayChrono.split('') as ch, i (i)}
+            <span class="ch" class:colon={ch === ':'}>{ch}</span>
+          {/each}
+        </div>
+        <!-- icône timer style Material Symbol (solid fill). Reste en
+             flex après le timer ; la largeur du timer est déterministe
+             (5 chars × fixed width) donc l'icône a une position stable. -->
         <svg class="timer-icon" viewBox="0 -960 960 960" fill="currentColor"
              aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
           <path d="M360-840v-80h240v80H360Zm80 440h80v-240h-80v240Zm-99.5 291.5Q275-137 226-186t-77.5-114.5Q120-366 120-440t28.5-139.5Q177-645 226-694t114.5-77.5Q406-800 480-800q62 0 119 20t107 58l56-56 56 56-56 56q38 50 58 107t20 119q0 74-28.5 139.5T734-186q-49 49-114.5 77.5T480-80q-74 0-139.5-28.5ZM678-242q82-82 82-198t-82-198q-82-82-198-82t-198 82q-82 82-82 198t82 198q82 82 198 82t198-82ZM480-440Z"/>
@@ -141,21 +158,44 @@
   }
   .timer {
     /* Lot 7.0.b : police Gruppo (Google Fonts), import via index.html.
-       Style display "tech" qui s'aligne avec la signalétique néon. */
+       Lot 7.0.d : flex pour chars indépendants à largeur fixe, scaleY
+       pour étirer verticalement (occupe l'espace entre la jauge et la
+       safe-area-top sans pousser sur les largeurs). */
+    display: flex;
+    align-items: center;
     font-family: 'Gruppo', 'Montserrat', sans-serif;
-    font-weight: 400;          /* Gruppo n'existe qu'en regular */
-    font-size: clamp(52px, 14vw, 88px);   /* encore + grand */
+    font-weight: 400;
+    font-size: clamp(56px, 16vh, 96px);
+    line-height: 0.85;
     letter-spacing: 0;
-    line-height: 1;
+    color: #2d3138;
+    transform: scaleY(1.35);
+    transform-origin: center;
+  }
+  .timer .ch {
+    /* Chaque digit occupe une largeur fixe = 0.55em. Le ":" plus étroit
+       (0.25em) car visuellement plus léger. Le centrage du parent
+       (justify-content via .top-row grid 1fr) garde le ":" pile au
+       centre du HUD car la structure 5 chars est symétrique : 00:00. */
+    display: inline-block;
+    width: 0.55em;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .timer .ch.colon {
+    width: 0.25em;
   }
   .timer-icon {
-    /* SVG inline Material Symbol, dimensions via width/height.
-       currentColor hérite du parent (#2d3138). */
-    width:  clamp(28px, 7.5vw, 44px);
-    height: clamp(28px, 7.5vw, 44px);
+    /* SVG Material Symbol, currentColor hérite du parent (#2d3138).
+       Position fixée par flex après le timer (qui a largeur déterministe
+       avec ses chars fixed-width) → l'icône ne bouge plus selon la
+       valeur du chrono. */
+    width:  clamp(32px, 8vw, 48px);
+    height: clamp(32px, 8vw, 48px);
     color: #2d3138;
     opacity: 0.65;
     flex-shrink: 0;
+    margin-left: 0.4em;
   }
 
   /* ── Progress bar (gauge) ─────────────────────────────────────────
@@ -177,7 +217,17 @@
   .progress-fill {
     width: var(--fill, 0%);
     height: 100%;
-    background: var(--neon-color, #00c8ff);
+    /* Lot 7.0.d : gradient sur la jauge pour matcher la maquette.
+       Plus sombre au début → couleur néon → plus clair à la tête.
+       color-mix() pour rester compatible avec la --neon-color dynamique
+       par niveau/zen. Direction adaptée en landscape via override
+       plus bas. */
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--neon-color, #00c8ff) 55%, #000000) 0%,
+      var(--neon-color, #00c8ff) 70%,
+      color-mix(in srgb, var(--neon-color, #00c8ff) 80%, #ffffff) 100%
+    );
     box-shadow: 0 0 8px var(--neon-color, #00c8ff);
     transition: width 200ms linear, height 200ms linear;
   }
@@ -272,6 +322,14 @@
     .progress-fill {
       width: 100%;
       height: var(--fill, 0%);
+      /* Lot 7.0.d : gradient vertical bottom→top (0deg) ; bright à la
+         tête (haut), sombre à la base (bas). */
+      background: linear-gradient(
+        0deg,
+        color-mix(in srgb, var(--neon-color, #00c8ff) 55%, #000000) 0%,
+        var(--neon-color, #00c8ff) 70%,
+        color-mix(in srgb, var(--neon-color, #00c8ff) 80%, #ffffff) 100%
+      );
     }
   }
 </style>
