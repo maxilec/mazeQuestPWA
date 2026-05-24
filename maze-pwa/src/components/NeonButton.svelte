@@ -5,7 +5,7 @@
   // Variantes de couleur : cyan (défaut), green, amber, dim, red.
 
   export let shape   = 'pill';   // 'pill' | 'capsule'
-  export let variant = 'cyan';   // 'cyan' | 'green' | 'amber' | 'dim' | 'red'
+  export let variant = 'cyan';   // 'cyan' | 'green' | 'amber' | 'dim' | 'red' | 'neutral'
   export let disabled = false;
 </script>
 
@@ -16,6 +16,7 @@
   class:v-amber={variant === 'amber'}
   class:v-dim={variant === 'dim'}
   class:v-red={variant === 'red'}
+  class:v-neutral={variant === 'neutral'}
   {disabled}
   on:click
 >
@@ -68,6 +69,17 @@
     box-shadow: none;
   }
   .neon-btn.v-dim:active { background: rgba(0,200,255,0.06); }
+
+  /* Lot 7.1 : variante neutral — bordure et texte gris discret,
+     pas de halo néon. Utilisée pour le bouton MENU du HUD survie. */
+  .neon-btn.v-neutral {
+    border-color: #d1d5db;
+    color: #6b7280;
+    text-shadow: none;
+    box-shadow: none;
+    background: transparent;
+  }
+  .neon-btn.v-neutral:active { background: rgba(107,114,128,0.08); }
 
   /* Forme capsule (utilisée pour le bouton pause de la HUD) */
   .neon-btn.capsule {

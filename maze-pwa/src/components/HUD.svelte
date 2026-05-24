@@ -97,7 +97,7 @@
       <span class="chutes-text">CHUTES</span>
     </div>
     <div class="bottom-right">
-      <NeonButton shape="pill" on:click={(e) => { e.stopPropagation(); onTogglePause(); }}>
+      <NeonButton shape="pill" variant="neutral" on:click={(e) => { e.stopPropagation(); onTogglePause(); }}>
         MENU
       </NeonButton>
     </div>
@@ -139,38 +139,38 @@
   }
   .top-left, .top-right {
     display: flex; flex-direction: column;
-    color: #6b6f7a;
+    /* Lot 7.1 : slate-500 (plus doux que #6b6f7a charbon) */
+    color: #6b7280;
     font-size: clamp(10px, 2.2vw, 13px);
     line-height: 1.15;
   }
   .top-right  { align-items: flex-end; text-align: right; }
   .top-left   { align-items: flex-start; text-align: left; }
-  .label { color: #6b6f7a; letter-spacing: 0.5px; font-weight: 300; }
+  .label { color: #6b7280; letter-spacing: 0.5px; font-weight: 300; }
   .value, .record-value {
-    color: #2d3138; font-weight: 500;
+    /* Lot 7.1 : slate-600 (plus doux que charcoal pur) */
+    color: #4b5563; font-weight: 500;
     font-size: clamp(12px, 2.6vw, 16px);
   }
 
   .top-center {
     display: flex; align-items: center; justify-content: center;
     gap: 8px;
-    color: #2d3138;
+    color: #4b5563;
   }
   .timer {
     /* Lot 7.0.b : police Gruppo (Google Fonts), import via index.html.
-       Lot 7.0.d : flex pour chars indépendants à largeur fixe, scaleY
-       pour étirer verticalement (occupe l'espace entre la jauge et la
-       safe-area-top sans pousser sur les largeurs). */
+       Lot 7.1 : taille modérée (~2.5rem maquette), couleur slate-600
+       plus douce que charcoal pur, scaleY retiré (Gruppo affirme sa
+       silhouette à taille naturelle). */
     display: flex;
     align-items: center;
     font-family: 'Gruppo', 'Montserrat', sans-serif;
     font-weight: 400;
-    font-size: clamp(56px, 16vh, 96px);
-    line-height: 0.85;
+    font-size: clamp(32px, 7vh, 44px);
+    line-height: 1;
     letter-spacing: 0;
-    color: #2d3138;
-    transform: scaleY(1.35);
-    transform-origin: center;
+    color: #4b5563;
   }
   .timer .ch {
     /* Chaque digit occupe une largeur fixe = 0.55em. Le ":" plus étroit
@@ -186,13 +186,11 @@
     width: 0.25em;
   }
   .timer-icon {
-    /* SVG Material Symbol, currentColor hérite du parent (#2d3138).
-       Position fixée par flex après le timer (qui a largeur déterministe
-       avec ses chars fixed-width) → l'icône ne bouge plus selon la
-       valeur du chrono. */
-    width:  clamp(32px, 8vw, 48px);
-    height: clamp(32px, 8vw, 48px);
-    color: #2d3138;
+    /* SVG Material Symbol, currentColor hérite du parent (slate-600).
+       Lot 7.1 : taille ajustée à ~75% du chrono pour proportion maquette. */
+    width:  clamp(20px, 4vw, 26px);
+    height: clamp(20px, 4vw, 26px);
+    color: #4b5563;
     opacity: 0.65;
     flex-shrink: 0;
     margin-left: 0.4em;
@@ -204,31 +202,33 @@
      Le pct vient via --fill (CSS var inline) → la même structure
      fonctionne en width (portrait) ou height (landscape). ─────────── */
   .progress {
-    height: 7px;
+    /* Lot 7.1 : pilule neumorphism creusée ; le inset shadow simule
+       la profondeur de la piste sur le fond cream du HUD. */
+    height: 10px;
     width: 100%;
-    border-radius: 4px;
-    background: rgba(0,0,0,0.06);
+    border-radius: 999px;
+    background: #ebe2cf;
+    box-shadow: inset 2px 2px 5px rgba(0,0,0,0.10),
+                inset -2px -2px 5px rgba(255,255,255,0.7);
     overflow: hidden;
     flex-shrink: 0;
-    /* Marge négative pour rapprocher du board-area (override le gap
-       container 6-8px). */
-    margin-bottom: -2px;
+    margin-bottom: 0;
   }
   .progress-fill {
     width: var(--fill, 0%);
     height: 100%;
-    /* Lot 7.0.d : gradient sur la jauge pour matcher la maquette.
-       Plus sombre au début → couleur néon → plus clair à la tête.
-       color-mix() pour rester compatible avec la --neon-color dynamique
-       par niveau/zen. Direction adaptée en landscape via override
-       plus bas. */
+    border-radius: 999px;
+    /* Gradient sur la jauge : sombre au début → néon → clair tête.
+       color-mix() préserve la compatibilité avec --neon-color dynamique. */
     background: linear-gradient(
       90deg,
       color-mix(in srgb, var(--neon-color, #00c8ff) 55%, #000000) 0%,
       var(--neon-color, #00c8ff) 70%,
       color-mix(in srgb, var(--neon-color, #00c8ff) 80%, #ffffff) 100%
     );
-    box-shadow: 0 0 8px var(--neon-color, #00c8ff);
+    /* Halo néon (extérieur) + léger reflet (intérieur top) */
+    box-shadow: 0 0 10px color-mix(in srgb, var(--neon-color, #00c8ff) 60%, transparent),
+                inset 0 1px 1px rgba(255,255,255,0.4);
     transition: width 200ms linear, height 200ms linear;
   }
   .progress.alert .progress-fill {
@@ -247,10 +247,16 @@
        du board-area, juste au-dessus du bottom-bar. L'espace vide
        inhérent à l'aspect ratio non-fitté apparaît AU-DESSUS du
        canvas (vers le top-bar) plutôt qu'en bas. Bouton MENU au
-       plus près du maze. */
+       plus près du maze.
+       Lot 7.1 : plateau légèrement creusé (effet "inset") sur le
+       fond cream — le canvas 3D transparent y est posé, le cadre
+       néon 3D s'inscrit dans cette zone. */
     flex: 1 1 auto; min-height: 0;
     position: relative;
     display: flex; align-items: flex-end; justify-content: center;
+    border-radius: 16px;
+    box-shadow: inset 3px 3px 8px rgba(0,0,0,0.08),
+                inset -2px -2px 6px rgba(255,255,255,0.55);
   }
 
   /* ── Bottom bar ──────────────────────────────────────────────────── */
@@ -263,7 +269,8 @@
   }
   .bottom-left {
     display: flex; align-items: center; gap: 8px;
-    color: #6b6f7a;
+    /* Lot 7.1 : slate-500 cohérent avec header */
+    color: #6b7280;
     font-size: clamp(11px, 2.4vw, 14px);
     letter-spacing: 1px;
     font-weight: 300;
@@ -276,8 +283,8 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.25);
     flex-shrink: 0;
   }
-  .chutes-label { color: #2d3138; font-weight: 500; }
-  .chutes-text  { color: #6b6f7a; font-weight: 300; }
+  .chutes-label { color: #4b5563; font-weight: 500; }
+  .chutes-text  { color: #6b7280; font-weight: 300; }
   .bottom-right { flex-shrink: 0; }
 
   /* Override : le NeonButton pill prend une largeur auto ici (pas 100%). */
@@ -295,10 +302,10 @@
   @media (orientation: landscape) and (max-height: 500px) {
     .container { gap: 6px; padding-top: 6px; padding-bottom: 6px; }
     .top-row   { grid-template-columns: 1fr 1.4fr 1fr; }
-    .timer     { font-size: clamp(40px, 11vh, 64px); }
+    .timer     { font-size: clamp(28px, 6vh, 40px); }
     .timer-icon {
-      width:  clamp(24px, 7vh, 38px);
-      height: clamp(24px, 7vh, 38px);
+      width:  clamp(18px, 4.5vh, 24px);
+      height: clamp(18px, 4.5vh, 24px);
     }
 
     /* Lot 7.0.c : jauge verticale sur le côté gauche du canvas
@@ -312,7 +319,7 @@
       top: 56px;
       /* bottom : juste au-dessus du bottom-bar (~48px) */
       bottom: 52px;
-      width: 7px;
+      width: 10px;
       height: auto;
       margin: 0;
       /* Fill grandit du bas vers le haut */
