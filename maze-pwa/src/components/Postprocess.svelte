@@ -10,7 +10,7 @@
 
   import { onMount, onDestroy }  from 'svelte';
   import { useThrelte, useRender } from '@threlte/core';
-  import { Vector2, PMREMGenerator, CanvasTexture, Color,
+  import { Vector2, PMREMGenerator, CanvasTexture,
            EquirectangularReflectionMapping, SRGBColorSpace,
            LinearFilter } from 'three';
   import { EffectComposer }      from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -59,14 +59,18 @@
   }
 
   onMount(() => {
-    // Lot 7.1.c : surface cream uniforme derrière toute la scène 3D.
-    // setClearAlpha(0) seul ne suffisait pas — le compositing WebGL
-    // créait des artefacts gris (anti-aliasing, edge blending). En
-    // posant scene.background = Color cream, on garantit un fond
-    // uniforme identique au HUD .bg-cream du DOM. Équivalent fonctionnel
-    // d'une PlaneGeometry infinie posée derrière toute la géométrie.
-    // Couleur #f1e9d9 = même base que .bg-cream dans App.svelte.
-    scene.background = new Color(0xf1e9d9);
+    // Lot 7.2.d : transparence vraie du canvas (approche Gemini).
+    // - scene.background = null (pas de fond opaque)
+    // - renderer alpha:true (set côté <Canvas> rendererParameters)
+    // - renderer.setClearAlpha(0) → clear avec alpha transparent
+    // - renderPass.clearAlpha = 0 explicit → l'EffectComposer ne
+    //   réinitialise pas le canal alpha à 1.0 lors du rendu
+    // Le HUD .bg-cream du DOM transparait alors directement (avec
+    // ses radial gradients) derrière la scène 3D, sans interférence
+    // tone mapping ou color management de Three.js.
+    scene.background = null;
+    renderer.setClearColor(0x000000, 0);
+    renderer.setClearAlpha(0);
 
     // 1. Env map procédural via PMREMGenerator + texture custom warm.
     const pmrem = new PMREMGenerator(renderer);
@@ -87,7 +91,11 @@
     oneShot();   // unsub immédiatement (valeurs capturées)
 
     composer = new EffectComposer(renderer);
-    composer.addPass(new RenderPass(scene, camera.current));
+    // Lot 7.2.d : RenderPass clearAlpha=0 explicit → l'EffectComposer
+    // ne ré-opacifie pas le canal alpha à 1.0 lors du clear.
+    const renderPass = new RenderPass(scene, camera.current);
+    renderPass.clearAlpha = 0;
+    composer.addPass(renderPass);
     bloomPass = new UnrealBloomPass(
       new Vector2(w, h),
       bloomStrength,

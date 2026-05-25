@@ -787,7 +787,11 @@
 </script>
 
 <div class="threlte-host" bind:this={host}>
-  <Canvas shadows={PCFSoftShadowMap}>
+  <!-- Lot 7.2.d : rendererParameters alpha:true + premultipliedAlpha:false
+       pour vraie transparence canvas (approche Gemini). Combiné avec
+       renderPass.clearAlpha=0 dans Postprocess.svelte. -->
+  <Canvas shadows={PCFSoftShadowMap}
+          rendererParameters={{ alpha: true, premultipliedAlpha: false }}>
     <T.PerspectiveCamera bind:ref={cameraRef} makeDefault
                          position={[0, camY, camZ]}
                          fov={FOV} near={cameraDist * 0.5} far={cameraDist * 1.5} />
@@ -827,13 +831,11 @@
                         intensity={0.55}
                         color="#fff5e0" />
 
-    <!-- Lot 7.1.d : surface 2D cream qui remplit le fond derrière toute
-         la scène. Placée HORS des groupes world-lock/tilt → reste fixe
-         dans le frustum caméra peu importe les rotations device/input.
-         MeshBasicMaterial + toneMapped=false → couleur exacte #f1e9d9
-         identique au HUD .bg-cream du DOM, sans interférence
-         lighting/tonemapping. renderOrder très bas pour dessiner en
-         premier (avant tout autre mesh). -->
+    <!-- Lot 7.2.d : BG plane 2D commenté temporairement pour tester la
+         vraie transparence canvas. Si le canvas devient transparent,
+         le HUD .bg-cream du DOM transparait directement (avec ses
+         radial gradients). À ré-activer si le test échoue. -->
+    <!--
     {#if G}
       {@const bgZ = -Math.min(G.cw, G.ch) * 4}
       <T.Mesh position={[0, 0, bgZ]} renderOrder={-1000}>
@@ -841,6 +843,7 @@
         <T.MeshBasicMaterial color="#f1e9d9" toneMapped={false} />
       </T.Mesh>
     {/if}
+    -->
 
     <!-- World-lock root group. scale.y={WORLD_STRETCH_Y} : anamorphose
          verticale Lot 6.27.f → étire le maze en Y pour remplir le canvas
@@ -854,11 +857,14 @@
              Lot 7.1.e : étendu jusqu'au muret (+cellSize*2 en X/Y) pour
              éliminer le gap visible entre l'ancien edge du floor et
              le muret. Couleur FLOOR_COLOR (plus claire que PATH_COLOR). -->
+        <!-- Lot 7.2.d : sol commenté temporairement pour tester la
+             vraie transparence canvas (approche Gemini). Sans le sol,
+             les zones entre tiles (chasms) deviennent transparentes :
+             - Si le canvas est vraiment transparent → HUD cream visible
+             - Sinon → on verra le clear color noir/gris du renderer
+             À ré-activer si la transparence ne fonctionne pas. -->
+        <!--
         {#if G}
-          <!-- Lot 7.2.c : sol étendu à G.W*3 × G.H*3 pour couvrir
-               LARGEMENT le frustum caméra et éliminer le grey visible
-               au-delà du muret. Même couleur que le BG plane #f1e9d9
-               → continuité parfaite. -->
           <T.Mesh position={[0, 0, -floorDepth]} receiveShadow>
             <T.PlaneGeometry args={[G.W * 3, G.H * 3]} />
             {#if plateauTexture}
@@ -873,6 +879,7 @@
             {/if}
           </T.Mesh>
         {/if}
+        -->
 
         <!-- Pistes 3D — Lot 6.22 : système de tuiles Lego avec InstancedMesh.
              5 tuiles (straight, corner, T, cross, deadEnd) générées une fois
@@ -1208,5 +1215,8 @@
     display: block;
     width: 100%;
     height: 100%;
+    /* Lot 7.2.d : force canvas transparent (Gemini check) → évite
+       qu'un framework CSS parent applique un background-color */
+    background-color: transparent !important;
   }
 </style>
