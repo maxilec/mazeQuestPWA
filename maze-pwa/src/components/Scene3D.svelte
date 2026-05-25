@@ -160,11 +160,10 @@
   // au-dessus de depth=pathH → top réel à pathH + bevelThickness.
   $: pathTop    = pathH + bevelThickness + 0.5;
   $: neonW      = G ? Math.min(G.cw, G.ch) * 0.07 : 3.5;
-  const PATH_COLOR  = '#F0D9B8';
-  // Lot 7.1.e : couleur du sol plus claire que les tiles.
-  // Lot 7.1.f : match exact avec le BG cream #f1e9d9 → continuité
-  // visuelle parfaite entre sol et fond, plus de différenciation
-  // visible entre la zone sol (sous le muret) et le BG plane.
+  const PATH_COLOR  = '#f1e9d9';
+  // Lot 7.2.b : path et floor partagent EXACTEMENT la même couleur
+  // (cream BG #f1e9d9) → continuité visuelle parfaite, plus de
+  // distinction entre tile top et sol qui durcit l'ambiance.
   const FLOOR_COLOR = '#f1e9d9';
 
   // ── Système de tuiles Lego (Lot 6.22) ─────────────────────────────────
@@ -281,8 +280,12 @@
   // zéro runtime : appliqué une fois à la création des geometries.
   // Le ratio est remappé [0..1] → [0.15..1] pour éviter l'ombre
   // totale (le bas reste légèrement teinté, pas noir).
-  const AO_BASE   = new Color(0xF0D9B8);    // = PATH_COLOR (haut)
-  const AO_SHADOW = new Color(0xA89A82);    // ~30% darker, chaud
+  // Lot 7.2.b : couleurs AO éclaircies pour ambiance "plein soleil".
+  // AO_BASE match PATH_COLOR cream uniforme. AO_SHADOW reste un ton
+  // chaud mais beaucoup plus clair (#d4c5ab vs ancien #A89A82) pour
+  // ne plus écraser le bas des parois en brun foncé.
+  const AO_BASE   = new Color(0xf1e9d9);    // = PATH_COLOR cream
+  const AO_SHADOW = new Color(0xd4c5ab);    // beige clair (~12% darker)
   function applyVertexAO(geometry) {
     const pos = geometry.attributes.position;
     const colors = new Float32Array(pos.count * 3);
@@ -298,7 +301,9 @@
       const z = pos.getZ(i);
       let r = (z - zMin) / range;
       r = MathUtils.clamp(r, 0, 1);
-      r = MathUtils.mapLinear(r, 0, 1, 0.15, 1);
+      // Lot 7.2.b : range 0.15→0.45 (était 0.15) → le bas ne descend
+      // qu'à 45% lerp AO_SHADOW (vs 85% avant) → AO subtile, soleil
+      r = MathUtils.mapLinear(r, 0, 1, 0.45, 1);
       tmp.lerpColors(AO_SHADOW, AO_BASE, r);
       colors[i*3]   = tmp.r;
       colors[i*3+1] = tmp.g;
@@ -783,19 +788,18 @@
          - Directional key 1.50 (puissante), positionnée top-gauche-avant
          - Directional fill 0.30 (warm subtle pour les zones d'ombre) -->
     <!-- Lot 7.2 : HemisphereLight au lieu d'AmbientLight uniforme.
-         skyColor crème (top des parois) + groundColor taupe-beige
-         (bas des parois) → gradient AO natif sans coût supp vs
-         ambient. La fill light (Lot 6.19 warm subtle) a été retirée
-         car elle plat-éclairait les ombres du key light. -->
-    <T.HemisphereLight skyColor="#fff5e0"
-                       groundColor="#b5a896"
-                       intensity={0.85} />
+         Lot 7.2.b : ambiance "plein soleil" → groundColor remontée
+         à un ton chaud clair (vs taupe), intensité boostée. Le key
+         directional est aussi renforcé pour soleil prononcé. -->
+    <T.HemisphereLight skyColor="#ffffff"
+                       groundColor="#e8d6bc"
+                       intensity={1.15} />
     <T.DirectionalLight bind:ref={lightRef}
                         position={[G ? -G.W * 0.4 : -200,
                                    G ? G.H * 0.5 : 250,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 8]}
-                        intensity={0.95}
-                        color="#ffeec7"
+                        intensity={1.15}
+                        color="#fff5e0"
                         castShadow />
     <!-- Lot 7.1.e : rim light rasante depuis le haut du plateau (+Y) à
          hauteur modérée → éclaire la bordure haute du muret et des
