@@ -159,9 +159,11 @@
   $: pathTop    = pathH + bevelThickness + 0.5;
   $: neonW      = G ? Math.min(G.cw, G.ch) * 0.07 : 3.5;
   const PATH_COLOR  = '#F0D9B8';
-  // Lot 7.1.e : couleur du sol plus claire que les tiles (réduit le
-  // contraste chasms→cream et harmonise avec le BG #f1e9d9).
-  const FLOOR_COLOR = '#F5E2C5';
+  // Lot 7.1.e : couleur du sol plus claire que les tiles.
+  // Lot 7.1.f : match exact avec le BG cream #f1e9d9 → continuité
+  // visuelle parfaite entre sol et fond, plus de différenciation
+  // visible entre la zone sol (sous le muret) et le BG plane.
+  const FLOOR_COLOR = '#f1e9d9';
 
   // ── Système de tuiles Lego (Lot 6.22) ─────────────────────────────────
   // 5 tile types (straight, corner, T, cross, deadEnd) construits une fois
@@ -461,16 +463,16 @@
     );
 
     // Lot 7.1.d : muret extrudé SOUS le cadre néon (matière clay).
-    // Même shape que le cadre mais avec une épaisseur murale plus
-    // large (frTMur ~ frT*2.5) et extrusion verticale jusqu'au
-    // niveau de la piste pathH. Le cadre néon (cyan emissive) sit
-    // sur le top de ce muret comme une LED encastrée sur une
-    // structure clay. bevel doux pour matcher les tiles soft clay.
+    // Lot 7.1.f : muret RECENTRÉ sur le néon — épaisseur juste un peu
+    // plus large que frT (au lieu de frT*2.5 qui était trop massif).
+    // Formule muretW = G.W + frT + 2*frGap + muretT → centre du muret
+    // aligné sur le centre du cadre néon → extension équivalente
+    // intérieure/extérieure (~1.25 unités de chaque côté).
     if (muretGeometry) muretGeometry.dispose();
-    const muretT_ = frT_ * 2.5;     // épaisseur muret plus large que le cadre
-    const muretW_ = G.W + (muretT_ + frGap_) * 2;
-    const muretHd_= G.H + (muretT_ + frGap_) * 2;
-    const muretR_ = Math.min(G.cw, G.ch) * 0.26;  // radius légèrement plus grand
+    const muretT_ = frT_ + 2.5;     // 4.5 + 2.5 = 7 (à peine + large que frT)
+    const muretW_ = G.W + frT_ + 2 * frGap_ + muretT_;
+    const muretHd_= G.H + frT_ + 2 * frGap_ + muretT_;
+    const muretR_ = frR_;            // même radius que le cadre pour alignement
     muretGeometry = new ExtrudeGeometry(
       buildFrameShape(muretW_, muretHd_, muretT_, muretR_),
       {
