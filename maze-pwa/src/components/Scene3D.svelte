@@ -801,7 +801,7 @@
          capturer QUE les emissive HDR (toneMapped:false). Lights
          ambient/directional réduits car RoomEnvironment fournit
          maintenant l'illumination globale. -->
-    <Postprocess bloomStrength={0.24} bloomRadius={0.10} bloomThreshold={0.85} />
+    <Postprocess bloomStrength={0.15} bloomRadius={0.08} bloomThreshold={0.85} />
 
     <!-- Lighting (Lot 6.19) — setup "Soft Clay" per Gemini :
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
@@ -831,11 +831,9 @@
                         intensity={0.55}
                         color="#fff5e0" />
 
-    <!-- Lot 7.2.d : BG plane 2D commenté temporairement pour tester la
-         vraie transparence canvas. Si le canvas devient transparent,
-         le HUD .bg-cream du DOM transparait directement (avec ses
-         radial gradients). À ré-activer si le test échoue. -->
-    <!--
+    <!-- Lot 7.2.e : BG plane 2D restauré après test transparence peu
+         concluant. Approche éprouvée : floor + BG plane cream
+         identiques à la couleur de la piste #f1e9d9. -->
     {#if G}
       {@const bgZ = -Math.min(G.cw, G.ch) * 4}
       <T.Mesh position={[0, 0, bgZ]} renderOrder={-1000}>
@@ -843,7 +841,6 @@
         <T.MeshBasicMaterial color="#f1e9d9" toneMapped={false} />
       </T.Mesh>
     {/if}
-    -->
 
     <!-- World-lock root group. scale.y={WORLD_STRETCH_Y} : anamorphose
          verticale Lot 6.27.f → étire le maze en Y pour remplir le canvas
@@ -857,13 +854,8 @@
              Lot 7.1.e : étendu jusqu'au muret (+cellSize*2 en X/Y) pour
              éliminer le gap visible entre l'ancien edge du floor et
              le muret. Couleur FLOOR_COLOR (plus claire que PATH_COLOR). -->
-        <!-- Lot 7.2.d : sol commenté temporairement pour tester la
-             vraie transparence canvas (approche Gemini). Sans le sol,
-             les zones entre tiles (chasms) deviennent transparentes :
-             - Si le canvas est vraiment transparent → HUD cream visible
-             - Sinon → on verra le clear color noir/gris du renderer
-             À ré-activer si la transparence ne fonctionne pas. -->
-        <!--
+        <!-- Lot 7.2.e : floor restauré. Même couleur #f1e9d9 que la
+             piste (PATH_COLOR) et le BG plane → continuité parfaite. -->
         {#if G}
           <T.Mesh position={[0, 0, -floorDepth]} receiveShadow>
             <T.PlaneGeometry args={[G.W * 3, G.H * 3]} />
@@ -879,7 +871,6 @@
             {/if}
           </T.Mesh>
         {/if}
-        -->
 
         <!-- Pistes 3D — Lot 6.22 : système de tuiles Lego avec InstancedMesh.
              5 tuiles (straight, corner, T, cross, deadEnd) générées une fois

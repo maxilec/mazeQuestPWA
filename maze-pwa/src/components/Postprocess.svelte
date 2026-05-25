@@ -10,7 +10,7 @@
 
   import { onMount, onDestroy }  from 'svelte';
   import { useThrelte, useRender } from '@threlte/core';
-  import { Vector2, PMREMGenerator, CanvasTexture,
+  import { Vector2, PMREMGenerator, CanvasTexture, Color,
            EquirectangularReflectionMapping, SRGBColorSpace,
            LinearFilter } from 'three';
   import { EffectComposer }      from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -59,18 +59,13 @@
   }
 
   onMount(() => {
-    // Lot 7.2.d : transparence vraie du canvas (approche Gemini).
-    // - scene.background = null (pas de fond opaque)
-    // - renderer alpha:true (set côté <Canvas> rendererParameters)
-    // - renderer.setClearAlpha(0) → clear avec alpha transparent
-    // - renderPass.clearAlpha = 0 explicit → l'EffectComposer ne
-    //   réinitialise pas le canal alpha à 1.0 lors du rendu
-    // Le HUD .bg-cream du DOM transparait alors directement (avec
-    // ses radial gradients) derrière la scène 3D, sans interférence
-    // tone mapping ou color management de Three.js.
-    scene.background = null;
-    renderer.setClearColor(0x000000, 0);
-    renderer.setClearAlpha(0);
+    // Lot 7.2.e : scene.background = Color cream restauré après test
+    // transparence concluant que l'EffectComposer/Bloom écrasait
+    // l'alpha malgré renderPass.clearAlpha=0. Triple safety net :
+    // - scene.background = Color #f1e9d9 (fond cream uniforme)
+    // - Floor mesh restauré côté Scene3D (color #f1e9d9)
+    // - BG plane 2D restauré côté Scene3D (color #f1e9d9)
+    scene.background = new Color(0xf1e9d9);
 
     // 1. Env map procédural via PMREMGenerator + texture custom warm.
     const pmrem = new PMREMGenerator(renderer);
@@ -91,11 +86,7 @@
     oneShot();   // unsub immédiatement (valeurs capturées)
 
     composer = new EffectComposer(renderer);
-    // Lot 7.2.d : RenderPass clearAlpha=0 explicit → l'EffectComposer
-    // ne ré-opacifie pas le canal alpha à 1.0 lors du clear.
-    const renderPass = new RenderPass(scene, camera.current);
-    renderPass.clearAlpha = 0;
-    composer.addPass(renderPass);
+    composer.addPass(new RenderPass(scene, camera.current));
     bloomPass = new UnrealBloomPass(
       new Vector2(w, h),
       bloomStrength,
