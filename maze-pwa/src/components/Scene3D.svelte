@@ -51,11 +51,12 @@
   // Lot 6.27.h : 12→11° (final tune)
   // Lot 6.31 : 11→10°
   // Lot 6.31.b : 10→7° + FOV 6→7 → plateau quasi rectangle parfait
-  const CAM_TILT_DEG     = 7;
+  // Lot 7.1.e : 7→6° (encore plus orthographique)
+  const CAM_TILT_DEG     = 6;
   // Précalcul de sin(tilt) pour positionner les Sprites (billboards face
   // caméra) en z assez haut pour que leur bord bas ne plonge pas dans
   // les parois 3D quand pathH est grand.
-  const CAM_TILT_SIN     = Math.sin(7 * Math.PI / 180);
+  const CAM_TILT_SIN     = Math.sin(6 * Math.PI / 180);
   // Lot 6.27.f : anamorphose verticale ×1.10 → étire le maze en Y pour
   // remplir mieux le canvas portrait sans toucher au framing horizontal.
   // Cells deviennent légèrement rectangulaires (10% plus haut que large).
@@ -157,7 +158,10 @@
   // au-dessus de depth=pathH → top réel à pathH + bevelThickness.
   $: pathTop    = pathH + bevelThickness + 0.5;
   $: neonW      = G ? Math.min(G.cw, G.ch) * 0.07 : 3.5;
-  const PATH_COLOR = '#F0D9B8';
+  const PATH_COLOR  = '#F0D9B8';
+  // Lot 7.1.e : couleur du sol plus claire que les tiles (réduit le
+  // contraste chasms→cream et harmonise avec le BG #f1e9d9).
+  const FLOOR_COLOR = '#F5E2C5';
 
   // ── Système de tuiles Lego (Lot 6.22) ─────────────────────────────────
   // 5 tile types (straight, corner, T, cross, deadEnd) construits une fois
@@ -746,6 +750,15 @@
                         castShadow />
     <T.DirectionalLight position={[G ? G.W * 0.3 : 150, G ? -G.H * 0.3 : -150, 400]}
                         intensity={0.45} color="#ffe0b0" />
+    <!-- Lot 7.1.e : rim light rasante depuis le haut du plateau (+Y) à
+         hauteur modérée → éclaire la bordure haute du muret et des
+         parois ; la bordure basse reçoit moins de lumière → contraste
+         haut/bas qui souligne le volume arrondi (cf. maquette). -->
+    <T.DirectionalLight position={[0,
+                                   G ? G.H * 1.1 : 400,
+                                   (G ? Math.min(G.cw, G.ch) : 80) * 2.5]}
+                        intensity={0.55}
+                        color="#fff5e0" />
 
     <!-- Lot 7.1.d : surface 2D cream qui remplit le fond derrière toute
          la scène. Placée HORS des groupes world-lock/tilt → reste fixe
@@ -770,18 +783,21 @@
       <T.Group rotation.x={tiltX} rotation.y={tiltY}>
 
         <!-- Sol creusé (Lot 6.20) — abaissé à z = -floorDepth pour effet
-             de profondeur dans les fossés entre cellules de piste. La
-             piste extrudée part de z=0 → fossés visibles entre piste et sol. -->
+             de profondeur dans les fossés entre cellules de piste.
+             Lot 7.1.e : étendu jusqu'au muret (+cellSize*2 en X/Y) pour
+             éliminer le gap visible entre l'ancien edge du floor et
+             le muret. Couleur FLOOR_COLOR (plus claire que PATH_COLOR). -->
         {#if G}
+          {@const floorExt = Math.min(G.cw, G.ch) * 2}
           <T.Mesh position={[0, 0, -floorDepth]} receiveShadow>
-            <T.PlaneGeometry args={[G.W, G.H]} />
+            <T.PlaneGeometry args={[G.W + floorExt, G.H + floorExt]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
-                                      color={PATH_COLOR}
+                                      color={FLOOR_COLOR}
                                       roughness={0.92} metalness={0.0}
                                       envMapIntensity={0.15} />
             {:else}
-              <T.MeshStandardMaterial color={PATH_COLOR}
+              <T.MeshStandardMaterial color={FLOOR_COLOR}
                                       roughness={0.92} metalness={0.0}
                                       envMapIntensity={0.15} />
             {/if}
@@ -942,7 +958,9 @@
           </T.Mesh>
         {/if}
         {#if G && frameGeometry}
-          <T.Mesh geometry={frameGeometry} position={[0, 0, pathH]}>
+          <!-- Lot 7.1.e : cadre néon repositionné AU-DESSUS du muret
+               (le muret extrude jusqu'à pathH + bevelThickness). -->
+          <T.Mesh geometry={frameGeometry} position={[0, 0, pathH + bevelThickness]}>
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
                                     emissiveIntensity={2.0}
