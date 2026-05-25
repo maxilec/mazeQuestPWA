@@ -121,7 +121,10 @@
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
     s.bias          = -0.0001;
-    s.radius        = 10;
+    // Lot 7.2.c : radius 10→18 → PCF soft shadow encore plus blur,
+    // les drop shadows perdent leur côté tranchant. Zéro coût supp
+    // (paramètre PCF, juste plus de samples par pixel).
+    s.radius        = 18;
     s.needsUpdate   = true;
   }
 
@@ -296,14 +299,27 @@
       if (z > zMax) zMax = z;
     }
     const range = (zMax - zMin) || 1;
+    // Lot 7.2.c : zone bevel top = vertices avec z dans
+    // [zMax - bevelThickness, zMax]. Ce sont les vertices de l'arrête
+    // arrondie où on veut un léger contact darken pour les "arrêtes".
+    const bevelStart = zMax - bevelThickness;
     const tmp = new Color();
     for (let i = 0; i < pos.count; i++) {
       const z = pos.getZ(i);
       let r = (z - zMin) / range;
       r = MathUtils.clamp(r, 0, 1);
-      // Lot 7.2.b : range 0.15→0.45 (était 0.15) → le bas ne descend
-      // qu'à 45% lerp AO_SHADOW (vs 85% avant) → AO subtile, soleil
-      r = MathUtils.mapLinear(r, 0, 1, 0.45, 1);
+      // Lot 7.2.c : range 0.45→0.25 → contact shadow plus marqué au
+      // niveau du sol (base des tiles plus sombre)
+      r = MathUtils.mapLinear(r, 0, 1, 0.25, 1);
+      // Lot 7.2.c : edge AO sur la bevel ring → sinusoidal dip
+      // (1.0 aux extrémités, 0.85 au milieu) pour matérialiser le
+      // contact shadow à l'arrête arrondie. Coût négligeable car
+      // appliqué uniquement à ~15% des vertices (zone bevel top).
+      if (bevelThickness > 0 && z >= bevelStart && z <= zMax) {
+        const t = (z - bevelStart) / bevelThickness; // 0 base, 1 top
+        const dip = 1 - 0.15 * Math.sin(t * Math.PI);
+        r *= dip;
+      }
       tmp.lerpColors(AO_SHADOW, AO_BASE, r);
       colors[i*3]   = tmp.r;
       colors[i*3+1] = tmp.g;
@@ -839,9 +855,12 @@
              éliminer le gap visible entre l'ancien edge du floor et
              le muret. Couleur FLOOR_COLOR (plus claire que PATH_COLOR). -->
         {#if G}
-          {@const floorExt = Math.min(G.cw, G.ch) * 2}
+          <!-- Lot 7.2.c : sol étendu à G.W*3 × G.H*3 pour couvrir
+               LARGEMENT le frustum caméra et éliminer le grey visible
+               au-delà du muret. Même couleur que le BG plane #f1e9d9
+               → continuité parfaite. -->
           <T.Mesh position={[0, 0, -floorDepth]} receiveShadow>
-            <T.PlaneGeometry args={[G.W + floorExt, G.H + floorExt]} />
+            <T.PlaneGeometry args={[G.W * 3, G.H * 3]} />
             {#if plateauTexture}
               <T.MeshStandardMaterial map={plateauTexture}
                                       color={FLOOR_COLOR}
