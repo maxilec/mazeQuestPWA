@@ -218,7 +218,9 @@
     overflow: hidden;
     flex-shrink: 0;
     margin-top: 20px;
-    margin-bottom: -8px;
+    /* Lot 7.1.d : rapproche la jauge du canvas — annule le container
+       gap (6px) + colle visuellement à la zone de jeu */
+    margin-bottom: -22px;
   }
   .progress-fill {
     width: var(--fill, 0%);

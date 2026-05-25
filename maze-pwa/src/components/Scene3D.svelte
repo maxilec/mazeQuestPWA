@@ -399,6 +399,7 @@
   let neonSegments   = [];
   let neonNodes      = [];
   let frameGeometry  = null;   // Lot 6.31 : cadre néon rounded
+  let muretGeometry  = null;   // Lot 7.1.d : muret extrudé sous le cadre
   let lastMazeLvl    = -1;
   $: if (G?.maze && G.lvl !== lastMazeLvl) {
     // Lot 6.30 : soft clay bevel — bevelSize/bevelThickness définis
@@ -453,6 +454,31 @@
     frameGeometry = new ExtrudeGeometry(
       buildFrameShape(frW_, frHd_, frT_, frR_),
       { depth: frH_, bevelEnabled: false }
+    );
+
+    // Lot 7.1.d : muret extrudé SOUS le cadre néon (matière clay).
+    // Même shape que le cadre mais avec une épaisseur murale plus
+    // large (frTMur ~ frT*2.5) et extrusion verticale jusqu'au
+    // niveau de la piste pathH. Le cadre néon (cyan emissive) sit
+    // sur le top de ce muret comme une LED encastrée sur une
+    // structure clay. bevel doux pour matcher les tiles soft clay.
+    if (muretGeometry) muretGeometry.dispose();
+    const muretT_ = frT_ * 2.5;     // épaisseur muret plus large que le cadre
+    const muretW_ = G.W + (muretT_ + frGap_) * 2;
+    const muretHd_= G.H + (muretT_ + frGap_) * 2;
+    const muretR_ = Math.min(G.cw, G.ch) * 0.26;  // radius légèrement plus grand
+    muretGeometry = new ExtrudeGeometry(
+      buildFrameShape(muretW_, muretHd_, muretT_, muretR_),
+      {
+        depth: pathH,
+        bevelEnabled: true,
+        bevelThickness,
+        bevelSize,
+        bevelOffset: 0,
+        bevelSegments: 5,
+        steps: 1,
+        curveSegments: 24,
+      }
     );
 
     lastMazeLvl   = G.lvl;
@@ -685,6 +711,7 @@
     grooveAlphaR?.dispose();
     ballContactShadowTex?.dispose();
     frameGeometry?.dispose();
+    muretGeometry?.dispose();
     if (tileGeometries) {
       for (const k of Object.keys(tileGeometries)) tileGeometries[k].dispose();
     }
@@ -719,6 +746,21 @@
                         castShadow />
     <T.DirectionalLight position={[G ? G.W * 0.3 : 150, G ? -G.H * 0.3 : -150, 400]}
                         intensity={0.45} color="#ffe0b0" />
+
+    <!-- Lot 7.1.d : surface 2D cream qui remplit le fond derrière toute
+         la scène. Placée HORS des groupes world-lock/tilt → reste fixe
+         dans le frustum caméra peu importe les rotations device/input.
+         MeshBasicMaterial + toneMapped=false → couleur exacte #f1e9d9
+         identique au HUD .bg-cream du DOM, sans interférence
+         lighting/tonemapping. renderOrder très bas pour dessiner en
+         premier (avant tout autre mesh). -->
+    {#if G}
+      {@const bgZ = -Math.min(G.cw, G.ch) * 4}
+      <T.Mesh position={[0, 0, bgZ]} renderOrder={-1000}>
+        <T.PlaneGeometry args={[G.W * 8, G.H * 8]} />
+        <T.MeshBasicMaterial color="#f1e9d9" toneMapped={false} />
+      </T.Mesh>
+    {/if}
 
     <!-- World-lock root group. scale.y={WORLD_STRETCH_Y} : anamorphose
          verticale Lot 6.27.f → étire le maze en Y pour remplir le canvas
@@ -886,6 +928,19 @@
              rectangle frame (au lieu de 4 BoxGeometry à angles droits).
              Coins arrondis match maquette. Cache `frameGeometry`
              reconstruit uniquement au changement de niveau. -->
+        <!-- Lot 7.1.d : muret extrudé sous le cadre néon, matière clay
+             cream. Donne du volume au cadre comme sur la maquette
+             (LED encastrée sur structure clay) au lieu d'une simple
+             ligne flottante. -->
+        {#if G && muretGeometry}
+          <T.Mesh geometry={muretGeometry} position={[0, 0, 0]}
+                  castShadow receiveShadow>
+            <T.MeshStandardMaterial color={PATH_COLOR}
+                                    roughness={0.65}
+                                    metalness={0.02}
+                                    envMapIntensity={0.40} />
+          </T.Mesh>
+        {/if}
         {#if G && frameGeometry}
           <T.Mesh geometry={frameGeometry} position={[0, 0, pathH]}>
             <T.MeshStandardMaterial color={neonColor}
