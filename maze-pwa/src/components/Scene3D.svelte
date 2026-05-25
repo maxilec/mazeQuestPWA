@@ -23,7 +23,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Canvas, T }          from '@threlte/core';
   import { InstancedMesh, Instance } from '@threlte/extras';
-  import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap, Shape, Path, ExtrudeGeometry, LinearFilter } from 'three';
+  import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap, Shape, Path, ExtrudeGeometry, LinearFilter, MathUtils, Color, Float32BufferAttribute } from 'three';
   import { getSvgSource, svgReady } from '../lib/render.js';
   import Postprocess            from './Postprocess.svelte';
 
@@ -110,7 +110,9 @@
     const s = lightRef.shadow;
     // Lot 6.19 : mapSize 1024 → 2048 (shadows plus précises + douces),
     // bias -0.002 → -0.0001 (moins de "peter-panning" sur sol).
-    s.mapSize.set(2048, 2048);
+    // Lot 7.2 : mapSize 2048 → 1024 (blur artistique neumorphique +
+    // gain perf mobile, shadow pass 4× moins de pixels).
+    s.mapSize.set(1024, 1024);
     s.camera.left   = -G.W * 0.7;
     s.camera.right  =  G.W * 0.7;
     s.camera.top    =  G.H * 0.7;
@@ -271,6 +273,38 @@
     hole.lineTo(ix - ir, iy);
     shape.holes.push(hole);
     return shape;
+  }
+
+  // Lot 7.2 : AO procédurale via vertex colors.
+  // Plus un vertex est bas en Z (proche du sol/intérieur du fossé),
+  // plus sa couleur tend vers AO_SHADOW (taupe-beige sombre). Cost
+  // zéro runtime : appliqué une fois à la création des geometries.
+  // Le ratio est remappé [0..1] → [0.15..1] pour éviter l'ombre
+  // totale (le bas reste légèrement teinté, pas noir).
+  const AO_BASE   = new Color(0xF0D9B8);    // = PATH_COLOR (haut)
+  const AO_SHADOW = new Color(0xA89A82);    // ~30% darker, chaud
+  function applyVertexAO(geometry) {
+    const pos = geometry.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    let zMin = Infinity, zMax = -Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      const z = pos.getZ(i);
+      if (z < zMin) zMin = z;
+      if (z > zMax) zMax = z;
+    }
+    const range = (zMax - zMin) || 1;
+    const tmp = new Color();
+    for (let i = 0; i < pos.count; i++) {
+      const z = pos.getZ(i);
+      let r = (z - zMin) / range;
+      r = MathUtils.clamp(r, 0, 1);
+      r = MathUtils.mapLinear(r, 0, 1, 0.15, 1);
+      tmp.lerpColors(AO_SHADOW, AO_BASE, r);
+      colors[i*3]   = tmp.r;
+      colors[i*3+1] = tmp.g;
+      colors[i*3+2] = tmp.b;
+    }
+    geometry.setAttribute('color', new Float32BufferAttribute(colors, 3));
   }
 
   function buildStraightShape(pathW, cw, ch, bs) {
@@ -441,6 +475,10 @@
       cross:    new ExtrudeGeometry(shapes.cross,    extrudeSettings),
       deadEnd:  new ExtrudeGeometry(shapes.deadEnd,  extrudeSettings),
     };
+    // Lot 7.2 : injection AO vertex colors (zéro coût runtime)
+    for (const key of Object.keys(tileGeometries)) {
+      applyVertexAO(tileGeometries[key]);
+    }
     tileInstances = computeTileInstances(G);
     neonSegments  = computeNeonSegments(G);
     neonNodes     = computeNeonNodes(G);
@@ -486,6 +524,8 @@
         curveSegments: 24,
       }
     );
+    // Lot 7.2 : AO vertex colors aussi sur le muret
+    applyVertexAO(muretGeometry);
 
     lastMazeLvl   = G.lvl;
   }
@@ -742,7 +782,14 @@
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
          - Directional key 1.50 (puissante), positionnée top-gauche-avant
          - Directional fill 0.30 (warm subtle pour les zones d'ombre) -->
-    <T.AmbientLight intensity={1.05} color="#fbe9c8" />
+    <!-- Lot 7.2 : HemisphereLight au lieu d'AmbientLight uniforme.
+         skyColor crème (top des parois) + groundColor taupe-beige
+         (bas des parois) → gradient AO natif sans coût supp vs
+         ambient. La fill light (Lot 6.19 warm subtle) a été retirée
+         car elle plat-éclairait les ombres du key light. -->
+    <T.HemisphereLight skyColor="#fff5e0"
+                       groundColor="#b5a896"
+                       intensity={0.85} />
     <T.DirectionalLight bind:ref={lightRef}
                         position={[G ? -G.W * 0.4 : -200,
                                    G ? G.H * 0.5 : 250,
@@ -750,8 +797,6 @@
                         intensity={0.95}
                         color="#ffeec7"
                         castShadow />
-    <T.DirectionalLight position={[G ? G.W * 0.3 : 150, G ? -G.H * 0.3 : -150, 400]}
-                        intensity={0.45} color="#ffe0b0" />
     <!-- Lot 7.1.e : rim light rasante depuis le haut du plateau (+Y) à
          hauteur modérée → éclaire la bordure haute du muret et des
          parois ; la bordure basse reçoit moins de lumière → contraste
@@ -813,7 +858,11 @@
         {#if G && G.maze && tileGeometries && tileInstances}
           {#each ['straight', 'corner', 'T', 'cross', 'deadEnd'] as tileType (tileType)}
             <InstancedMesh geometry={tileGeometries[tileType]} castShadow receiveShadow>
-              <T.MeshStandardMaterial color={PATH_COLOR}
+              <!-- Lot 7.2 : color=white + vertexColors=true → la couleur
+                   finale vient des vertex AO (PATH_COLOR en haut,
+                   AO_SHADOW en bas). Évite le double-multiplicatif. -->
+              <T.MeshStandardMaterial color="#ffffff"
+                                      vertexColors={true}
                                       roughness={0.65} metalness={0.02}
                                       envMapIntensity={0.40} />
               {#each tileInstances[tileType] as inst, i (`${tileType}-${i}`)}
@@ -953,7 +1002,10 @@
         {#if G && muretGeometry}
           <T.Mesh geometry={muretGeometry} position={[0, 0, 0]}
                   castShadow receiveShadow>
-            <T.MeshStandardMaterial color={PATH_COLOR}
+            <!-- Lot 7.2 : vertexColors=true → AO procédurale (sky top
+                 vs ground base) sur le muret aussi. -->
+            <T.MeshStandardMaterial color="#ffffff"
+                                    vertexColors={true}
                                     roughness={0.65}
                                     metalness={0.02}
                                     envMapIntensity={0.40} />
