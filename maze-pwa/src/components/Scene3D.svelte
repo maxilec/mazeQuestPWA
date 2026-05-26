@@ -892,12 +892,13 @@
     <T.HemisphereLight skyColor="#ffffff"
                        groundColor="#e8d6bc"
                        intensity={1.15} />
-    <!-- Lot 7.3 : key light remontée presque à la verticale (-X*0.15
-         + Y*0.2 + Z*14) pour ombre portée plus douce sous le plateau
-         (et non décalée tranche). -->
+    <!-- Lot 7.3.b : key light QUASI vertical (X/Y * 0.05) → drop
+         shadows confinées sous chaque tile sans projection latérale
+         sur le sol environnant. atan(0.05/14) ≈ 2° d'angle, juste
+         assez pour garder un peu de directionnalité. -->
     <T.DirectionalLight bind:ref={lightRef}
-                        position={[G ? -G.W * 0.15 : -80,
-                                   G ? G.H * 0.2 : 100,
+                        position={[G ? -G.W * 0.05 : -30,
+                                   G ? G.H * 0.05 : 30,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 14]}
                         intensity={1.15}
                         color="#fff5e0"
@@ -1107,8 +1108,14 @@
              (LED encastrée sur structure clay) au lieu d'une simple
              ligne flottante. -->
         {#if G && muretGeometry}
+          <!-- Lot 7.3.b : castShadow retiré du muret. Le muret extrude
+               jusqu'à pathH+bevelThickness sur tout le périmètre du
+               maze : il projetait une grande ombre sur le sol qui
+               polluait visuellement les bords (visible drop shadow
+               étendue). Les tiles internes castShadow restent pour
+               garder le relief entre cellules adjacentes. -->
           <T.Mesh geometry={muretGeometry} position={[0, 0, 0]}
-                  castShadow receiveShadow>
+                  receiveShadow>
             <!-- Lot 7.2 : vertexColors=true → AO procédurale (sky top
                  vs ground base) sur le muret aussi. -->
             <T.MeshStandardMaterial color="#ffffff"
