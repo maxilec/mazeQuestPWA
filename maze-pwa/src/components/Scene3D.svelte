@@ -124,7 +124,7 @@
     // Lot 7.2.c : radius 10→18 → PCF soft shadow encore plus blur,
     // les drop shadows perdent leur côté tranchant. Zéro coût supp
     // (paramètre PCF, juste plus de samples par pixel).
-    s.radius        = 18;
+    s.radius        = 25;  // Lot 7.3 : encore plus blur, signature douce
     s.needsUpdate   = true;
   }
 
@@ -289,6 +289,64 @@
   // ne plus écraser le bas des parois en brun foncé.
   const AO_BASE   = new Color(0xf1e9d9);    // = PATH_COLOR cream
   const AO_SHADOW = new Color(0xd4c5ab);    // beige clair (~12% darker)
+  // Lot 7.3 : AO map textures procédurales par type de tile (approche
+  // Gemini "Soft Clay"). Chaque texture 256×256 grayscale a des
+  // bandes sombres aux côtés FERMÉS de la tile (où il y aurait des
+  // murs adjacents). Three.js darken le matériau via aoMap × ambient
+  // lighting. Coût : 5 petites textures (4 KB chacune) + uv2 sur
+  // chaque geometry, zéro coût runtime.
+  //
+  // Closed sides par type de tile (orientation par défaut) :
+  //   straight : E+W (opens N+S)
+  //   corner   : S+W (opens N+E, default TR)
+  //   T        : W   (opens N+E+S)
+  //   cross    : aucun (opens 4 sides)
+  //   deadEnd  : E+S+W (opens N only)
+  //
+  // Mapping UV canvas (ExtrudeGeometry top face) :
+  //   canvas x=0 → UV u=0 = West
+  //   canvas x=256 → UV u=1 = East
+  //   canvas y=0 → UV v=1 = North (canvas Y inversé vs UV V)
+  //   canvas y=256 → UV v=0 = South
+  function drawAOBand(ctx, side, depth, intensity) {
+    const C = 256;
+    let g;
+    switch (side) {
+      case 'W': g = ctx.createLinearGradient(0, 0, depth, 0); break;
+      case 'E': g = ctx.createLinearGradient(C, 0, C - depth, 0); break;
+      case 'N': g = ctx.createLinearGradient(0, 0, 0, depth); break;
+      case 'S': g = ctx.createLinearGradient(0, C, 0, C - depth); break;
+    }
+    g.addColorStop(0, `rgba(0,0,0,${intensity})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, C, C);
+  }
+  const TILE_CLOSED_SIDES = {
+    straight: ['W', 'E'],
+    corner:   ['W', 'S'],
+    T:        ['W'],
+    cross:    [],
+    deadEnd:  ['W', 'S', 'E'],
+  };
+  function buildAOTexture(tileType) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 256, 256);
+    const sides = TILE_CLOSED_SIDES[tileType] || [];
+    for (const side of sides) {
+      drawAOBand(ctx, side, 96, 0.5);
+    }
+    const tex = new CanvasTexture(c);
+    tex.colorSpace = SRGBColorSpace;
+    tex.minFilter = LinearFilter;
+    tex.magFilter = LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
   function applyVertexAO(geometry) {
     const pos = geometry.attributes.position;
     const colors = new Float32Array(pos.count * 3);
@@ -456,6 +514,7 @@
   // ── Cache geometries + instances (rebuild only when level changes) ─────
   // Sans cache, on recompile 5 ExtrudeGeometry par frame → crash mobile.
   let tileGeometries = null;
+  let aoTextures     = null;   // Lot 7.3 : AO map per tile type
   let tileInstances  = null;
   let neonSegments   = [];
   let neonNodes      = [];
@@ -497,8 +556,24 @@
       deadEnd:  new ExtrudeGeometry(shapes.deadEnd,  extrudeSettings),
     };
     // Lot 7.2 : injection AO vertex colors (zéro coût runtime)
+    // Lot 7.3 : + uv2 (= uv) pour permettre aoMap par tile type
+    if (!aoTextures) {
+      aoTextures = {
+        straight: buildAOTexture('straight'),
+        corner:   buildAOTexture('corner'),
+        T:        buildAOTexture('T'),
+        cross:    buildAOTexture('cross'),
+        deadEnd:  buildAOTexture('deadEnd'),
+      };
+    }
     for (const key of Object.keys(tileGeometries)) {
-      applyVertexAO(tileGeometries[key]);
+      const geo = tileGeometries[key];
+      applyVertexAO(geo);
+      // Three.js requires uv2 attribute for aoMap. Duplicate from uv.
+      const uv = geo.attributes.uv;
+      if (uv) {
+        geo.setAttribute('uv2', new Float32BufferAttribute(uv.array.slice(), 2));
+      }
     }
     tileInstances = computeTileInstances(G);
     neonSegments  = computeNeonSegments(G);
@@ -782,6 +857,9 @@
     if (tileGeometries) {
       for (const k of Object.keys(tileGeometries)) tileGeometries[k].dispose();
     }
+    if (aoTextures) {
+      for (const k of Object.keys(aoTextures)) aoTextures[k].dispose();
+    }
     for (const tex of Object.values(textures)) tex.dispose();
   });
 </script>
@@ -814,10 +892,13 @@
     <T.HemisphereLight skyColor="#ffffff"
                        groundColor="#e8d6bc"
                        intensity={1.15} />
+    <!-- Lot 7.3 : key light remontée presque à la verticale (-X*0.15
+         + Y*0.2 + Z*14) pour ombre portée plus douce sous le plateau
+         (et non décalée tranche). -->
     <T.DirectionalLight bind:ref={lightRef}
-                        position={[G ? -G.W * 0.4 : -200,
-                                   G ? G.H * 0.5 : 250,
-                                   (G ? Math.min(G.cw, G.ch) : 80) * 8]}
+                        position={[G ? -G.W * 0.15 : -80,
+                                   G ? G.H * 0.2 : 100,
+                                   (G ? Math.min(G.cw, G.ch) : 80) * 14]}
                         intensity={1.15}
                         color="#fff5e0"
                         castShadow />
@@ -881,9 +962,14 @@
             <InstancedMesh geometry={tileGeometries[tileType]} castShadow receiveShadow>
               <!-- Lot 7.2 : color=white + vertexColors=true → la couleur
                    finale vient des vertex AO (PATH_COLOR en haut,
-                   AO_SHADOW en bas). Évite le double-multiplicatif. -->
+                   AO_SHADOW en bas). Évite le double-multiplicatif.
+                   Lot 7.3 : aoMap procédural par tile type → bandes
+                   sombres sur les côtés FERMÉS (où il y aurait des
+                   murs adjacents) → effet AO "soft clay". -->
               <T.MeshStandardMaterial color="#ffffff"
                                       vertexColors={true}
+                                      aoMap={aoTextures && aoTextures[tileType]}
+                                      aoMapIntensity={1.5}
                                       roughness={0.65} metalness={0.02}
                                       envMapIntensity={0.40} />
               {#each tileInstances[tileType] as inst, i (`${tileType}-${i}`)}
