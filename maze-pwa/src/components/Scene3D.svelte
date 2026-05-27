@@ -108,13 +108,10 @@
   let lightRef;
   $: if (lightRef && G) {
     const s = lightRef.shadow;
-    // Lot 7.3.d : escalation anti-acne. Le bevel des tiles (bevelSegments
-    // 5 layers) crée des surfaces avec des normales légèrement orientées
-    // qui peuvent être en self-shadow géométriquement valide. Solution :
-    // push fort sur normalBias et bias pour outrepasser ces edge cases.
-    //   - normalBias 1.5 → 5.0 : offset normale très large
-    //   - bias -0.0005 → -0.001 : marge depth doublée
-    //   - mapSize 2048 conservé, radius 12 conservé
+    // Lot 7.3.h : normalBias 5.0 → 2.0. La vraie cause de l'acne 7.3.d
+    // était l'aoMap (retiré en 7.3.g). Sans aoMap, un normalBias modéré
+    // suffit, et les ombres tiles→sol redeviennent visibles au contact
+    // (l'AO de contact entre piste et sol était écrasée par 5.0).
     s.mapSize.set(2048, 2048);
     s.camera.left   = -G.W * 0.7;
     s.camera.right  =  G.W * 0.7;
@@ -124,7 +121,7 @@
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
     s.bias          = -0.001;
-    s.normalBias    = 5.0;
+    s.normalBias    = 2.0;
     s.radius        = 12;
     s.needsUpdate   = true;
   }
@@ -284,12 +281,14 @@
   // zéro runtime : appliqué une fois à la création des geometries.
   // Le ratio est remappé [0..1] → [0.15..1] pour éviter l'ombre
   // totale (le bas reste légèrement teinté, pas noir).
-  // Lot 7.2.b : couleurs AO éclaircies pour ambiance "plein soleil".
-  // AO_BASE match PATH_COLOR cream uniforme. AO_SHADOW reste un ton
-  // chaud mais beaucoup plus clair (#d4c5ab vs ancien #A89A82) pour
-  // ne plus écraser le bas des parois en brun foncé.
+  // Lot 7.3.h : AO_SHADOW redarken pour rendre les parois latérales
+  // visibles. Le top des pistes reste 100% AO_BASE (PATH_COLOR pur)
+  // via le mapping vertical : seuls les vertices bas (parois +
+  // contact sol) se rapprochent de AO_SHADOW. La caméra étant quasi
+  // top-down, on voit surtout les parois et l'effet est lisible
+  // sans toucher la zone néon.
   const AO_BASE   = new Color(0xf1e9d9);    // = PATH_COLOR cream
-  const AO_SHADOW = new Color(0xd4c5ab);    // beige clair (~12% darker)
+  const AO_SHADOW = new Color(0x9a7e54);    // taupe chaud (~35% darker)
   // Lot 7.3 : AO map textures procédurales par type de tile (approche
   // Gemini "Soft Clay"). Chaque texture 256×256 grayscale a des
   // bandes sombres aux côtés FERMÉS de la tile (où il y aurait des
@@ -373,9 +372,10 @@
       const z = pos.getZ(i);
       let r = (z - zMin) / range;
       r = MathUtils.clamp(r, 0, 1);
-      // Lot 7.2.c : range 0.45→0.25 → contact shadow plus marqué au
-      // niveau du sol (base des tiles plus sombre)
-      r = MathUtils.mapLinear(r, 0, 1, 0.25, 1);
+      // Lot 7.3.h : range 0.25→0.05 → parois latérales nettement
+      // plus contrastées au contact du sol. Le top des pistes reste
+      // à r=1 (pur AO_BASE) car z=zMax → ratio=1 inchangé.
+      r = MathUtils.mapLinear(r, 0, 1, 0.05, 1);
       // Lot 7.2.c : edge AO sur la bevel ring → sinusoidal dip
       // (1.0 aux extrémités, 0.85 au milieu) pour matérialiser le
       // contact shadow à l'arrête arrondie. Coût négligeable car

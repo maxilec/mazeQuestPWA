@@ -155,11 +155,11 @@ DirectionalLight key #fff5e0 quasi-vertical, castShadow, intensity 1.15
 DirectionalLight rim #fff5e0 depuis le haut du plateau, intensity 0.55
 ```
 
-Shadow setup (Lot 7.3.c) :
+Shadow setup (Lot 7.3.h) :
 ```js
 shadow.mapSize     = 2048×2048  // précision depth
 shadow.bias        = -0.001     // marge depth
-shadow.normalBias  = 5.0        // offset normal (anti-acne soft clay)
+shadow.normalBias  = 2.0        // offset normal modéré (AO contact lisible)
 shadow.radius      = 12         // PCF blur soft
 ```
 
