@@ -967,12 +967,13 @@
              instanciée dans son bucket selon le type détecté. -->
         {#if G && G.maze && tileGeometries && tileInstances}
           {#each ['straight', 'corner', 'T', 'cross', 'deadEnd'] as tileType (tileType)}
-            <!-- Lot 7.3.e : receiveShadow remis. L'acne du Lot 7.3.d
-                 n'était pas du shadow acne mais l'aoMap mal configuré
-                 (SRGBColorSpace au lieu de LinearSRGBColorSpace).
-                 Les biases shadow forts (normalBias 5, bias -0.001)
-                 sont conservés en défense en profondeur. -->
-            <InstancedMesh geometry={tileGeometries[tileType]} castShadow receiveShadow>
+            <!-- Lot 7.3.f : receiveShadow définitivement retiré. Les
+                 résidus de flicker venaient encore d'edge cases shadow
+                 sur le bevel courbé. Surfaces des tiles n'ont pas
+                 besoin d'être ombrées (cf. mockup), l'AO vertex +
+                 aoMap suffisent à donner la profondeur. castShadow
+                 conservé pour que les tiles ombrent le sol. -->
+            <InstancedMesh geometry={tileGeometries[tileType]} castShadow>
               <!-- Lot 7.2 : color=white + vertexColors=true → la couleur
                    finale vient des vertex AO (PATH_COLOR en haut,
                    AO_SHADOW en bas). Évite le double-multiplicatif.
@@ -1120,14 +1121,11 @@
              (LED encastrée sur structure clay) au lieu d'une simple
              ligne flottante. -->
         {#if G && muretGeometry}
-          <!-- Lot 7.3.b : castShadow retiré du muret. Le muret extrude
-               jusqu'à pathH+bevelThickness sur tout le périmètre du
-               maze : il projetait une grande ombre sur le sol qui
-               polluait visuellement les bords (visible drop shadow
-               étendue). Les tiles internes castShadow restent pour
-               garder le relief entre cellules adjacentes. -->
-          <T.Mesh geometry={muretGeometry} position={[0, 0, 0]}
-                  receiveShadow>
+          <!-- Lot 7.3.b : castShadow retiré du muret (drop shadow
+               envahissante à l'extérieur du maze).
+               Lot 7.3.f : receiveShadow aussi retiré → surface du
+               muret uniformément lit, pas de résidu d'acne possible. -->
+          <T.Mesh geometry={muretGeometry} position={[0, 0, 0]}>
             <!-- Lot 7.2 : vertexColors=true → AO procédurale (sky top
                  vs ground base) sur le muret aussi. -->
             <T.MeshStandardMaterial color="#ffffff"
