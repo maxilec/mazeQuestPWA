@@ -23,7 +23,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Canvas, T }          from '@threlte/core';
   import { InstancedMesh, Instance } from '@threlte/extras';
-  import { CanvasTexture, SRGBColorSpace, PCFSoftShadowMap, Shape, Path, ExtrudeGeometry, LinearFilter, MathUtils, Color, Float32BufferAttribute } from 'three';
+  import { CanvasTexture, SRGBColorSpace, LinearSRGBColorSpace, PCFSoftShadowMap, Shape, Path, ExtrudeGeometry, LinearFilter, MathUtils, Color, Float32BufferAttribute } from 'three';
   import { getSvgSource, svgReady } from '../lib/render.js';
   import Postprocess            from './Postprocess.svelte';
 
@@ -341,7 +341,13 @@
       drawAOBand(ctx, side, 96, 0.5);
     }
     const tex = new CanvasTexture(c);
-    tex.colorSpace = SRGBColorSpace;
+    // Lot 7.3.e : aoMap est une DATA texture, pas une couleur. Mettre
+    // SRGBColorSpace (le défaut pour CanvasTexture) faisait que three.js
+    // convertissait sRGB→linéaire les valeurs avant usage → gris 50%
+    // sRGB devenait 0.215 en linéaire → AO multiplie par valeur très
+    // sombre → taches noisy visibles. LinearSRGBColorSpace = pas de
+    // conversion, les valeurs canvas sont utilisées directement.
+    tex.colorSpace = LinearSRGBColorSpace;
     tex.minFilter = LinearFilter;
     tex.magFilter = LinearFilter;
     tex.needsUpdate = true;
@@ -961,11 +967,12 @@
              instanciée dans son bucket selon le type détecté. -->
         {#if G && G.maze && tileGeometries && tileInstances}
           {#each ['straight', 'corner', 'T', 'cross', 'deadEnd'] as tileType (tileType)}
-            <!-- Lot 7.3.d : receiveShadow retiré sur les tiles → pas
-                 de shadow tile-on-tile (faible bénéfice avec light
-                 quasi-vertical) qui était la source d'acne sur le bevel.
-                 castShadow conservé : les tiles ombrent toujours le sol. -->
-            <InstancedMesh geometry={tileGeometries[tileType]} castShadow>
+            <!-- Lot 7.3.e : receiveShadow remis. L'acne du Lot 7.3.d
+                 n'était pas du shadow acne mais l'aoMap mal configuré
+                 (SRGBColorSpace au lieu de LinearSRGBColorSpace).
+                 Les biases shadow forts (normalBias 5, bias -0.001)
+                 sont conservés en défense en profondeur. -->
+            <InstancedMesh geometry={tileGeometries[tileType]} castShadow receiveShadow>
               <!-- Lot 7.2 : color=white + vertexColors=true → la couleur
                    finale vient des vertex AO (PATH_COLOR en haut,
                    AO_SHADOW en bas). Évite le double-multiplicatif.
@@ -975,7 +982,7 @@
               <T.MeshStandardMaterial color="#ffffff"
                                       vertexColors={true}
                                       aoMap={aoTextures && aoTextures[tileType]}
-                                      aoMapIntensity={1.5}
+                                      aoMapIntensity={0.8}
                                       roughness={0.65} metalness={0.02}
                                       envMapIntensity={0.40} />
               {#each tileInstances[tileType] as inst, i (`${tileType}-${i}`)}
