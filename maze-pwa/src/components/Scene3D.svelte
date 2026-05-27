@@ -110,9 +110,16 @@
     const s = lightRef.shadow;
     // Lot 6.19 : mapSize 1024 → 2048 (shadows plus précises + douces),
     // bias -0.002 → -0.0001 (moins de "peter-panning" sur sol).
-    // Lot 7.2 : mapSize 2048 → 1024 (blur artistique neumorphique +
-    // gain perf mobile, shadow pass 4× moins de pixels).
-    s.mapSize.set(1024, 1024);
+    // Lot 7.2 : mapSize 2048 → 1024 (blur artistique + gain perf mobile).
+    // Lot 7.3.c : fix shadow acne sur les surfaces des tiles.
+    //   - mapSize 1024 → 2048 : précision depth 2× plus fine
+    //   - bias -0.0001 → -0.0005 : 5× plus de marge depth
+    //   - normalBias = 1.5 (nouveau) : offset world units along normale
+    //     surface → tue la majorité de l'acne (paramètre standard
+    //     three.js pour ce cas précis, plus efficace que bias seul)
+    //   - radius 25 → 12 : PCF spread réduit ×2 → moins de chance
+    //     d'attraper des samples artefactés en bordure de geometry
+    s.mapSize.set(2048, 2048);
     s.camera.left   = -G.W * 0.7;
     s.camera.right  =  G.W * 0.7;
     s.camera.top    =  G.H * 0.7;
@@ -120,11 +127,9 @@
     s.camera.near   = 1;
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
-    s.bias          = -0.0001;
-    // Lot 7.2.c : radius 10→18 → PCF soft shadow encore plus blur,
-    // les drop shadows perdent leur côté tranchant. Zéro coût supp
-    // (paramètre PCF, juste plus de samples par pixel).
-    s.radius        = 25;  // Lot 7.3 : encore plus blur, signature douce
+    s.bias          = -0.0005;
+    s.normalBias    = 1.5;
+    s.radius        = 12;
     s.needsUpdate   = true;
   }
 
