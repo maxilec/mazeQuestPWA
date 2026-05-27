@@ -141,10 +141,26 @@ export const BOUNCE   = 0.22;  // rebond sur les murs (0 = aucun, 1 = élastique
 Constantes visuelles 3D → `src/components/Scene3D.svelte` (haut du
 script) :
 ```js
-const FOV              = 6;     // téléobjectif extrême (perspective aplatie)
-const CAM_TILT_DEG     = 11;    // angle caméra cavalier
+const FOV              = 7;     // téléobjectif (perspective aplatie)
+const CAM_TILT_DEG     = 6;     // angle caméra cavalier léger
 const WORLD_STRETCH_Y  = 1.00;  // anamorphose verticale (1.0 = aucune)
 // pathH = min(cw,ch) * 0.80    // hauteur d'extrusion des tiles
+const PATH_COLOR       = '#f1e9d9'; // cream uniforme (match HUD bg)
+```
+
+Setup lighting (3 sources, Lot 7.2+) :
+```js
+HemisphereLight  sky #fff, ground #e8d6bc, intensity 1.15
+DirectionalLight key #fff5e0 quasi-vertical, castShadow, intensity 1.15
+DirectionalLight rim #fff5e0 depuis le haut du plateau, intensity 0.55
+```
+
+Shadow setup (Lot 7.3.c) :
+```js
+shadow.mapSize     = 2048×2048  // précision depth
+shadow.bias        = -0.001     // marge depth
+shadow.normalBias  = 5.0        // offset normal (anti-acne soft clay)
+shadow.radius      = 12         // PCF blur soft
 ```
 
 ---
@@ -212,10 +228,14 @@ mobile avec un maze 10×6 et des bevels arrondis.
 1. **Géométrie** : `ExtrudeGeometry` par tile, avec bevel "soft clay"
    et arrondis sélectifs sur les coins INTERNES (les coins boundary
    restent sharp pour seamless connection entre tiles adjacentes).
-2. **Matériaux** : `MeshStandardMaterial` pour les tiles, ball en
+2. **Matériaux** : `MeshStandardMaterial` pour les tiles
+   (`vertexColors=true` → AO procédural cuit dans les vertex pour
+   le dégradé soft clay du dessus vers le bas), ball en
    metalness=1.0 / roughness=0.15.
-3. **Lumières** : ambient warm + 2 directionnelles + PointLight
-   bounce sous la bille (suit la bille pour reflet néon local).
+3. **Lumières** : `HemisphereLight` (ciel chaud + sol cream) +
+   2 `DirectionalLight` (key quasi-vertical avec `castShadow`,
+   rim depuis le haut du plateau) + `PointLight` bounce sous la
+   bille (suit la bille pour reflet néon local).
 4. **Post-processing** : Bloom (UnrealBloomPass) + env map procédurale
    chaude (PMREMGenerator sur CanvasTexture gradient vertical).
 

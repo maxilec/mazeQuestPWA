@@ -967,23 +967,22 @@
              instanciée dans son bucket selon le type détecté. -->
         {#if G && G.maze && tileGeometries && tileInstances}
           {#each ['straight', 'corner', 'T', 'cross', 'deadEnd'] as tileType (tileType)}
-            <!-- Lot 7.3.f : receiveShadow définitivement retiré. Les
-                 résidus de flicker venaient encore d'edge cases shadow
-                 sur le bevel courbé. Surfaces des tiles n'ont pas
-                 besoin d'être ombrées (cf. mockup), l'AO vertex +
-                 aoMap suffisent à donner la profondeur. castShadow
-                 conservé pour que les tiles ombrent le sol. -->
-            <InstancedMesh geometry={tileGeometries[tileType]} castShadow>
+            <!-- Lot 7.3.g : receiveShadow remis. La vraie cause des
+                 artefacts était l'aoMap (maintenant retiré), pas le
+                 shadow lookup. Avec les biases shadow forts
+                 (normalBias 5, bias -0.001), les shadows entre tiles
+                 sont propres et apportent du relief dans les couloirs. -->
+            <InstancedMesh geometry={tileGeometries[tileType]} castShadow receiveShadow>
               <!-- Lot 7.2 : color=white + vertexColors=true → la couleur
                    finale vient des vertex AO (PATH_COLOR en haut,
                    AO_SHADOW en bas). Évite le double-multiplicatif.
-                   Lot 7.3 : aoMap procédural par tile type → bandes
-                   sombres sur les côtés FERMÉS (où il y aurait des
-                   murs adjacents) → effet AO "soft clay". -->
+                   Lot 7.3.g : aoMap procédural retiré — créait les
+                   taches noisy résiduelles malgré le fix colorSpace
+                   (texture grayscale samples + lighting → artefacts
+                   visibles sur les surfaces planes). Vertex AO seul
+                   suffit pour la profondeur soft clay. -->
               <T.MeshStandardMaterial color="#ffffff"
                                       vertexColors={true}
-                                      aoMap={aoTextures && aoTextures[tileType]}
-                                      aoMapIntensity={0.8}
                                       roughness={0.65} metalness={0.02}
                                       envMapIntensity={0.40} />
               {#each tileInstances[tileType] as inst, i (`${tileType}-${i}`)}
