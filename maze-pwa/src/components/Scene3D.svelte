@@ -108,17 +108,13 @@
   let lightRef;
   $: if (lightRef && G) {
     const s = lightRef.shadow;
-    // Lot 6.19 : mapSize 1024 → 2048 (shadows plus précises + douces),
-    // bias -0.002 → -0.0001 (moins de "peter-panning" sur sol).
-    // Lot 7.2 : mapSize 2048 → 1024 (blur artistique + gain perf mobile).
-    // Lot 7.3.c : fix shadow acne sur les surfaces des tiles.
-    //   - mapSize 1024 → 2048 : précision depth 2× plus fine
-    //   - bias -0.0001 → -0.0005 : 5× plus de marge depth
-    //   - normalBias = 1.5 (nouveau) : offset world units along normale
-    //     surface → tue la majorité de l'acne (paramètre standard
-    //     three.js pour ce cas précis, plus efficace que bias seul)
-    //   - radius 25 → 12 : PCF spread réduit ×2 → moins de chance
-    //     d'attraper des samples artefactés en bordure de geometry
+    // Lot 7.3.d : escalation anti-acne. Le bevel des tiles (bevelSegments
+    // 5 layers) crée des surfaces avec des normales légèrement orientées
+    // qui peuvent être en self-shadow géométriquement valide. Solution :
+    // push fort sur normalBias et bias pour outrepasser ces edge cases.
+    //   - normalBias 1.5 → 5.0 : offset normale très large
+    //   - bias -0.0005 → -0.001 : marge depth doublée
+    //   - mapSize 2048 conservé, radius 12 conservé
     s.mapSize.set(2048, 2048);
     s.camera.left   = -G.W * 0.7;
     s.camera.right  =  G.W * 0.7;
@@ -127,8 +123,8 @@
     s.camera.near   = 1;
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
-    s.bias          = -0.0005;
-    s.normalBias    = 1.5;
+    s.bias          = -0.001;
+    s.normalBias    = 5.0;
     s.radius        = 12;
     s.needsUpdate   = true;
   }
@@ -965,7 +961,11 @@
              instanciée dans son bucket selon le type détecté. -->
         {#if G && G.maze && tileGeometries && tileInstances}
           {#each ['straight', 'corner', 'T', 'cross', 'deadEnd'] as tileType (tileType)}
-            <InstancedMesh geometry={tileGeometries[tileType]} castShadow receiveShadow>
+            <!-- Lot 7.3.d : receiveShadow retiré sur les tiles → pas
+                 de shadow tile-on-tile (faible bénéfice avec light
+                 quasi-vertical) qui était la source d'acne sur le bevel.
+                 castShadow conservé : les tiles ombrent toujours le sol. -->
+            <InstancedMesh geometry={tileGeometries[tileType]} castShadow>
               <!-- Lot 7.2 : color=white + vertexColors=true → la couleur
                    finale vient des vertex AO (PATH_COLOR en haut,
                    AO_SHADOW en bas). Évite le double-multiplicatif.
