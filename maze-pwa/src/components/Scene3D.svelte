@@ -32,6 +32,7 @@
     applyVertexAO, buildAOTexture,
     detectTileType,
     AO_BASE, AO_SHADOW, TILE_CLOSED_SIDES,
+    BEVEL_SIZE_RATIO, BEVEL_THICKNESS_RATIO, DEFAULT_PATH_H_RATIO,
   } from '../lib/tile-geometry.js';
   import Postprocess            from './Postprocess.svelte';
 
@@ -155,14 +156,15 @@
   // appliqués via smoothShape sur le polygone.
   // Sol abaissé à -floorDepth pour effet de profondeur dans les fossés.
   $: pathW      = G ? Math.min(G.cw, G.ch) * (G.trackRatio ?? 0.65) : 30;
-  $: pathH      = G ? Math.min(G.cw, G.ch) * 0.80 : 15;   // hauteur extrusion
+  $: pathH      = G ? Math.min(G.cw, G.ch) * DEFAULT_PATH_H_RATIO : 15;
   $: floorDepth = pathH * 0.4;                            // profondeur sol creusé
-  // Lot 6.30 : bevel soft clay — coefficients hissés au niveau global
-  // (réactifs) pour que pathTop puisse se caler EXACTEMENT au-dessus
-  // du top bevel. Sinon les neon/checkpoints/bonus se retrouvent
-  // enterrés quand bevelThickness augmente.
-  $: bevelSize      = pathH * 0.12;   // inset horizontal du bevel
-  $: bevelThickness = pathH * 0.15;   // hauteur verticale du bevel
+  // Lot 8.8 : bevel découplé de pathH, basé sur cell size. Source de
+  // vérité partagée avec TileGallery (lib/tile-geometry.js). Si tu
+  // valides un autre arc dans la gallery, change les ratios dans le
+  // lib → propagation auto au jeu.
+  $: cellSize       = G ? Math.min(G.cw, G.ch) : 80;
+  $: bevelSize      = cellSize * BEVEL_SIZE_RATIO;
+  $: bevelThickness = cellSize * BEVEL_THICKNESS_RATIO;
   // pathTop : z juste au-dessus du top du bevel de la piste (avec marge
   // 0.5). Utilisé pour positionner les neon stripes, dots, checkpoints
   // et sprites. ExtrudeGeometry étend la géométrie de bevelThickness

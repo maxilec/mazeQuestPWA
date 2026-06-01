@@ -19,6 +19,7 @@
     buildStraightShape, buildCornerShape, buildTShape,
     buildCrossShape, buildDeadEndShape,
     applyVertexAO, detectTileType,
+    BEVEL_SIZE_RATIO, BEVEL_THICKNESS_RATIO, DEFAULT_PATH_H_RATIO,
   } from '../lib/tile-geometry.js';
 
   let tab = 'global';          // 'global' | 'unitaire' | 'exemple'
@@ -69,20 +70,20 @@
 
   // Cell fixe (cw=ch=100). Les pistes sont paramétrables via sliders
   // (pathWRatio, pathHRatio). Valeurs par défaut = ratios de Scene3D
-  // (trackRatio 0.65, pathH = min(cw,ch) × 0.80).
+  // (trackRatio 0.65, pathH = DEFAULT_PATH_H_RATIO).
   const cw = 100, ch = 100;
+  const cellSize = Math.min(cw, ch);
   let pathWRatio = 0.65;     // épaisseur piste (fraction de cw)
-  let pathHRatio = 0.80;     // hauteur extrusion (fraction de min(cw,ch))
+  let pathHRatio = DEFAULT_PATH_H_RATIO;  // hauteur extrusion (fraction de cellSize)
   $: pathW = cw * pathWRatio;
-  $: pathH = Math.min(cw, ch) * pathHRatio;
-  // Bevel figé sur le rendu à pathH=60% (calibré visuellement par
-  // l'utilisateur). Sans figer, bevelSize scalait avec pathH → la
-  // base de la piste flarait davantage avec la hauteur → la piste
-  // paraissait plus large à hauteur croissante. Ces valeurs gardent
-  // l'arc soft clay constant quelle que soit la hauteur ou largeur.
-  const BEVEL_REF_PATH_H = Math.min(cw, ch) * 0.60;   // = 60
-  const bevelSize      = BEVEL_REF_PATH_H * 0.12;     // = 7.2
-  const bevelThickness = BEVEL_REF_PATH_H * 0.15;     // = 9.0
+  $: pathH = cellSize * pathHRatio;
+  // Bevel : source unique partagée avec Scene3D (lib/tile-geometry.js).
+  // Découplé de pathH → la piste garde le même arc latéral quelle que
+  // soit la hauteur. Pour modifier l'arrondi soft clay : éditer
+  // BEVEL_SIZE_RATIO / BEVEL_THICKNESS_RATIO dans le lib → le jeu
+  // hérite immédiatement de l'évolution.
+  const bevelSize      = cellSize * BEVEL_SIZE_RATIO;       // = 7.2
+  const bevelThickness = cellSize * BEVEL_THICKNESS_RATIO;  // = 9.0
 
   // Caméra téléobjectif (FOV 7, tilt 6°) comme Scene3D. VISIBLE_H
   // dépend de l'onglet pour cadrer chaque layout proprement :
