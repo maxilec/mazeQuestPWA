@@ -110,6 +110,11 @@
       ⚙ Paramètres
     </button>
 
+    <!-- Lot 8 : lien vers l'environnement de test des tuiles 3D. Discret. -->
+    <button class="dev-toggle" on:click={() => screen.set('tilegallery')}>
+      ⚒ intégration dev
+    </button>
+
   </div>
 
   <!-- Settings panel overlay -->
@@ -235,6 +240,16 @@
     font-size: 11px; letter-spacing: 2px; cursor: pointer; padding: 4px 8px;
   }
   .cfg-toggle:active { color: rgba(255,255,255,0.90); }
+
+  /* Lot 8 : dev link discret (plus petit + plus terne que cfg-toggle) */
+  .dev-toggle {
+    background: transparent; border: none;
+    color: rgba(255,255,255,0.28);
+    font-family: 'Courier New', monospace;
+    font-size: 9px; letter-spacing: 1.5px; cursor: pointer; padding: 2px 8px;
+    margin-top: -10px;
+  }
+  .dev-toggle:active { color: rgba(255,255,255,0.70); }
 
   /* Settings overlay */
   .cfg-overlay {
