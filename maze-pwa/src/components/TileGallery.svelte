@@ -72,14 +72,14 @@
 
   // Caméra téléobjectif (FOV 7, tilt 6°) comme Scene3D. VISIBLE_H
   // dépend de l'onglet pour cadrer chaque layout proprement :
-  //  - global   : grille 3×2 espacée → ~720 unités
+  //  - global   : grille 2×3 portrait-friendly (Y ±180) → ~500
   //  - unitaire : 1 tuile au centre → 200 (tile ~50% de l'écran),
   //               l'user peut zoomer via OrbitControls
   //  - exemple  : maze 4×3 (X ±150, Y ±200) → ~620
   const FOV = 7;
   const DEG = Math.PI / 180;
   const TILT_DEG = 6;
-  const VISIBLE_H_BY_TAB = { global: 720, unitaire: 200, exemple: 620 };
+  const VISIBLE_H_BY_TAB = { global: 500, unitaire: 200, exemple: 620 };
   $: visibleH   = VISIBLE_H_BY_TAB[tab] ?? 640;
   $: cameraDist = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.15;
   $: camY       = -cameraDist * Math.sin(TILT_DEG * DEG);
@@ -111,15 +111,17 @@
     tileGeometries[t] = geo;
   }
 
-  // ── Global : grille 3×2, 5 tuiles avec gap entre cases ──────────
-  // Spacing cw*1.2 = 120 → 20 unités de gap entre tuiles (tile size=cw).
-  // 3 tuiles top row, 2 tuiles bottom row centrées.
+  // ── Global : grille 2×3 portrait, 5 tuiles avec gap entre cases ──
+  // 2 cols (gx ±cw*0.7 = ±70, spacing 140, gap 40) × 3 rows
+  // (gy ±cw*1.3, spacing 130, gap 30). 5 tuiles → 6e case vide ;
+  // mise en page : 2 tuiles top, 2 tuiles middle, 1 tuile bottom
+  // centrée. Cadre la scène portrait nativement.
   const GLOBAL_LAYOUT = [
-    { type: 'straight', gx: -cw * 1.2, gy:  cw * 0.7 },
-    { type: 'corner',   gx:  0,        gy:  cw * 0.7 },
-    { type: 'T',        gx:  cw * 1.2, gy:  cw * 0.7 },
-    { type: 'cross',    gx: -cw * 0.6, gy: -cw * 0.7 },
-    { type: 'deadEnd',  gx:  cw * 0.6, gy: -cw * 0.7 },
+    { type: 'straight', gx: -cw * 0.7, gy:  cw * 1.3 },
+    { type: 'corner',   gx:  cw * 0.7, gy:  cw * 1.3 },
+    { type: 'T',        gx: -cw * 0.7, gy:  0 },
+    { type: 'cross',    gx:  cw * 0.7, gy:  0 },
+    { type: 'deadEnd',  gx:  0,        gy: -cw * 1.3 },
   ];
 
   // ── Exemple : maze 4×3 (rows × cols) défini par wall flags. ──────
@@ -233,11 +235,16 @@
                           intensity={0.55}
                           color="#fff5e0" />
 
-      <T.Mesh position={[0, 0, -1]} receiveShadow>
-        <T.PlaneGeometry args={[cw * 12, ch * 12]} />
-        <T.MeshStandardMaterial color="#f1e9d9"
-                                roughness={0.8} metalness={0.0} />
-      </T.Mesh>
+      <!-- Sol cream — masqué en unitaire pour une vue isolée propre.
+           Sinon en dézoomant l'utilisateur voyait le plan de sol à
+           des angles bizarres / piece le traversant. -->
+      {#if tab !== 'unitaire'}
+        <T.Mesh position={[0, 0, -1]} receiveShadow>
+          <T.PlaneGeometry args={[cw * 12, ch * 12]} />
+          <T.MeshStandardMaterial color="#f1e9d9"
+                                  roughness={0.8} metalness={0.0} />
+        </T.Mesh>
+      {/if}
 
       {#if tab === 'global'}
         {#each GLOBAL_LAYOUT as p (p.type)}
