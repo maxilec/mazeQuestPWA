@@ -30,6 +30,7 @@
     buildStraightShape, buildCornerShape, buildTShape,
     buildCrossShape, buildDeadEndShape,
     applyVertexAO, buildAOTexture,
+    detectTileType,
     AO_BASE, AO_SHADOW, TILE_CLOSED_SIDES,
   } from '../lib/tile-geometry.js';
   import Postprocess            from './Postprocess.svelte';
@@ -241,36 +242,8 @@
   // top de ce script. `applyVertexAO` accepte désormais `bevelThickness`
   // en argument explicite (au lieu de capturer le scope Svelte).
 
-  // Détermine le type de tuile + la rotation Z pour une cellule.
-  // Retourne null si openCount === 0 (cellule isolée, skip).
-  function detectTileType(cell) {
-    const oT = !cell.T, oR = !cell.R, oB = !cell.B, oL = !cell.L;
-    const n  = (oT?1:0) + (oR?1:0) + (oB?1:0) + (oL?1:0);
-    if (n === 0) return null;
-    if (n === 4) return { type: 'cross', rot: 0 };
-    if (n === 1) {
-      if (oT) return { type: 'deadEnd', rot: 0 };
-      if (oL) return { type: 'deadEnd', rot:  Math.PI / 2 };
-      if (oB) return { type: 'deadEnd', rot:  Math.PI };
-      if (oR) return { type: 'deadEnd', rot: -Math.PI / 2 };
-    }
-    if (n === 2) {
-      if (oT && oB) return { type: 'straight', rot: 0 };
-      if (oL && oR) return { type: 'straight', rot:  Math.PI / 2 };
-      if (oT && oR) return { type: 'corner',   rot: 0 };
-      if (oR && oB) return { type: 'corner',   rot: -Math.PI / 2 };
-      if (oB && oL) return { type: 'corner',   rot:  Math.PI };
-      if (oL && oT) return { type: 'corner',   rot:  Math.PI / 2 };
-    }
-    if (n === 3) {
-      // closed side (cell.X = 1 means wall, opening on the 3 others)
-      if (cell.L) return { type: 'T', rot: 0 };
-      if (cell.B) return { type: 'T', rot:  Math.PI / 2 };
-      if (cell.R) return { type: 'T', rot:  Math.PI };
-      if (cell.T) return { type: 'T', rot: -Math.PI / 2 };
-    }
-    return null;
-  }
+  // Lot 8 : detectTileType déplacé dans `lib/tile-geometry.js` pour
+  // réutilisation par TileGallery (mode exemple). Importé au top.
 
   // Pour chaque cellule, push {x, y, rot} dans le bucket de son type.
   function computeTileInstances(g) {

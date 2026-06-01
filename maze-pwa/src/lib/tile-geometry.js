@@ -158,6 +158,42 @@ export function buildDeadEndShape(pathW, cw, ch, bs) {
   return smoothShape(pts, [2, 3], pathW * 0.50);
 }
 
+// ── Maze cell → tile type + rotation ───────────────────────────────
+// Détermine le type de tuile + la rotation Z pour une cellule du
+// maze. Cell shape : { T, R, B, L } où chaque flag = wall (true) ou
+// ouverture (false). Retourne null si la cellule n'a aucune ouverture.
+// Convention : tile rot=0 = orientation canonique du build*Shape.
+// Identique au detectTileType utilisé dans Scene3D pour le rendu
+// in-game → permet à TileGallery de produire un assemblage avec les
+// mêmes orientations que le jeu.
+export function detectTileType(cell) {
+  const oT = !cell.T, oR = !cell.R, oB = !cell.B, oL = !cell.L;
+  const n  = (oT?1:0) + (oR?1:0) + (oB?1:0) + (oL?1:0);
+  if (n === 0) return null;
+  if (n === 4) return { type: 'cross', rot: 0 };
+  if (n === 1) {
+    if (oT) return { type: 'deadEnd', rot: 0 };
+    if (oL) return { type: 'deadEnd', rot:  Math.PI / 2 };
+    if (oB) return { type: 'deadEnd', rot:  Math.PI };
+    if (oR) return { type: 'deadEnd', rot: -Math.PI / 2 };
+  }
+  if (n === 2) {
+    if (oT && oB) return { type: 'straight', rot: 0 };
+    if (oL && oR) return { type: 'straight', rot:  Math.PI / 2 };
+    if (oT && oR) return { type: 'corner',   rot: 0 };
+    if (oR && oB) return { type: 'corner',   rot: -Math.PI / 2 };
+    if (oB && oL) return { type: 'corner',   rot:  Math.PI };
+    if (oL && oT) return { type: 'corner',   rot:  Math.PI / 2 };
+  }
+  if (n === 3) {
+    if (cell.L) return { type: 'T', rot: 0 };
+    if (cell.B) return { type: 'T', rot:  Math.PI / 2 };
+    if (cell.R) return { type: 'T', rot:  Math.PI };
+    if (cell.T) return { type: 'T', rot: -Math.PI / 2 };
+  }
+  return null;
+}
+
 // ── Vertex AO ──────────────────────────────────────────────────────
 // AO procédurale via vertex colors. Plus un vertex est bas en Z
 // (proche du sol/intérieur du fossé), plus sa couleur tend vers
