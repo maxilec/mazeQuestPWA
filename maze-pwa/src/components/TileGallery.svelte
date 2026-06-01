@@ -205,11 +205,16 @@
   <div class="canvas-wrap">
     <Canvas shadows={PCFSoftShadowMap}
             rendererParameters={{ alpha: true, premultipliedAlpha: false }}>
+      <!-- near/far : en mode unitaire OrbitControls laisse la caméra
+           zoomer de 0.2× à 2.0× cameraDist du target. Le near tight
+           (0.5×cd) coupait la géométrie au zoom proche → "plan gris"
+           qui semblait traverser la pièce. Élargi (near=10) pour
+           encaisser le zoom-in, far × 5 pour le zoom-out. -->
       <T.PerspectiveCamera bind:ref={cameraRef} makeDefault
                            position={[0, camY, camZ]}
                            fov={FOV}
-                           near={cameraDist * 0.5}
-                           far={cameraDist * 1.5}>
+                           near={tab === 'unitaire' ? 10 : cameraDist * 0.5}
+                           far={tab === 'unitaire' ? cameraDist * 5 : cameraDist * 1.5}>
         {#if tab === 'unitaire'}
           <!-- OrbitControls DOIT être enfant de la caméra (sinon
                throw "Parent missing"). Rotation tactile + pinch zoom. -->
