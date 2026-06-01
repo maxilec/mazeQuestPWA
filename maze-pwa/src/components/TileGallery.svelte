@@ -23,6 +23,34 @@
 
   let tab = 'global';          // 'global' | 'unitaire' | 'exemple'
   let unitType = 'straight';
+  let cameraRef;
+  let lightRef;
+
+  // Critique : sans lookAt explicite, la caméra à (0, camY, camZ)
+  // regarde droit le long de -Z (point d'origine (0, camY, 0)), pas
+  // (0, 0, 0) où sont les tuiles. Forcer lookAt(0,0,0) à chaque
+  // changement de ref → recadrage correct.
+  $: if (cameraRef) cameraRef.lookAt(0, 0, 0);
+
+  // Setup shadow camera identique à Scene3D (mapSize 2048, bias -0.001,
+  // normalBias 2.0, radius 12). Bounds élargis pour couvrir le mode
+  // "exemple" qui étend les tuiles jusqu'à ±cw*2.
+  $: if (lightRef) {
+    const s = lightRef.shadow;
+    s.mapSize.set(2048, 2048);
+    const half = 300;
+    s.camera.left   = -half;
+    s.camera.right  =  half;
+    s.camera.top    =  half;
+    s.camera.bottom = -half;
+    s.camera.near   = 1;
+    s.camera.far    = 2000;
+    s.camera.updateProjectionMatrix();
+    s.bias          = -0.001;
+    s.normalBias    = 2.0;
+    s.radius        = 12;
+    s.needsUpdate   = true;
+  }
 
   // Constantes locales (figées v1 — sliders à venir).
   // Reprennent les ratios de Scene3D :
@@ -140,7 +168,7 @@
   <div class="canvas-wrap">
     <Canvas shadows={PCFSoftShadowMap}
             rendererParameters={{ alpha: true, premultipliedAlpha: false }}>
-      <T.PerspectiveCamera makeDefault
+      <T.PerspectiveCamera bind:ref={cameraRef} makeDefault
                            position={[0, camY, camZ]}
                            fov={FOV}
                            near={cameraDist * 0.5}
@@ -152,11 +180,16 @@
       <T.HemisphereLight skyColor="#ffffff"
                          groundColor="#e8d6bc"
                          intensity={1.15} />
-      <T.DirectionalLight position={[-cw * 0.05, cw * 0.05, cw * 14]}
+      <!-- Key light : positions équivalentes à Scene3D (quasi-vertical,
+           1400 unités au-dessus). Shadow camera setup via lightRef. -->
+      <T.DirectionalLight bind:ref={lightRef}
+                          position={[-5, 5, 1400]}
                           intensity={1.15}
                           color="#fff5e0"
                           castShadow />
-      <T.DirectionalLight position={[0, ch * 4, cw * 2.5]}
+      <!-- Rim light : même angle que Scene3D (rasante depuis +Y haut).
+           Position absolue scaled pour scène compacte. -->
+      <T.DirectionalLight position={[0, 700, 250]}
                           intensity={0.55}
                           color="#fff5e0" />
 
@@ -222,6 +255,9 @@
   .top-bar {
     display: flex; align-items: center;
     padding: 10px 14px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    padding-left:  calc(14px + env(safe-area-inset-left, 0px));
+    padding-right: calc(14px + env(safe-area-inset-right, 0px));
     border-bottom: 1px solid rgba(0,0,0,0.08);
     background: rgba(241,233,217,0.85);
     backdrop-filter: blur(6px);
