@@ -73,10 +73,16 @@
   const cw = 100, ch = 100;
   let pathWRatio = 0.65;     // épaisseur piste (fraction de cw)
   let pathHRatio = 0.80;     // hauteur extrusion (fraction de min(cw,ch))
-  $: pathW          = cw * pathWRatio;
-  $: pathH          = Math.min(cw, ch) * pathHRatio;
-  $: bevelSize      = pathH * 0.12;
-  $: bevelThickness = pathH * 0.15;
+  $: pathW = cw * pathWRatio;
+  $: pathH = Math.min(cw, ch) * pathHRatio;
+  // Bevel figé sur le rendu à pathH=60% (calibré visuellement par
+  // l'utilisateur). Sans figer, bevelSize scalait avec pathH → la
+  // base de la piste flarait davantage avec la hauteur → la piste
+  // paraissait plus large à hauteur croissante. Ces valeurs gardent
+  // l'arc soft clay constant quelle que soit la hauteur ou largeur.
+  const BEVEL_REF_PATH_H = Math.min(cw, ch) * 0.60;   // = 60
+  const bevelSize      = BEVEL_REF_PATH_H * 0.12;     // = 7.2
+  const bevelThickness = BEVEL_REF_PATH_H * 0.15;     // = 9.0
 
   // Caméra téléobjectif (FOV 7, tilt 6°) comme Scene3D. VISIBLE_H
   // dépend de l'onglet pour cadrer chaque layout proprement :
@@ -316,7 +322,7 @@
         </label>
         <label class="slider">
           <span class="lbl">hauteur</span>
-          <input type="range" min="0.20" max="1.50" step="0.01"
+          <input type="range" min="0.25" max="1.50" step="0.01"
                  bind:value={pathHRatio} />
           <span class="val">{(pathHRatio * 100).toFixed(0)}%</span>
         </label>
