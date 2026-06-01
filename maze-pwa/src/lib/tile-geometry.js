@@ -25,17 +25,26 @@ import {
 export const AO_BASE   = new Color(0xf1e9d9);
 export const AO_SHADOW = new Color(0x9a7e54);
 
-// ── Tunables géométriques (Lot 8.8) ────────────────────────────────
+// ── Tunables géométriques (Lot 8.8 / 8.9) ──────────────────────────
 // Source unique partagée par Scene3D (jeu) et TileGallery (dev).
 // Toute évolution validée dans la gallery doit modifier ces valeurs
-// → le jeu hérite automatiquement.
+// → le jeu hérite automatiquement (quand la lib sera utilisée par
+// Scene3D pour la formule bevel, cf. Lot 8.8.1).
 //
 // Bevel : ratios de min(cw, ch) (PAS de pathH). Cela découple
 // l'arrondi soft clay de la hauteur d'extrusion → quelle que soit
 // la hauteur choisie, la piste garde le MÊME arc latéral.
-// Valeurs calibrées à pathH=60% / cell=100 (validé visuellement).
-export const BEVEL_SIZE_RATIO      = 0.072;   // = 7.2 pour cell=100
-export const BEVEL_THICKNESS_RATIO = 0.090;   // = 9.0 pour cell=100
+//
+// Valeurs alignées sur le jeu : bevelSize = pathH × 0.12 et
+// bevelThickness = pathH × 0.15 à pathH=cell×0.80 donnent
+// 0.096 / 0.120 de cell. La gallery reproduit ces valeurs pour que
+// le rendu soft clay soit visuellement identique au jeu.
+export const BEVEL_SIZE_RATIO      = 0.096;   // = 9.6 pour cell=100
+export const BEVEL_THICKNESS_RATIO = 0.120;   // = 12.0 pour cell=100
+
+// Nombre de segments pour la courbe du bevel. Plus haut = plus lisse
+// (et plus de vertices). Défaut Scene3D = 5.
+export const DEFAULT_BEVEL_SEGMENTS = 5;
 
 // Hauteur d'extrusion par défaut (en proportion de min(cw,ch)).
 // Scene3D utilisait 0.80 hardcodé ; même valeur ici pour rétro-compat.

@@ -19,7 +19,8 @@
     buildStraightShape, buildCornerShape, buildTShape,
     buildCrossShape, buildDeadEndShape,
     applyVertexAO, detectTileType,
-    BEVEL_SIZE_RATIO, BEVEL_THICKNESS_RATIO, DEFAULT_PATH_H_RATIO,
+    BEVEL_SIZE_RATIO, BEVEL_THICKNESS_RATIO,
+    DEFAULT_PATH_H_RATIO, DEFAULT_BEVEL_SEGMENTS,
   } from '../lib/tile-geometry.js';
 
   let tab = 'global';          // 'global' | 'unitaire' | 'exemple'
@@ -31,6 +32,7 @@
   function resetParams() {
     pathWRatio = 0.65;
     pathHRatio = 0.80;
+    bevelSegments = DEFAULT_BEVEL_SEGMENTS;
   }
 
   // OrbitControls (unitaire) prend la main sur la caméra → on désactive
@@ -75,15 +77,18 @@
   const cellSize = Math.min(cw, ch);
   let pathWRatio = 0.65;     // épaisseur piste (fraction de cw)
   let pathHRatio = DEFAULT_PATH_H_RATIO;  // hauteur extrusion (fraction de cellSize)
+  let bevelSegments = DEFAULT_BEVEL_SEGMENTS;  // finesse de la courbe bevel
   $: pathW = cw * pathWRatio;
   $: pathH = cellSize * pathHRatio;
-  // Bevel : source unique partagée avec Scene3D (lib/tile-geometry.js).
+  // Bevel : ratios alignés sur le jeu via le lib (Lot 8.9).
   // Découplé de pathH → la piste garde le même arc latéral quelle que
-  // soit la hauteur. Pour modifier l'arrondi soft clay : éditer
-  // BEVEL_SIZE_RATIO / BEVEL_THICKNESS_RATIO dans le lib → le jeu
-  // hérite immédiatement de l'évolution.
-  const bevelSize      = cellSize * BEVEL_SIZE_RATIO;       // = 7.2
-  const bevelThickness = cellSize * BEVEL_THICKNESS_RATIO;  // = 9.0
+  // soit la hauteur (cf. Lot 8.7).
+  const bevelSize      = cellSize * BEVEL_SIZE_RATIO;       // = 9.6
+  const bevelThickness = cellSize * BEVEL_THICKNESS_RATIO;  // = 12.0
+  // floorDepth comme Scene3D : sol creusé pour effet de profondeur
+  // dans les fossés entre cellules de piste (visible dans le mode
+  // exemple notamment).
+  $: floorDepth = pathH * 0.4;
 
   // Caméra téléobjectif (FOV 7, tilt 6°) comme Scene3D. VISIBLE_H
   // dépend de l'onglet pour cadrer chaque layout proprement :
@@ -121,7 +126,7 @@
       bevelEnabled: true,
       bevelThickness, bevelSize,
       bevelOffset: 0,
-      bevelSegments: 5,
+      bevelSegments,             // slider (Lot 8.9)
       steps: 1,
       curveSegments: 24,
     };
@@ -264,11 +269,12 @@
                           intensity={0.55}
                           color="#fff5e0" />
 
-      <!-- Sol cream — masqué en unitaire pour une vue isolée propre.
-           Sinon en dézoomant l'utilisateur voyait le plan de sol à
-           des angles bizarres / piece le traversant. -->
+      <!-- Sol cream creusé à -floorDepth (comme Scene3D) → fossés
+           visibles entre les pistes en mode exemple. Masqué en
+           unitaire (vue isolée + OrbitControls qui peut intersecter
+           le plan). -->
       {#if tab !== 'unitaire'}
-        <T.Mesh position={[0, 0, -1]} receiveShadow>
+        <T.Mesh position={[0, 0, -floorDepth]} receiveShadow>
           <T.PlaneGeometry args={[cw * 12, ch * 12]} />
           <T.MeshStandardMaterial color="#f1e9d9"
                                   roughness={0.8} metalness={0.0} />
@@ -326,6 +332,12 @@
           <input type="range" min="0.25" max="1.50" step="0.01"
                  bind:value={pathHRatio} />
           <span class="val">{(pathHRatio * 100).toFixed(0)}%</span>
+        </label>
+        <label class="slider">
+          <span class="lbl">bevel segments</span>
+          <input type="range" min="1" max="10" step="1"
+                 bind:value={bevelSegments} />
+          <span class="val">{bevelSegments}</span>
         </label>
         <button class="reset-btn" on:click={resetParams}>reset</button>
       </div>
