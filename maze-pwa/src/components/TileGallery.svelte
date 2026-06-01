@@ -70,16 +70,20 @@
   const bevelSize      = pathH * 0.12;
   const bevelThickness = pathH * 0.15;
 
-  // Caméra téléobjectif (FOV 7, tilt 6°) comme Scene3D. VISIBLE_H = 640
-  // dimensionné pour faire entrer le mode exemple (X ±150, Y ±200) sur
-  // un écran portrait standard.
+  // Caméra téléobjectif (FOV 7, tilt 6°) comme Scene3D. VISIBLE_H
+  // dépend de l'onglet pour cadrer chaque layout proprement :
+  //  - global   : grille 3×2 espacée → ~720 unités
+  //  - unitaire : 1 tuile au centre → 200 (tile ~50% de l'écran),
+  //               l'user peut zoomer via OrbitControls
+  //  - exemple  : maze 4×3 (X ±150, Y ±200) → ~620
   const FOV = 7;
   const DEG = Math.PI / 180;
   const TILT_DEG = 6;
-  const VISIBLE_H = 640;
-  const cameraDist = (VISIBLE_H / 2) / Math.tan((FOV * DEG) / 2) * 1.15;
-  const camY = -cameraDist * Math.sin(TILT_DEG * DEG);
-  const camZ =  cameraDist * Math.cos(TILT_DEG * DEG);
+  const VISIBLE_H_BY_TAB = { global: 720, unitaire: 200, exemple: 620 };
+  $: visibleH   = VISIBLE_H_BY_TAB[tab] ?? 640;
+  $: cameraDist = (visibleH / 2) / Math.tan((FOV * DEG) / 2) * 1.15;
+  $: camY       = -cameraDist * Math.sin(TILT_DEG * DEG);
+  $: camZ       =  cameraDist * Math.cos(TILT_DEG * DEG);
 
   // Construit les 5 geometries une fois.
   const types = ['straight', 'corner', 'T', 'cross', 'deadEnd'];
@@ -107,15 +111,15 @@
     tileGeometries[t] = geo;
   }
 
-  // ── Global : grille 3×2, 5 tuiles centrées sur écran portrait ────
-  // Espacements réduits (cw*0.9) pour que les 3 tiles du haut tiennent
-  // dans le FOV horizontal portrait.
+  // ── Global : grille 3×2, 5 tuiles avec gap entre cases ──────────
+  // Spacing cw*1.2 = 120 → 20 unités de gap entre tuiles (tile size=cw).
+  // 3 tuiles top row, 2 tuiles bottom row centrées.
   const GLOBAL_LAYOUT = [
-    { type: 'straight', gx: -cw * 0.9, gy:  cw * 0.55 },
-    { type: 'corner',   gx:  0,        gy:  cw * 0.55 },
-    { type: 'T',        gx:  cw * 0.9, gy:  cw * 0.55 },
-    { type: 'cross',    gx: -cw * 0.45, gy: -cw * 0.55 },
-    { type: 'deadEnd',  gx:  cw * 0.45, gy: -cw * 0.55 },
+    { type: 'straight', gx: -cw * 1.2, gy:  cw * 0.7 },
+    { type: 'corner',   gx:  0,        gy:  cw * 0.7 },
+    { type: 'T',        gx:  cw * 1.2, gy:  cw * 0.7 },
+    { type: 'cross',    gx: -cw * 0.6, gy: -cw * 0.7 },
+    { type: 'deadEnd',  gx:  cw * 0.6, gy: -cw * 0.7 },
   ];
 
   // ── Exemple : maze 4×3 (rows × cols) défini par wall flags. ──────
@@ -203,17 +207,17 @@
                            position={[0, camY, camZ]}
                            fov={FOV}
                            near={cameraDist * 0.5}
-                           far={cameraDist * 1.5} />
-
-      {#if tab === 'unitaire'}
-        <!-- OrbitControls : rotation tactile / souris + pinch zoom.
-             Distance bornée pour rester dans la zone éclairée. -->
-        <OrbitControls enableDamping
-                       enableZoom enablePan={false}
-                       minDistance={cameraDist * 0.3}
-                       maxDistance={cameraDist * 1.4}
-                       target={[0, 0, pathH * 0.5]} />
-      {/if}
+                           far={cameraDist * 1.5}>
+        {#if tab === 'unitaire'}
+          <!-- OrbitControls DOIT être enfant de la caméra (sinon
+               throw "Parent missing"). Rotation tactile + pinch zoom. -->
+          <OrbitControls enableDamping
+                         enableZoom enablePan={false}
+                         minDistance={cameraDist * 0.2}
+                         maxDistance={cameraDist * 2.0}
+                         target={[0, 0, pathH * 0.5]} />
+        {/if}
+      </T.PerspectiveCamera>
 
       <Postprocess bloomStrength={0.15} bloomRadius={0.08} bloomThreshold={0.85} />
 
