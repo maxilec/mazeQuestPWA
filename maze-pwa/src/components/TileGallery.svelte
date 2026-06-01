@@ -25,6 +25,12 @@
   let unitType = 'cross';
   let cameraRef;
   let lightRef;
+  let showParams = true;       // panel sliders ouvert au mount
+
+  function resetParams() {
+    pathWRatio = 0.65;
+    pathHRatio = 0.80;
+  }
 
   // OrbitControls (unitaire) prend la main sur la caméra → on désactive
   // notre lookAt manuel quand on est dans cet onglet pour ne pas
@@ -61,14 +67,16 @@
     }
   }
 
-  // Reprennent les ratios de Scene3D :
-  //  pathW = cell × trackRatio défaut (0.65)
-  //  pathH = min(cw, ch) × 0.80
+  // Cell fixe (cw=ch=100). Les pistes sont paramétrables via sliders
+  // (pathWRatio, pathHRatio). Valeurs par défaut = ratios de Scene3D
+  // (trackRatio 0.65, pathH = min(cw,ch) × 0.80).
   const cw = 100, ch = 100;
-  const pathW = cw * 0.65;
-  const pathH = Math.min(cw, ch) * 0.80;
-  const bevelSize      = pathH * 0.12;
-  const bevelThickness = pathH * 0.15;
+  let pathWRatio = 0.65;     // épaisseur piste (fraction de cw)
+  let pathHRatio = 0.80;     // hauteur extrusion (fraction de min(cw,ch))
+  $: pathW          = cw * pathWRatio;
+  $: pathH          = Math.min(cw, ch) * pathHRatio;
+  $: bevelSize      = pathH * 0.12;
+  $: bevelThickness = pathH * 0.15;
 
   // Caméra téléobjectif (FOV 7, tilt 6°) comme Scene3D. VISIBLE_H
   // dépend de l'onglet pour cadrer chaque layout proprement :
@@ -85,7 +93,10 @@
   $: camY       = -cameraDist * Math.sin(TILT_DEG * DEG);
   $: camZ       =  cameraDist * Math.cos(TILT_DEG * DEG);
 
-  // Construit les 5 geometries une fois.
+  // Construit les 5 geometries de façon réactive : à chaque changement
+  // de pathW/pathH/bevels, on rebuild + dispose les anciennes (sinon
+  // fuite mémoire WebGL). Coût d'un rebuild ≈ 5×ExtrudeGeometry ≈ 10ms,
+  // négligeable pour un dev tool.
   const types = ['straight', 'corner', 'T', 'cross', 'deadEnd'];
   const builders = {
     straight: buildStraightShape,
@@ -94,21 +105,27 @@
     cross:    buildCrossShape,
     deadEnd:  buildDeadEndShape,
   };
-  const extrudeSettings = {
-    depth: pathH,
-    bevelEnabled: true,
-    bevelThickness, bevelSize,
-    bevelOffset: 0,
-    bevelSegments: 5,
-    steps: 1,
-    curveSegments: 24,
-  };
-  const tileGeometries = {};
-  for (const t of types) {
-    const shape = builders[t](pathW, cw, ch, bevelSize);
-    const geo = new ExtrudeGeometry(shape, extrudeSettings);
-    applyVertexAO(geo, bevelThickness);
-    tileGeometries[t] = geo;
+  let tileGeometries = {};
+  $: {
+    // Dispose les anciennes geometries avant rebuild.
+    for (const g of Object.values(tileGeometries)) g?.dispose?.();
+    const extrudeSettings = {
+      depth: pathH,
+      bevelEnabled: true,
+      bevelThickness, bevelSize,
+      bevelOffset: 0,
+      bevelSegments: 5,
+      steps: 1,
+      curveSegments: 24,
+    };
+    const next = {};
+    for (const t of types) {
+      const shape = builders[t](pathW, cw, ch, bevelSize);
+      const geo = new ExtrudeGeometry(shape, extrudeSettings);
+      applyVertexAO(geo, bevelThickness);
+      next[t] = geo;
+    }
+    tileGeometries = next;
   }
 
   // ── Global : grille 2×3 portrait, 5 tuiles avec gap entre cases ──
@@ -283,6 +300,31 @@
     </Canvas>
   </div>
 
+  <!-- Panel sliders : pathW (épaisseur piste) et pathH (hauteur).
+       Toggle pour libérer le canvas. -->
+  <div class="params" class:open={showParams}>
+    <button class="params-toggle" on:click={() => showParams = !showParams}>
+      ⚙ params {showParams ? '▴' : '▾'}
+    </button>
+    {#if showParams}
+      <div class="params-body">
+        <label class="slider">
+          <span class="lbl">épaisseur piste</span>
+          <input type="range" min="0.30" max="0.90" step="0.01"
+                 bind:value={pathWRatio} />
+          <span class="val">{(pathWRatio * 100).toFixed(0)}%</span>
+        </label>
+        <label class="slider">
+          <span class="lbl">hauteur</span>
+          <input type="range" min="0.20" max="1.50" step="0.01"
+                 bind:value={pathHRatio} />
+          <span class="val">{(pathHRatio * 100).toFixed(0)}%</span>
+        </label>
+        <button class="reset-btn" on:click={resetParams}>reset</button>
+      </div>
+    {/if}
+  </div>
+
   {#if tab === 'global'}
     <div class="caption">
       Les 5 types de tuiles avec vertex AO. Top = PATH_COLOR pur, parois latérales en dégradé vers AO_SHADOW.
@@ -379,6 +421,54 @@
     display: block; width: 100% !important; height: 100% !important;
     touch-action: none;
   }
+
+  /* Params panel : sliders pathW + pathH */
+  .params {
+    background: rgba(241,233,217,0.85);
+    border-top: 1px solid rgba(0,0,0,0.08);
+  }
+  .params-toggle {
+    width: 100%;
+    background: transparent; border: none;
+    padding: 5px 14px;
+    font-family: inherit; font-size: 10px;
+    letter-spacing: 1.5px; color: #6b5634;
+    text-align: center; cursor: pointer;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+  }
+  .params-toggle:active { color: #3a2f24; }
+  .params-body {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 8px 14px;
+  }
+  .slider {
+    display: grid;
+    grid-template-columns: 110px 1fr 44px;
+    align-items: center; gap: 10px;
+    font-size: 10px; color: #4b4032;
+    letter-spacing: 0.5px;
+  }
+  .slider .lbl { text-align: right; }
+  .slider input[type="range"] {
+    width: 100%;
+    accent-color: #9a7e54;
+    height: 24px;
+  }
+  .slider .val {
+    text-align: right; font-weight: 700;
+    color: #3a2f24; font-variant-numeric: tabular-nums;
+  }
+  .reset-btn {
+    align-self: flex-end;
+    background: transparent;
+    border: 1px solid rgba(0,0,0,0.20);
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-family: inherit; font-size: 9px;
+    letter-spacing: 1.5px; color: #6b5634;
+    cursor: pointer;
+  }
+  .reset-btn:active { background: rgba(0,0,0,0.06); }
 
   .caption {
     padding: 8px 14px;
