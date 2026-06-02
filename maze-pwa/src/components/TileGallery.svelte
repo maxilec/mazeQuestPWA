@@ -34,6 +34,7 @@
     pathWRatio = 0.65;
     pathHRatio = 0.80;
     bevelSegments = DEFAULT_BEVEL_SEGMENTS;
+    bevelSize = cellSize * BEVEL_SIZE_RATIO;
     useBridge = true;
   }
 
@@ -80,18 +81,23 @@
   let pathWRatio = 0.65;     // épaisseur piste (fraction de cw)
   let pathHRatio = DEFAULT_PATH_H_RATIO;  // hauteur extrusion (fraction de cellSize)
   let bevelSegments = DEFAULT_BEVEL_SEGMENTS;  // finesse de la courbe bevel
+  let bevelSize = cellSize * BEVEL_SIZE_RATIO;  // largeur du bevel depuis l'arête (slider)
   let useBridge = true;      // Lot 8.10 : système "ponts" via CSG clip
   $: pathW = cw * pathWRatio;
   $: pathH = cellSize * pathHRatio;
-  // Bevel : ratios alignés sur le jeu via le lib (Lot 8.9).
-  // Découplé de pathH → la piste garde le même arc latéral quelle que
-  // soit la hauteur (cf. Lot 8.7).
-  const bevelSize      = cellSize * BEVEL_SIZE_RATIO;       // = 9.6
+  // Bevel thickness aligné sur le jeu via le lib. Découplé de pathH → la
+  // piste garde le même arc latéral quelle que soit la hauteur (Lot 8.7).
   const bevelThickness = cellSize * BEVEL_THICKNESS_RATIO;  // = 12.0
   // floorDepth comme Scene3D : sol creusé pour effet de profondeur
   // dans les fossés entre cellules de piste (visible dans le mode
   // exemple notamment).
   $: floorDepth = pathH * 0.4;
+  // Lot 8.10 : en mode ponts (CSG), la géométrie est massicotée pile à
+  // z=0 → on descend le mesh de floorDepth pour que la base de la tile
+  // atterrisse exactement sur le sol (plus de lévitation). En mode
+  // coussin, on garde z=0 (le bevel inférieur va naturellement dans le
+  // fossé).
+  $: tilePosZ = useBridge ? -floorDepth : 0;
 
   // Caméra téléobjectif (FOV 7, tilt 6°) comme Scene3D. VISIBLE_H
   // dépend de l'onglet pour cadrer chaque layout proprement :
@@ -299,7 +305,7 @@
 
       {#if tab === 'global'}
         {#each GLOBAL_LAYOUT as p (p.type)}
-          <T.Mesh position={[p.gx, p.gy, 0]}
+          <T.Mesh position={[p.gx, p.gy, tilePosZ]}
                   geometry={tileGeometries[p.type]}
                   castShadow receiveShadow>
             <T.MeshStandardMaterial vertexColors color="#ffffff"
@@ -308,7 +314,8 @@
           </T.Mesh>
         {/each}
       {:else if tab === 'unitaire'}
-        <T.Mesh geometry={tileGeometries[unitType]}
+        <T.Mesh position={[0, 0, tilePosZ]}
+                geometry={tileGeometries[unitType]}
                 castShadow receiveShadow>
           <T.MeshStandardMaterial vertexColors color="#ffffff"
                                   roughness={0.65} metalness={0.02}
@@ -316,7 +323,7 @@
         </T.Mesh>
       {:else}
         {#each EXAMPLE_INSTANCES as p, i (i)}
-          <T.Mesh position={[p.gx, p.gy, 0]}
+          <T.Mesh position={[p.gx, p.gy, tilePosZ]}
                   rotation={[0, 0, p.rotZ]}
                   geometry={tileGeometries[p.type]}
                   castShadow receiveShadow>
@@ -354,6 +361,12 @@
           <input type="range" min="1" max="10" step="1"
                  bind:value={bevelSegments} />
           <span class="val">{bevelSegments}</span>
+        </label>
+        <label class="slider">
+          <span class="lbl">bevel largeur</span>
+          <input type="range" min="0" max="25" step="0.5"
+                 bind:value={bevelSize} />
+          <span class="val">{bevelSize.toFixed(1)}</span>
         </label>
         <label class="toggle">
           <input type="checkbox" bind:checked={useBridge} />
