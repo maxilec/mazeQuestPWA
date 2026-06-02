@@ -22,10 +22,15 @@ import { applyVertexAO } from './tile-geometry.js';
 // Un seul Evaluator partagé : il a un cache interne et bénéficie
 // de la réutilisation entre appels successifs.
 const evaluator = new Evaluator();
-// Carry over position + normal. La couleur (vertex AO) est ré-appliquée
-// APRÈS le clip — c'est plus propre que d'interpoler les couleurs aux
-// points d'intersection.
-evaluator.attributes = ['position', 'normal'];
+// Attributes par défaut : position + uv + normal (la couleur AO est
+// ré-appliquée après le clip, donc pas la peine de la trimballer).
+evaluator.attributes = ['position', 'uv', 'normal'];
+// useGroups=false → résultat en une seule géométrie sans sub-groups.
+// Avec groups activés, la sortie a 2 segments (un par brush input)
+// qui rendaient en deux passes et produisaient des artefacts visuels
+// sur les shapes concaves (les segments du cube apparaissaient comme
+// des blocs détachés dans les coins de cellule).
+evaluator.useGroups = false;
 
 /**
  * Construit une géométrie de tuile pré-découpée selon la cell box.
@@ -58,16 +63,16 @@ export function buildClippedTileGeometry({
     curveSegments: 24,
   });
 
-  // 2. Cube gabarit de la taille EXACTE d'une cellule.
-  //    BoxGeometry est centré à l'origine : sizing [cw, ch, zSpan]
-  //    avec zSpan suffisamment large pour englober verticalement le
-  //    haut de la tile (jusqu'à pathH + bevelThickness).
-  //    On positionne la box de sorte que sa FACE INFÉRIEURE soit à
-  //    z = 0 → le bevel du bas de l'extrusion (z ∈ [-bevelThickness, 0])
-  //    est massicoté net : la tile pose à plat sur le sol et seul le
-  //    bevel du dessus reste visible.
+  // 2. Cube gabarit légèrement sur-dimensionné en XY pour ÉVITER les
+  //    faces coplanaires avec le bord supérieur du bevel (qui revient
+  //    pile sur la cell boundary après l'inset de l'extrusion).
+  //    Coplanarité = ambiguïté pour le BVH du CSG → fragments aléatoires
+  //    dans les coins de cellule sur les shapes concaves. Un ε de 0.1
+  //    suffit (overhang invisible à l'œil, cell = 100).
+  //    Face inférieure à z = 0 (idem : massicotage du bevel du bas).
+  const EPS = 0.1;
   const zSpan = pathH + bevelThickness * 4;
-  const cubeGeo = new BoxGeometry(cw, ch, zSpan);
+  const cubeGeo = new BoxGeometry(cw + EPS * 2, ch + EPS * 2, zSpan);
   cubeGeo.translate(0, 0, zSpan / 2);
 
   // 3. CSG INTERSECTION : ne garde que la matière commune aux deux
