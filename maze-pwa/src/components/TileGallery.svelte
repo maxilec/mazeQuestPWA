@@ -81,13 +81,15 @@
   let pathWRatio = 0.65;     // épaisseur piste (fraction de cw)
   let pathHRatio = DEFAULT_PATH_H_RATIO;  // hauteur extrusion (fraction de cellSize)
   let bevelSegments = DEFAULT_BEVEL_SEGMENTS;  // finesse de la courbe bevel
-  let bevelSize = cellSize * BEVEL_SIZE_RATIO;  // largeur du bevel depuis l'arête (slider)
+  // Lot 8.10 v2 : un seul slider "chanfrein" pour bevelSize ET
+  // bevelThickness (verrouillés ensemble → coupe maintenue à 45°).
+  // Avance/recule l'arête supérieure tout en faisant glisser l'arête
+  // de paroi verticalement de la même quantité.
+  let bevelSize = cellSize * BEVEL_SIZE_RATIO;  // = 9.6 par défaut
+  $: bevelThickness = bevelSize;                // 45° lock
   let useBridge = true;      // Lot 8.10 : système "ponts" via CSG clip
   $: pathW = cw * pathWRatio;
   $: pathH = cellSize * pathHRatio;
-  // Bevel thickness aligné sur le jeu via le lib. Découplé de pathH → la
-  // piste garde le même arc latéral quelle que soit la hauteur (Lot 8.7).
-  const bevelThickness = cellSize * BEVEL_THICKNESS_RATIO;  // = 12.0
   // floorDepth comme Scene3D : sol creusé pour effet de profondeur
   // dans les fossés entre cellules de piste (visible dans le mode
   // exemple notamment).
@@ -363,7 +365,7 @@
           <span class="val">{bevelSegments}</span>
         </label>
         <label class="slider">
-          <span class="lbl">bevel largeur</span>
+          <span class="lbl">chanfrein 45°</span>
           <input type="range" min="0" max="25" step="0.5"
                  bind:value={bevelSize} />
           <span class="val">{bevelSize.toFixed(1)}</span>
