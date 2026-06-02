@@ -22,6 +22,7 @@
     BEVEL_SIZE_RATIO, BEVEL_THICKNESS_RATIO,
     DEFAULT_PATH_H_RATIO, DEFAULT_BEVEL_SEGMENTS,
   } from '../lib/tile-geometry.js';
+  import { buildClippedTileGeometry } from '../lib/tile-factory.js';
 
   let tab = 'global';          // 'global' | 'unitaire' | 'exemple'
   let unitType = 'cross';
@@ -33,6 +34,7 @@
     pathWRatio = 0.65;
     pathHRatio = 0.80;
     bevelSegments = DEFAULT_BEVEL_SEGMENTS;
+    useBridge = true;
   }
 
   // OrbitControls (unitaire) prend la main sur la caméra → on désactive
@@ -78,6 +80,7 @@
   let pathWRatio = 0.65;     // épaisseur piste (fraction de cw)
   let pathHRatio = DEFAULT_PATH_H_RATIO;  // hauteur extrusion (fraction de cellSize)
   let bevelSegments = DEFAULT_BEVEL_SEGMENTS;  // finesse de la courbe bevel
+  let useBridge = true;      // Lot 8.10 : système "ponts" via CSG clip
   $: pathW = cw * pathWRatio;
   $: pathH = cellSize * pathHRatio;
   // Bevel : ratios alignés sur le jeu via le lib (Lot 8.9).
@@ -121,21 +124,36 @@
   $: {
     // Dispose les anciennes geometries avant rebuild.
     for (const g of Object.values(tileGeometries)) g?.dispose?.();
-    const extrudeSettings = {
-      depth: pathH,
-      bevelEnabled: true,
-      bevelThickness, bevelSize,
-      bevelOffset: 0,
-      bevelSegments,             // slider (Lot 8.9)
-      steps: 1,
-      curveSegments: 24,
-    };
     const next = {};
-    for (const t of types) {
-      const shape = builders[t](pathW, cw, ch, bevelSize);
-      const geo = new ExtrudeGeometry(shape, extrudeSettings);
-      applyVertexAO(geo, bevelThickness);
-      next[t] = geo;
+    if (useBridge) {
+      // Système "ponts" (Lot 8.10) : extrude + CSG INTERSECTION
+      // avec un cube de la taille de la cellule → bevel sur les
+      // murs préservé, jonctions coupées net à 90°.
+      for (const t of types) {
+        next[t] = buildClippedTileGeometry({
+          buildShape: builders[t],
+          pathW, cw, ch, pathH,
+          bevelSize, bevelThickness, bevelSegments,
+        });
+      }
+    } else {
+      // Système "coussin" historique : extrude avec bevel complet,
+      // base flare hors-cellule (peut créer des overlaps aux jonctions).
+      const extrudeSettings = {
+        depth: pathH,
+        bevelEnabled: true,
+        bevelThickness, bevelSize,
+        bevelOffset: 0,
+        bevelSegments,
+        steps: 1,
+        curveSegments: 24,
+      };
+      for (const t of types) {
+        const shape = builders[t](pathW, cw, ch, bevelSize);
+        const geo = new ExtrudeGeometry(shape, extrudeSettings);
+        applyVertexAO(geo, bevelThickness);
+        next[t] = geo;
+      }
     }
     tileGeometries = next;
   }
@@ -339,6 +357,10 @@
                  bind:value={bevelSegments} />
           <span class="val">{bevelSegments}</span>
         </label>
+        <label class="toggle">
+          <input type="checkbox" bind:checked={useBridge} />
+          <span>jonctions <strong>{useBridge ? 'ponts (CSG)' : 'coussin'}</strong></span>
+        </label>
         <button class="reset-btn" on:click={resetParams}>reset</button>
       </div>
     {/if}
@@ -477,6 +499,15 @@
     text-align: right; font-weight: 700;
     color: #3a2f24; font-variant-numeric: tabular-nums;
   }
+  .toggle {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 10px; color: #4b4032;
+    letter-spacing: 0.5px;
+    padding-left: 110px;
+  }
+  .toggle input { accent-color: #9a7e54; }
+  .toggle strong { color: #3a2f24; }
+
   .reset-btn {
     align-self: flex-end;
     background: transparent;
