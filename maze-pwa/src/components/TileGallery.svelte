@@ -288,16 +288,14 @@
                           color="#fff5e0" />
 
       <!-- Sol cream creusé à -floorDepth (comme Scene3D) → fossés
-           visibles entre les pistes en mode exemple. Masqué en
-           unitaire (vue isolée + OrbitControls qui peut intersecter
-           le plan). -->
-      {#if tab !== 'unitaire'}
-        <T.Mesh position={[0, 0, -floorDepth]} receiveShadow>
-          <T.PlaneGeometry args={[cw * 12, ch * 12]} />
-          <T.MeshStandardMaterial color="#f1e9d9"
-                                  roughness={0.8} metalness={0.0} />
-        </T.Mesh>
-      {/if}
+           visibles entre les pistes en mode exemple, et points de
+           contact avec le fond visibles en unitaire (utile pour le
+           paramétrage à venir des lumières / ombres). -->
+      <T.Mesh position={[0, 0, -floorDepth]} receiveShadow>
+        <T.PlaneGeometry args={[cw * 12, ch * 12]} />
+        <T.MeshStandardMaterial color="#f1e9d9"
+                                roughness={0.8} metalness={0.0} />
+      </T.Mesh>
 
       {#if tab === 'global'}
         {#each GLOBAL_LAYOUT as p (p.type)}

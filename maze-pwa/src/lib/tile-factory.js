@@ -59,13 +59,16 @@ export function buildClippedTileGeometry({
   });
 
   // 2. Cube gabarit de la taille EXACTE d'une cellule.
-  //    BoxGeometry est centré à l'origine : sizing [cw, ch, z] avec z
-  //    suffisamment large pour englober verticalement toute la tile.
-  //    La tile occupe z ∈ [0, pathH + bevelThickness] approximativement.
-  //    On centre la box à z = pathH/2 pour cadrer la tile.
-  const zSpan = (pathH + bevelThickness * 4) * 2;
+  //    BoxGeometry est centré à l'origine : sizing [cw, ch, zSpan]
+  //    avec zSpan suffisamment large pour englober verticalement le
+  //    haut de la tile (jusqu'à pathH + bevelThickness).
+  //    On positionne la box de sorte que sa FACE INFÉRIEURE soit à
+  //    z = 0 → le bevel du bas de l'extrusion (z ∈ [-bevelThickness, 0])
+  //    est massicoté net : la tile pose à plat sur le sol et seul le
+  //    bevel du dessus reste visible.
+  const zSpan = pathH + bevelThickness * 4;
   const cubeGeo = new BoxGeometry(cw, ch, zSpan);
-  cubeGeo.translate(0, 0, pathH / 2);
+  cubeGeo.translate(0, 0, zSpan / 2);
 
   // 3. CSG INTERSECTION : ne garde que la matière commune aux deux
   //    volumes → tout ce qui dépasse de la cellule en X/Y est coupé
