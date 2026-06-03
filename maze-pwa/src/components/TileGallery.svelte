@@ -34,7 +34,7 @@
     pathWRatio = 0.65;
     pathHRatio = 0.80;
     bevelSegments = DEFAULT_BEVEL_SEGMENTS;
-    bevelSize = cellSize * BEVEL_SIZE_RATIO;
+    chanfreinPercent = 0;
     useBridge = true;
   }
 
@@ -80,15 +80,20 @@
   const cellSize = Math.min(cw, ch);
   let pathWRatio = 0.65;     // épaisseur piste (fraction de cw)
   let pathHRatio = DEFAULT_PATH_H_RATIO;  // hauteur extrusion (fraction de cellSize)
-  let bevelSegments = DEFAULT_BEVEL_SEGMENTS;  // finesse de la courbe bevel
-  // Lot 8.10 v2 : un seul slider "chanfrein" pour bevelSize ET
-  // bevelThickness (verrouillés ensemble → coupe maintenue à 45°).
-  // Avance/recule l'arête supérieure tout en faisant glisser l'arête
-  // de paroi verticalement de la même quantité.
-  let bevelSize = cellSize * BEVEL_SIZE_RATIO;  // = 9.6 par défaut
-  $: bevelThickness = bevelSize;                // 45° lock
-  let useBridge = true;      // Lot 8.10 : système "ponts" via CSG clip
+  let bevelSegments = DEFAULT_BEVEL_SEGMENTS;  // ignoré en v6 (chanfrein plat)
+  // Lot 8.10 v6 — Mécanique chanfrein : rayon de cylindre centré sur l'arête.
+  //   chanfrein % (0-100) : r = (P/100) × (pathW/2)
+  //     0%   → r=0, arêtes vives, aucun chanfrein
+  //     50%  → r=pathW/4, mange 1/4 de la largeur de chaque côté
+  //     100% → r=pathW/2, chanfreins se rejoignent au centre (arête vive)
+  //   bevelThickness = bevelSize (45° lock).
+  //   Le chanfrein s'applique uniquement aux arêtes fermées (pas aux
+  //   jonctions cell-boundary entre tiles adjacentes).
+  let chanfreinPercent = 0;
   $: pathW = cw * pathWRatio;
+  $: bevelSize = (chanfreinPercent / 100) * (pathW / 2);
+  $: bevelThickness = bevelSize;
+  let useBridge = true;
   $: pathH = cellSize * pathHRatio;
   // floorDepth comme Scene3D : sol creusé pour effet de profondeur
   // dans les fossés entre cellules de piste (visible dans le mode
@@ -365,10 +370,10 @@
           <span class="val">{bevelSegments}</span>
         </label>
         <label class="slider">
-          <span class="lbl">chanfrein 45°</span>
-          <input type="range" min="0" max="25" step="0.5"
-                 bind:value={bevelSize} />
-          <span class="val">{bevelSize.toFixed(1)}</span>
+          <span class="lbl">chanfrein %</span>
+          <input type="range" min="0" max="100" step="1"
+                 bind:value={chanfreinPercent} />
+          <span class="val">{chanfreinPercent}</span>
         </label>
         <label class="toggle">
           <input type="checkbox" bind:checked={useBridge} />
