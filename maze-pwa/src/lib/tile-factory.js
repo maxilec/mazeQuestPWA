@@ -33,7 +33,10 @@ import { applyVertexAO } from './tile-geometry.js';
 import { pushDebug, formatArg } from './debug-log.js';
 
 const evaluator = new Evaluator();
-evaluator.attributes = ['position', 'uv', 'normal'];
+// 'uv' retiré : le mask construit manuellement n'a pas d'UVs, three-bvh-csg
+// throw "Attribute uv not available on geometry". On n'utilise pas les UVs
+// (vertex AO via colors uniquement) → sans intérêt de les carry over.
+evaluator.attributes = ['position', 'normal'];
 evaluator.useGroups = false;
 
 const EPS = 0.05;             // anti-coplanarité + slight wedge oversize
