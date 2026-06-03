@@ -234,29 +234,30 @@ function buildSweptChamferMask(points, segment, L, pathH, segCount) {
     indices.push(vIdx(a, IDX_V1),   vIdx(b, IDX_ARC0), vIdx(b, IDX_V1));
 
     // ARC face : N quads de arc_i à arc_{i+1}, i ∈ [0, N-1]
+    // Winding direct (corrigé v6.4) : a_i → b_{i+1} → b_i pour normales
+    // pointant outward depuis le wedge.
     for (let i = 0; i < N; i++) {
       const ai = IDX_ARC0 + i;
       const bi = IDX_ARC0 + i + 1;
-      indices.push(vIdx(a, ai), vIdx(b, ai), vIdx(b, bi));
-      indices.push(vIdx(a, ai), vIdx(b, bi), vIdx(a, bi));
+      indices.push(vIdx(a, ai), vIdx(b, bi), vIdx(b, ai));
+      indices.push(vIdx(a, ai), vIdx(a, bi), vIdx(b, bi));
     }
   }
 
   // 3. End caps pour segments non-loop : fan de triangles depuis V1
   //    autour de l'arc. Polygon (N+2) sommets → N triangles.
   if (!isLoop) {
-    // Start cap (ring 0) : fan V1 → arc_0 → arc_1 → ... → arc_N
-    //                      normale BACKWARD le long du segment
+    // Start cap (ring 0) : winding inversé (corrigé v6.4) → normale BACKWARD
     for (let i = 0; i < N; i++) {
       indices.push(vIdx(0, IDX_V1),
-                   vIdx(0, IDX_ARC0 + i),
-                   vIdx(0, IDX_ARC0 + i + 1));
+                   vIdx(0, IDX_ARC0 + i + 1),
+                   vIdx(0, IDX_ARC0 + i));
     }
-    // End cap (ring M-1) : winding inverse → normale FORWARD
+    // End cap (ring M-1) : winding direct (corrigé v6.4) → normale FORWARD
     for (let i = 0; i < N; i++) {
       indices.push(vIdx(M - 1, IDX_V1),
-                   vIdx(M - 1, IDX_ARC0 + i + 1),
-                   vIdx(M - 1, IDX_ARC0 + i));
+                   vIdx(M - 1, IDX_ARC0 + i),
+                   vIdx(M - 1, IDX_ARC0 + i + 1));
     }
   }
 
@@ -293,7 +294,12 @@ export function buildClippedTileGeometry({
   const tileGeo = new ExtrudeGeometry(shape, {
     depth: pathH,
     bevelEnabled: false,
-    steps: 1,
+    // steps: 4 → subdivisions horizontales du tile de base. Après
+    // CSG SUBTRACT des wedges, ça force des triangles plus petits
+    // et symétriques sur les parois verticales → l'interpolation
+    // linéaire du vertex AO devient uniforme (élimine les bandes
+    // d'ombre parasites héritées des shards CSG asymétriques).
+    steps: 4,
     curveSegments: CURVE_DIVISIONS,
   });
 
@@ -370,7 +376,12 @@ export function buildClippedTileGeometry({
   //    on merge les vertices à position identique puis on recompute
   //    les normales (moyennes des faces adjacentes).
   try {
-    const merged = mergeVertices(finalGeo, 1e-3);
+    // Tolérance 1e-2 (au lieu de 1e-3) pour absorber les
+    // micro-imprécisions flottantes de three-bvh-csg aux points
+    // d'intersection. Sans ça, des sommets co-localisés à 1e-4 près
+    // ne fusionnent pas → normales restent plates par face → bandes
+    // visibles. 1e-2 ≈ 0.01 unité sur un cell de 100, invisible.
+    const merged = mergeVertices(finalGeo, 1e-2);
     merged.computeVertexNormals();
     if (merged !== finalGeo) finalGeo.dispose();
     finalGeo = merged;
