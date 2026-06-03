@@ -39,6 +39,15 @@ const EPS = 0.05;             // anti-coplanarité + slight wedge oversize
 const CURVE_DIVISIONS = 24;   // matche curveSegments d'ExtrudeGeometry
 const BOUNDARY_EPS = 1e-3;    // tolérance pour test cell boundary
 
+/** Vérifie qu'une BufferGeometry n'a pas de positions NaN/Infinity. */
+function isGeometryFinite(geo) {
+  const arr = geo.attributes.position.array;
+  for (let i = 0; i < arr.length; i++) {
+    if (!Number.isFinite(arr[i])) return false;
+  }
+  return true;
+}
+
 /** Arête sur la cell boundary (= "jonction" vers tile adjacente) ? */
 function isEdgeOnCellBoundary(p1, p2, cw, ch) {
   const hw = cw / 2, hh = ch / 2;
@@ -259,23 +268,50 @@ export function buildClippedTileGeometry({
   // 3. Trouver les segments fermés.
   const segments = findClosedSegments(points, cw, ch);
 
-  // 4. CSG SUBTRACT séquentiel de chaque wedge.
+  // 4. CSG SUBTRACT séquentiel de chaque wedge, avec guards + diagnostic.
+  //    Try/catch englobant : si TOUT le pipeline casse, on tombe sur le
+  //    fallback (return tileGeo straight) plus bas — l'app continue.
   let resultBrush = new Brush(tileGeo);
   resultBrush.updateMatrixWorld();
+  let segIdx = 0;
 
-  for (const segment of segments) {
-    const maskGeo = buildSweptChamferMask(points, segment, L, pathH);
-    if (!maskGeo) continue;
-    const maskBrush = new Brush(maskGeo);
-    maskBrush.updateMatrixWorld();
+  try {
+    for (const segment of segments) {
+      const maskGeo = buildSweptChamferMask(points, segment, L, pathH);
+      if (!maskGeo) { segIdx++; continue; }
 
-    const previousGeo = resultBrush.geometry;
-    resultBrush = evaluator.evaluate(resultBrush, maskBrush, SUBTRACTION);
+      if (!isGeometryFinite(maskGeo)) {
+        console.warn('[tile-factory] Skip wedge with non-finite positions', {
+          segIdx, L, pathH, M: segment.vertexIndices.length, isLoop: segment.isLoop,
+        });
+        maskGeo.dispose();
+        segIdx++;
+        continue;
+      }
 
-    if (previousGeo !== tileGeo && previousGeo !== resultBrush.geometry) {
-      previousGeo.dispose();
+      try {
+        const maskBrush = new Brush(maskGeo);
+        maskBrush.updateMatrixWorld();
+        const previousGeo = resultBrush.geometry;
+        resultBrush = evaluator.evaluate(resultBrush, maskBrush, SUBTRACTION);
+        if (previousGeo !== tileGeo && previousGeo !== resultBrush.geometry) {
+          previousGeo.dispose();
+        }
+      } catch (err) {
+        console.error('[tile-factory] CSG SUBTRACT failed', err, {
+          segIdx, L, pathH, M: segment.vertexIndices.length, isLoop: segment.isLoop,
+        });
+        // Continue avec resultBrush actuel (sans cette wedge appliquée)
+      } finally {
+        maskGeo.dispose();
+      }
+      segIdx++;
     }
-    maskGeo.dispose();
+  } catch (err) {
+    console.error('[tile-factory] Pipeline chanfrein crashé, fallback straight tile', err);
+    // Fallback : ignore le résultat partiel et renvoie le tile straight
+    applyVertexAO(tileGeo, 0);
+    return tileGeo;
   }
 
   const finalGeo = resultBrush.geometry;

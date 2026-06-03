@@ -135,40 +135,44 @@
   };
   let tileGeometries = {};
   $: {
-    // Dispose les anciennes geometries avant rebuild.
-    for (const g of Object.values(tileGeometries)) g?.dispose?.();
-    const next = {};
-    if (useBridge) {
-      // Système "ponts" (Lot 8.10) : extrude + CSG INTERSECTION
-      // avec un cube de la taille de la cellule → bevel sur les
-      // murs préservé, jonctions coupées net à 90°.
-      for (const t of types) {
-        next[t] = buildClippedTileGeometry({
-          buildShape: builders[t],
-          pathW, cw, ch, pathH,
-          bevelSize, bevelThickness, bevelSegments,
-        });
+    // Try/catch englobant : si le pipeline tile crash (CSG, geometry
+    // invalide, etc.), on garde les anciennes geometries pour ne pas
+    // figer le rendu Threlte.
+    try {
+      // Dispose les anciennes geometries avant rebuild.
+      for (const g of Object.values(tileGeometries)) g?.dispose?.();
+      const next = {};
+      if (useBridge) {
+        for (const t of types) {
+          next[t] = buildClippedTileGeometry({
+            buildShape: builders[t],
+            pathW, cw, ch, pathH,
+            bevelSize, bevelThickness, bevelSegments,
+          });
+        }
+      } else {
+        // Système "coussin" historique : extrude avec bevel complet,
+        // base flare hors-cellule (peut créer des overlaps aux jonctions).
+        const extrudeSettings = {
+          depth: pathH,
+          bevelEnabled: true,
+          bevelThickness, bevelSize,
+          bevelOffset: 0,
+          bevelSegments,
+          steps: 1,
+          curveSegments: 24,
+        };
+        for (const t of types) {
+          const shape = builders[t](pathW, cw, ch, bevelSize);
+          const geo = new ExtrudeGeometry(shape, extrudeSettings);
+          applyVertexAO(geo, bevelThickness);
+          next[t] = geo;
+        }
       }
-    } else {
-      // Système "coussin" historique : extrude avec bevel complet,
-      // base flare hors-cellule (peut créer des overlaps aux jonctions).
-      const extrudeSettings = {
-        depth: pathH,
-        bevelEnabled: true,
-        bevelThickness, bevelSize,
-        bevelOffset: 0,
-        bevelSegments,
-        steps: 1,
-        curveSegments: 24,
-      };
-      for (const t of types) {
-        const shape = builders[t](pathW, cw, ch, bevelSize);
-        const geo = new ExtrudeGeometry(shape, extrudeSettings);
-        applyVertexAO(geo, bevelThickness);
-        next[t] = geo;
-      }
+      tileGeometries = next;
+    } catch (err) {
+      console.error('[TileGallery] Tile rebuild failed:', err);
     }
-    tileGeometries = next;
   }
 
   // ── Global : grille 2×3 portrait, 5 tuiles avec gap entre cases ──
