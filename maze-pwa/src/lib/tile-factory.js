@@ -30,6 +30,7 @@ import {
 } from 'three';
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
 import { applyVertexAO } from './tile-geometry.js';
+import { pushDebug, formatArg } from './debug-log.js';
 
 const evaluator = new Evaluator();
 evaluator.attributes = ['position', 'uv', 'normal'];
@@ -38,6 +39,14 @@ evaluator.useGroups = false;
 const EPS = 0.05;             // anti-coplanarité + slight wedge oversize
 const CURVE_DIVISIONS = 24;   // matche curveSegments d'ExtrudeGeometry
 const BOUNDARY_EPS = 1e-3;    // tolérance pour test cell boundary
+
+function logFactory(level, msg, details) {
+  const detailsStr = details === undefined ? '' : ' ' + formatArg(details);
+  pushDebug(level, msg + detailsStr);
+  // Garde aussi console pour debug desktop
+  // eslint-disable-next-line no-console
+  console[level](`[tile-factory] ${msg}`, details);
+}
 
 /** Vérifie qu'une BufferGeometry n'a pas de positions NaN/Infinity. */
 function isGeometryFinite(geo) {
@@ -281,7 +290,7 @@ export function buildClippedTileGeometry({
       if (!maskGeo) { segIdx++; continue; }
 
       if (!isGeometryFinite(maskGeo)) {
-        console.warn('[tile-factory] Skip wedge with non-finite positions', {
+        logFactory('warn', 'Skip wedge non-finite positions', {
           segIdx, L, pathH, M: segment.vertexIndices.length, isLoop: segment.isLoop,
         });
         maskGeo.dispose();
@@ -298,7 +307,7 @@ export function buildClippedTileGeometry({
           previousGeo.dispose();
         }
       } catch (err) {
-        console.error('[tile-factory] CSG SUBTRACT failed', err, {
+        logFactory('error', 'CSG SUBTRACT failed: ' + (err?.message || err), {
           segIdx, L, pathH, M: segment.vertexIndices.length, isLoop: segment.isLoop,
         });
         // Continue avec resultBrush actuel (sans cette wedge appliquée)
@@ -308,8 +317,7 @@ export function buildClippedTileGeometry({
       segIdx++;
     }
   } catch (err) {
-    console.error('[tile-factory] Pipeline chanfrein crashé, fallback straight tile', err);
-    // Fallback : ignore le résultat partiel et renvoie le tile straight
+    logFactory('error', 'Pipeline crash, fallback straight: ' + (err?.message || err));
     applyVertexAO(tileGeo, 0);
     return tileGeo;
   }

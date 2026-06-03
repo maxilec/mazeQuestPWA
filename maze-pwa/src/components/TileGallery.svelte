@@ -23,6 +23,26 @@
     DEFAULT_PATH_H_RATIO, DEFAULT_BEVEL_SEGMENTS,
   } from '../lib/tile-geometry.js';
   import { buildClippedTileGeometry } from '../lib/tile-factory.js';
+  import { debugLog, clearDebug, pushDebug, formatArg } from '../lib/debug-log.js';
+
+  // Intercepte console.error/warn pour capturer aussi les exceptions
+  // tierces (three.js, three-bvh-csg) dans le panneau debug in-app.
+  if (typeof window !== 'undefined' && !window.__galleryConsoleHooked) {
+    const origError = console.error.bind(console);
+    const origWarn  = console.warn.bind(console);
+    window.__galleryConsoleHooked = true;
+    console.error = (...args) => {
+      origError(...args);
+      pushDebug('error', args.map(formatArg).join(' '));
+    };
+    console.warn = (...args) => {
+      origWarn(...args);
+      pushDebug('warn', args.map(formatArg).join(' '));
+    };
+  }
+
+  let showDebug = true;        // panneau debug visible par défaut
+  $: log = $debugLog;          // store réactif
 
   let tab = 'global';          // 'global' | 'unitaire' | 'exemple'
   let unitType = 'cross';
@@ -139,6 +159,7 @@
     // invalide, etc.), on garde les anciennes geometries pour ne pas
     // figer le rendu Threlte.
     try {
+      clearDebug();  // efface les logs du rebuild précédent
       // Dispose les anciennes geometries avant rebuild.
       for (const g of Object.values(tileGeometries)) g?.dispose?.();
       const next = {};
@@ -171,7 +192,7 @@
       }
       tileGeometries = next;
     } catch (err) {
-      console.error('[TileGallery] Tile rebuild failed:', err);
+      pushDebug('error', '[TileGallery] rebuild failed: ' + (err?.message || err));
     }
   }
 
@@ -388,6 +409,29 @@
     {/if}
   </div>
 
+  <!-- Panneau debug in-app (capture console.warn/error). Permet de
+       diagnostiquer crashes sur mobile sans DevTools. Visible par
+       défaut tant qu'on debug l'algo chanfrein v6. -->
+  <div class="debug-bar">
+    <button class="debug-toggle" on:click={() => showDebug = !showDebug}>
+      {showDebug ? '▼' : '▶'} debug log ({log.length})
+    </button>
+    {#if showDebug && log.length > 0}
+      <button class="debug-clear" on:click={clearDebug}>clear</button>
+    {/if}
+  </div>
+  {#if showDebug}
+    <div class="debug-panel">
+      {#if log.length === 0}
+        <div class="debug-empty">aucun message</div>
+      {:else}
+        {#each log as entry}
+          <div class="debug-line debug-{entry.level}">{entry.msg}</div>
+        {/each}
+      {/if}
+    </div>
+  {/if}
+
   {#if tab === 'global'}
     <div class="caption">
       Les 5 types de tuiles avec vertex AO. Top = PATH_COLOR pur, parois latérales en dégradé vers AO_SHADOW.
@@ -551,4 +595,38 @@
   }
   .caption strong { color: #3a2f24; }
   .caption em { color: #6b5634; font-style: normal; opacity: 0.75; }
+
+  /* Lot 8.10 v6.1 : panneau debug in-app */
+  .debug-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 10px;
+    background: rgba(40, 30, 20, 0.04);
+    border-top: 1px solid rgba(0,0,0,0.06);
+  }
+  .debug-toggle, .debug-clear {
+    background: transparent;
+    border: 1px solid rgba(0,0,0,0.15);
+    border-radius: 3px;
+    padding: 2px 8px;
+    font: 10px monospace;
+    color: #6b5634;
+    cursor: pointer;
+  }
+  .debug-clear { margin-left: auto; }
+  .debug-panel {
+    max-height: 140px; overflow-y: auto;
+    padding: 4px 10px 8px;
+    background: rgba(0,0,0,0.03);
+    border-top: 1px solid rgba(0,0,0,0.06);
+    font: 10px/1.4 monospace;
+    color: #3a2f24;
+  }
+  .debug-empty { color: #9a8466; opacity: 0.6; }
+  .debug-line {
+    padding: 2px 4px;
+    border-left: 2px solid transparent;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .debug-warn  { border-left-color: #c89c4a; background: rgba(200,156,74,0.06); }
+  .debug-error { border-left-color: #b85440; background: rgba(184,84,64,0.08); color: #6f2818; }
 </style>
