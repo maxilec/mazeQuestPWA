@@ -29,6 +29,7 @@ import {
   BufferGeometry, ExtrudeGeometry, Float32BufferAttribute,
 } from 'three';
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { applyVertexAO } from './tile-geometry.js';
 import { pushDebug, formatArg } from './debug-log.js';
 
@@ -122,17 +123,32 @@ function edgeDir(a, b) {
   return { x: dx / len, y: dy / len };
 }
 
-/** Build le swept chamfer mask pour un segment fermé. */
-function buildSweptChamferMask(points, segment, L, pathH) {
+/**
+ * Build le swept chamfer mask pour un segment fermé.
+ *
+ * Pour N=1 le chanfrein est plat 45° (look "tampon usiné").
+ * Pour N>1 le chanfrein est un arc quart-de-cercle discrétisé en N
+ * facettes → look "soft clay" avec dégradé de lumière lisse.
+ *
+ * Vertices par cross-section : V1 (coin outer-top) + N+1 arc points
+ * (arc_0 = outer-low = V3, ..., arc_N = inset-top = V2). Total N+2.
+ */
+function buildSweptChamferMask(points, segment, L, pathH, segCount) {
   const vIndices = segment.vertexIndices;
   const isLoop = segment.isLoop;
   const M = vIndices.length;
   if (M < 2) return null;
 
+  const N = Math.max(1, Math.floor(segCount));
+  const VERTS_PER_RING = N + 2;
+  const IDX_V1 = 0;
+  const IDX_ARC0 = 1;       // arc index 0 (= V3 dans le cas plat)
+  const IDX_ARCN = N + 1;   // arc index N (= V2 dans le cas plat)
+
   const positions = [];
   const indices = [];
 
-  // 1. Cross-section (V1, V2, V3) pour chaque sommet du segment
+  // 1. Cross-section pour chaque sommet du segment
   for (let k = 0; k < M; k++) {
     const p = points[vIndices[k]];
 
@@ -151,7 +167,6 @@ function buildSweptChamferMask(points, segment, L, pathH) {
 
     let uIn, perp;
     if (nPrev && nNext) {
-      // Bisector inset avec distance perpendiculaire L exacte
       const dot = nPrev.x * nNext.x + nPrev.y * nNext.y;
       const sumX = nPrev.x + nNext.x;
       const sumY = nPrev.y + nNext.y;
@@ -170,23 +185,32 @@ function buildSweptChamferMask(points, segment, L, pathH) {
       perp = { x: 0, y: 0 };
     }
 
-    // V1 : coin outer-top (légèrement outside outline, légèrement au-dessus pathH)
-    positions.push(
-      p.x - EPS * uIn.x,
-      p.y - EPS * uIn.y,
-      pathH + EPS,
-    );
-    // V2 : inset top, étendu de ε le long du bisector
+    // V1 : coin outer-top (outline-ε, pathH+ε)
+    positions.push(p.x - EPS * uIn.x, p.y - EPS * uIn.y, pathH + EPS);
+
+    // arc_0 : outer-low (outline-ε, pathH-L-ε)
+    positions.push(p.x - EPS * uIn.x, p.y - EPS * uIn.y, pathH - L - EPS);
+
+    // arc_1..arc_{N-1} : points exacts sur l'arc quart-de-cercle
+    //   θ_i = i * π/(2N)
+    //   xy = p + (1 - cos θ_i) * perp     (perp = L perpendiculaire)
+    //   z  = (pathH - L) + L * sin θ_i
+    for (let i = 1; i < N; i++) {
+      const theta = (i / N) * Math.PI * 0.5;
+      const insetFrac = 1 - Math.cos(theta);
+      const insetZ = L * Math.sin(theta);
+      positions.push(
+        p.x + insetFrac * perp.x,
+        p.y + insetFrac * perp.y,
+        pathH - L + insetZ,
+      );
+    }
+
+    // arc_N : inset top étendu (outline + (L+ε)*uIn, pathH+ε)
     positions.push(
       p.x + perp.x + EPS * uIn.x,
       p.y + perp.y + EPS * uIn.y,
       pathH + EPS,
-    );
-    // V3 : coin outer-low (légèrement outside, légèrement en dessous pathH-L)
-    positions.push(
-      p.x - EPS * uIn.x,
-      p.y - EPS * uIn.y,
-      pathH - L - EPS,
     );
   }
 
@@ -198,29 +222,42 @@ function buildSweptChamferMask(points, segment, L, pathH) {
     for (let k = 0; k < M - 1; k++) ringPairs.push([k, k + 1]);
   }
 
-  const vIdx = (k, j) => k * 3 + j;
+  const vIdx = (k, j) => k * VERTS_PER_RING + j;
 
   for (const [a, b] of ringPairs) {
-    // Top quad (z=pathH+ε, normale +Z) : V1_a, V1_b, V2_b, V2_a
-    indices.push(vIdx(a, 0), vIdx(b, 0), vIdx(b, 1));
-    indices.push(vIdx(a, 0), vIdx(b, 1), vIdx(a, 1));
+    // TOP face (z=pathH+ε plane, normale +Z) : V1-arcN band
+    indices.push(vIdx(a, IDX_V1),   vIdx(b, IDX_V1),   vIdx(b, IDX_ARCN));
+    indices.push(vIdx(a, IDX_V1),   vIdx(b, IDX_ARCN), vIdx(a, IDX_ARCN));
 
-    // Outer quad (à outline-ε, normale -inward) : V1_a, V3_a, V3_b, V1_b
-    indices.push(vIdx(a, 0), vIdx(a, 2), vIdx(b, 2));
-    indices.push(vIdx(a, 0), vIdx(b, 2), vIdx(b, 0));
+    // OUTER face (outline-ε plane, normale -inward) : V1-arc0 band
+    indices.push(vIdx(a, IDX_V1),   vIdx(a, IDX_ARC0), vIdx(b, IDX_ARC0));
+    indices.push(vIdx(a, IDX_V1),   vIdx(b, IDX_ARC0), vIdx(b, IDX_V1));
 
-    // Chamfer quad (hypothénuse 45°, normale +inward+downward dans le sens wedge)
-    // : V2_a, V2_b, V3_b, V3_a
-    indices.push(vIdx(a, 1), vIdx(b, 1), vIdx(b, 2));
-    indices.push(vIdx(a, 1), vIdx(b, 2), vIdx(a, 2));
+    // ARC face : N quads de arc_i à arc_{i+1}, i ∈ [0, N-1]
+    for (let i = 0; i < N; i++) {
+      const ai = IDX_ARC0 + i;
+      const bi = IDX_ARC0 + i + 1;
+      indices.push(vIdx(a, ai), vIdx(b, ai), vIdx(b, bi));
+      indices.push(vIdx(a, ai), vIdx(b, bi), vIdx(a, bi));
+    }
   }
 
-  // 3. End caps pour les segments non-loop
+  // 3. End caps pour segments non-loop : fan de triangles depuis V1
+  //    autour de l'arc. Polygon (N+2) sommets → N triangles.
   if (!isLoop) {
-    // Start cap (k=0) : winding V1, V2, V3 → normale -segment_direction
-    indices.push(vIdx(0, 0), vIdx(0, 1), vIdx(0, 2));
-    // End cap (k=M-1) : winding V1, V3, V2 → normale +segment_direction
-    indices.push(vIdx(M - 1, 0), vIdx(M - 1, 2), vIdx(M - 1, 1));
+    // Start cap (ring 0) : fan V1 → arc_0 → arc_1 → ... → arc_N
+    //                      normale BACKWARD le long du segment
+    for (let i = 0; i < N; i++) {
+      indices.push(vIdx(0, IDX_V1),
+                   vIdx(0, IDX_ARC0 + i),
+                   vIdx(0, IDX_ARC0 + i + 1));
+    }
+    // End cap (ring M-1) : winding inverse → normale FORWARD
+    for (let i = 0; i < N; i++) {
+      indices.push(vIdx(M - 1, IDX_V1),
+                   vIdx(M - 1, IDX_ARC0 + i + 1),
+                   vIdx(M - 1, IDX_ARC0 + i));
+    }
   }
 
   const geo = new BufferGeometry();
@@ -289,7 +326,7 @@ export function buildClippedTileGeometry({
 
   try {
     for (const segment of segments) {
-      const maskGeo = buildSweptChamferMask(points, segment, L, pathH);
+      const maskGeo = buildSweptChamferMask(points, segment, L, pathH, bevelSegments);
       if (!maskGeo) { segIdx++; continue; }
 
       if (!isGeometryFinite(maskGeo)) {
@@ -325,9 +362,23 @@ export function buildClippedTileGeometry({
     return tileGeo;
   }
 
-  const finalGeo = resultBrush.geometry;
+  let finalGeo = resultBrush.geometry;
 
-  // 5. Vertex AO.
+  // 5. Smooth normals : three-bvh-csg crée des vertices uniques par
+  //    face (non-indexé) → normales toutes plates. Pour retrouver le
+  //    look "soft clay" sur les arcs du chanfrein (bevelSegments > 1),
+  //    on merge les vertices à position identique puis on recompute
+  //    les normales (moyennes des faces adjacentes).
+  try {
+    const merged = mergeVertices(finalGeo, 1e-3);
+    merged.computeVertexNormals();
+    if (merged !== finalGeo) finalGeo.dispose();
+    finalGeo = merged;
+  } catch (err) {
+    logFactory('warn', 'mergeVertices/recompute failed: ' + (err?.message || err));
+  }
+
+  // 6. Vertex AO.
   applyVertexAO(finalGeo, L);
 
   if (finalGeo !== tileGeo) tileGeo.dispose();
