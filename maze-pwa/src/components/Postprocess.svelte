@@ -17,16 +17,23 @@
   import { RenderPass }          from 'three/examples/jsm/postprocessing/RenderPass.js';
   import { UnrealBloomPass }     from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
   import { OutputPass }          from 'three/examples/jsm/postprocessing/OutputPass.js';
+  import { N8AOPostPass }        from 'n8ao';
 
   export let bloomStrength  = 0.9;     // intensité du glow
   export let bloomRadius    = 0.5;     // étalement du halo
   export let bloomThreshold = 0.15;    // seuil luminance (emissive captured)
+  // Lot 9 — Ambient Occlusion temps réel (N8AO). aoIntensity=0 désactive
+  // le pass complètement (perf mobile fallback).
+  export let aoRadius           = 2.0;
+  export let aoDistanceFalloff  = 1.0;
+  export let aoIntensity        = 3.0;
 
   const ctx = useThrelte();
   const { size, scene, camera, renderer } = ctx;
 
   let composer    = null;
   let bloomPass   = null;
+  let n8aoPass    = null;
   let envMap      = null;
   let sizeUnsub   = null;
 
@@ -87,6 +94,15 @@
 
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera.current));
+    // Lot 9 — N8AO entre Render et Bloom : l'AO fonce les recoins
+    // AVANT que le bloom amplifie les emissive par-dessus.
+    if (aoIntensity > 0) {
+      n8aoPass = new N8AOPostPass(scene, camera.current, w, h);
+      n8aoPass.configuration.aoRadius         = aoRadius;
+      n8aoPass.configuration.distanceFalloff  = aoDistanceFalloff;
+      n8aoPass.configuration.intensity        = aoIntensity;
+      composer.addPass(n8aoPass);
+    }
     bloomPass = new UnrealBloomPass(
       new Vector2(w, h),
       bloomStrength,
@@ -111,6 +127,16 @@
     bloomPass.strength  = bloomStrength;
     bloomPass.radius    = bloomRadius;
     bloomPass.threshold = bloomThreshold;
+  }
+
+  // Update N8AO params reactively. Note : si le pass n'a pas été créé
+  // (aoIntensity=0 au mount), on ne peut pas l'activer après-coup sans
+  // rebuild du composer. Pour une activation runtime, faire un reset
+  // de la gallery (ce qui re-mount Postprocess).
+  $: if (n8aoPass) {
+    n8aoPass.configuration.aoRadius        = aoRadius;
+    n8aoPass.configuration.distanceFalloff = aoDistanceFalloff;
+    n8aoPass.configuration.intensity       = aoIntensity;
   }
 
   // Render via composer — useRender remplace automatiquement le default

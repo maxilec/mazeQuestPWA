@@ -38,6 +38,17 @@
     NEON_HEIGHT_MARGIN, chanfreinToBevelSize,
   } from '../lib/tile-geometry.js';
   import { buildClippedTileGeometry } from '../lib/tile-factory.js';
+  import {
+    DEFAULT_HEMI_INTENSITY, DEFAULT_HEMI_SKY_COLOR, DEFAULT_HEMI_GROUND_COLOR,
+    DEFAULT_KEY_INTENSITY,  DEFAULT_KEY_COLOR,
+    DEFAULT_KEY_POS_X, DEFAULT_KEY_POS_Y, DEFAULT_KEY_POS_Z,
+    DEFAULT_RIM_INTENSITY,  DEFAULT_RIM_COLOR,
+    DEFAULT_RIM_POS_X, DEFAULT_RIM_POS_Y, DEFAULT_RIM_POS_Z,
+    DEFAULT_SHADOW_BIAS, DEFAULT_SHADOW_NORMAL_BIAS,
+    DEFAULT_SHADOW_RADIUS, DEFAULT_SHADOW_MAP_SIZE,
+    DEFAULT_AO_RADIUS, DEFAULT_AO_DISTANCE_FALLOFF, DEFAULT_AO_INTENSITY,
+    DEFAULT_BLOOM_STRENGTH, DEFAULT_BLOOM_RADIUS, DEFAULT_BLOOM_THRESHOLD,
+  } from '../lib/lighting-config.js';
   import Postprocess            from './Postprocess.svelte';
 
   export let G            = null;
@@ -125,7 +136,7 @@
     // était l'aoMap (retiré en 7.3.g). Sans aoMap, un normalBias modéré
     // suffit, et les ombres tiles→sol redeviennent visibles au contact
     // (l'AO de contact entre piste et sol était écrasée par 5.0).
-    s.mapSize.set(2048, 2048);
+    s.mapSize.set(DEFAULT_SHADOW_MAP_SIZE, DEFAULT_SHADOW_MAP_SIZE);
     s.camera.left   = -G.W * 0.7;
     s.camera.right  =  G.W * 0.7;
     s.camera.top    =  G.H * 0.7;
@@ -133,9 +144,9 @@
     s.camera.near   = 1;
     s.camera.far    = Math.min(G.cw, G.ch) * 18;
     s.camera.updateProjectionMatrix();
-    s.bias          = -0.001;
-    s.normalBias    = 2.0;
-    s.radius        = 12;
+    s.bias          = DEFAULT_SHADOW_BIAS;
+    s.normalBias    = DEFAULT_SHADOW_NORMAL_BIAS;
+    s.radius        = DEFAULT_SHADOW_RADIUS;
     s.needsUpdate   = true;
   }
 
@@ -656,7 +667,12 @@
          capturer QUE les emissive HDR (toneMapped:false). Lights
          ambient/directional réduits car RoomEnvironment fournit
          maintenant l'illumination globale. -->
-    <Postprocess bloomStrength={0.15} bloomRadius={0.08} bloomThreshold={0.85} />
+    <Postprocess bloomStrength={DEFAULT_BLOOM_STRENGTH}
+                 bloomRadius={DEFAULT_BLOOM_RADIUS}
+                 bloomThreshold={DEFAULT_BLOOM_THRESHOLD}
+                 aoRadius={DEFAULT_AO_RADIUS}
+                 aoDistanceFalloff={DEFAULT_AO_DISTANCE_FALLOFF}
+                 aoIntensity={DEFAULT_AO_INTENSITY} />
 
     <!-- Lighting (Lot 6.19) — setup "Soft Clay" per Gemini :
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires
@@ -666,29 +682,26 @@
          Lot 7.2.b : ambiance "plein soleil" → groundColor remontée
          à un ton chaud clair (vs taupe), intensité boostée. Le key
          directional est aussi renforcé pour soleil prononcé. -->
-    <T.HemisphereLight skyColor="#ffffff"
-                       groundColor="#e8d6bc"
-                       intensity={1.15} />
-    <!-- Lot 7.3.b : key light QUASI vertical (X/Y * 0.05) → drop
-         shadows confinées sous chaque tile sans projection latérale
-         sur le sol environnant. atan(0.05/14) ≈ 2° d'angle, juste
-         assez pour garder un peu de directionnalité. -->
+    <T.HemisphereLight skyColor={DEFAULT_HEMI_SKY_COLOR}
+                       groundColor={DEFAULT_HEMI_GROUND_COLOR}
+                       intensity={DEFAULT_HEMI_INTENSITY} />
+    <!-- Lot 7.3.b / 9 : key light. Position normalisée -1..1 dans le
+         lighting-config, scalée ici par G.W (X), G.H (Y) et un facteur
+         Z grand (cellSize × 14) pour atteindre l'échelle scène. -->
     <T.DirectionalLight bind:ref={lightRef}
-                        position={[G ? -G.W * 0.05 : -30,
-                                   G ? G.H * 0.05 : 30,
-                                   (G ? Math.min(G.cw, G.ch) : 80) * 14]}
-                        intensity={1.15}
-                        color="#fff5e0"
+                        position={[G ? G.W * DEFAULT_KEY_POS_X : -30,
+                                   G ? G.H * DEFAULT_KEY_POS_Y : 30,
+                                   (G ? Math.min(G.cw, G.ch) : 80) * 14 * DEFAULT_KEY_POS_Z]}
+                        intensity={DEFAULT_KEY_INTENSITY}
+                        color={DEFAULT_KEY_COLOR}
                         castShadow />
-    <!-- Lot 7.1.e : rim light rasante depuis le haut du plateau (+Y) à
-         hauteur modérée → éclaire la bordure haute du muret et des
-         parois ; la bordure basse reçoit moins de lumière → contraste
-         haut/bas qui souligne le volume arrondi (cf. maquette). -->
-    <T.DirectionalLight position={[0,
-                                   G ? G.H * 1.1 : 400,
-                                   (G ? Math.min(G.cw, G.ch) : 80) * 2.5]}
-                        intensity={0.55}
-                        color="#fff5e0" />
+    <!-- Lot 7.1.e / 9 : rim light. Scalée par G.W/G.H/cellSize × 2.5
+         comme la key, mais en mode rasant (Y dominant). -->
+    <T.DirectionalLight position={[G ? G.W * DEFAULT_RIM_POS_X : 0,
+                                   G ? G.H * DEFAULT_RIM_POS_Y : 400,
+                                   (G ? Math.min(G.cw, G.ch) : 80) * 2.5 * DEFAULT_RIM_POS_Z]}
+                        intensity={DEFAULT_RIM_INTENSITY}
+                        color={DEFAULT_RIM_COLOR} />
 
     <!-- Lot 7.2.e : BG plane 2D restauré après test transparence peu
          concluant. Approche éprouvée : floor + BG plane cream
