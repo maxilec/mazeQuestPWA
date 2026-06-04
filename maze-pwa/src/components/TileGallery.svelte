@@ -57,6 +57,7 @@
     chanfreinPercent = 0;
     railW = 12;
     railDepth = 6;
+    railBevel = 3;
     useBridge = true;
   }
 
@@ -117,6 +118,7 @@
   // quel que soit pathW. Cohérent avec le rôle de néon de largeur fixe.
   let railW = 12;
   let railDepth = 6;
+  let railBevel = 3;     // biseau Soft Clay sur l'arête supérieure du rail
   $: pathW = cw * pathWRatio;
   $: bevelSize = (chanfreinPercent / 100) * (pathW / 2);
   $: bevelThickness = bevelSize;
@@ -176,7 +178,7 @@
             buildShape: builders[t],
             pathW, cw, ch, pathH,
             bevelSize, bevelThickness, bevelSegments,
-            railW, railDepth,
+            railW, railDepth, railBevel,
           });
         }
       } else {
@@ -419,6 +421,12 @@
           <input type="range" min="0" max="20" step="0.5"
                  bind:value={railDepth} />
           <span class="val">{railDepth.toFixed(1)}</span>
+        </label>
+        <label class="slider">
+          <span class="lbl">rail biseau</span>
+          <input type="range" min="0" max="10" step="0.5"
+                 bind:value={railBevel} />
+          <span class="val">{railBevel.toFixed(1)}</span>
         </label>
         <label class="toggle">
           <input type="checkbox" bind:checked={useBridge} />
