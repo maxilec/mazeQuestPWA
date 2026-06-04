@@ -57,7 +57,7 @@
     chanfreinPercent = 0;
     railW = 12;
     railDepth = 6;
-    railBevel = 3;
+    railBevel = 0;
     useBridge = true;
   }
 
@@ -118,7 +118,11 @@
   // quel que soit pathW. Cohérent avec le rôle de néon de largeur fixe.
   let railW = 12;
   let railDepth = 6;
-  let railBevel = 3;     // biseau Soft Clay sur l'arête supérieure du rail
+  // railBevel défaut 0 : la feature freeze sur cross/T (mask étendu
+  // + cushion bevel trop coûteux en CSG sequential). À revisiter
+  // plus tard (manual BufferGeometry pour le mask comme les wedges
+  // chanfrein v6.4). Le slider reste pour test ponctuel.
+  let railBevel = 0;
   $: pathW = cw * pathWRatio;
   $: bevelSize = (chanfreinPercent / 100) * (pathW / 2);
   $: bevelThickness = bevelSize;
