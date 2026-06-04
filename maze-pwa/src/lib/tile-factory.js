@@ -285,7 +285,7 @@ function buildSweptChamferMask(points, segment, L, pathH, segCount) {
 export function buildClippedTileGeometry({
   buildShape, pathW, cw, ch, pathH,
   bevelSize, bevelThickness, bevelSegments,
-  railW = 0, railDepth = 0, railBevel = 0,
+  railW = 0, railDepth = 0,
 }) {
   const L = bevelSize;
 
@@ -396,57 +396,6 @@ export function buildClippedTileGeometry({
       logFactory('error', 'Rail SUBTRACT failed: ' + (err?.message || err));
     } finally {
       railMaskGeo.dispose();
-    }
-
-    // 4.ter Biseau Soft Clay sur l'arête supérieure de la rainure.
-    //   Approche "double cut" inspirée de Gemini, mais en pré-élargissant
-    //   le shape (railW + 2·railBevel) pour que la cushion bevel native
-    //   produise effectivement un évasement railW+2·rb → railW au lieu
-    //   du saucer narrower-at-wall qu'on aurait avec railShape direct.
-    //
-    //   Profil obtenu après les deux SUBTRACT :
-    //     z = pathH                       : largeur = railW + 2·railBevel  (évasement)
-    //     z = pathH − railBevel           : largeur = railW                (retour au sillon droit)
-    //     z = pathH − 2·railBevel − 0.01  : largeur = railW + 2·railBevel  (petit bulb au fond du chamfer)
-    //     z < pathH − 2·railBevel         : sillon droit (deep groove)
-    //
-    //   Le "bulb" du bottom extreme du saucer reste à l'intérieur de la
-    //   profondeur du sillon profond (à condition que railDepth ≥ 2·railBevel),
-    //   donc il flare juste légèrement le bas où le neon viendra se loger.
-    if (railBevel > 0) {
-      const expandedShape = buildShape(railW + 2 * railBevel, cw, ch, 0);
-      // Complexité réduite par rapport à la tile base :
-      //   - curveSegments 8 (au lieu de 24) sur les smoothShape des
-      //     coins concaves → 3× moins de vertices d'outline
-      //   - bevelSegments capé à 3 (au lieu du slider) → arc plus
-      //     court mais reste smooth après mergeVertices + AO
-      //   Sans ces caps, le mask peut dépasser 1000 vertices sur cross
-      //   → CSG SUBTRACT séquentiel sur tile déjà complexifié
-      //   (wedges + deep groove) freeze le navigateur.
-      const railChamferGeo = new ExtrudeGeometry(expandedShape, {
-        depth: 0.01,
-        bevelEnabled: true,
-        bevelSize: railBevel,
-        bevelThickness: railBevel,
-        bevelSegments: Math.min(3, Math.max(1, Math.floor(bevelSegments))),
-        curveSegments: 8,
-      });
-      // Top extreme (z = depth + bt = 0.01 + railBevel) aligné sur pathH
-      railChamferGeo.translate(0, 0, pathH - 0.01 - railBevel);
-
-      try {
-        const chamferBrush = new Brush(railChamferGeo);
-        chamferBrush.updateMatrixWorld();
-        const previousGeo = resultBrush.geometry;
-        resultBrush = evaluator.evaluate(resultBrush, chamferBrush, SUBTRACTION);
-        if (previousGeo !== tileGeo && previousGeo !== resultBrush.geometry) {
-          previousGeo.dispose();
-        }
-      } catch (err) {
-        logFactory('error', 'Rail chamfer SUBTRACT failed: ' + (err?.message || err));
-      } finally {
-        railChamferGeo.dispose();
-      }
     }
   }
 

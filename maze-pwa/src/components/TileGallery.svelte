@@ -57,7 +57,7 @@
     chanfreinPercent = 0;
     railW = 12;
     railDepth = 6;
-    railBevel = 0;
+    neonW = 8;
     neonColor = '#00d4ff';
     neonIntensity = 2.5;
     useBridge = true;
@@ -120,20 +120,15 @@
   // quel que soit pathW. Cohérent avec le rôle de néon de largeur fixe.
   let railW = 12;
   let railDepth = 6;
-  // railBevel défaut 0 : la feature freeze sur cross/T (mask étendu
-  // + cushion bevel trop coûteux en CSG sequential). À revisiter
-  // plus tard (manual BufferGeometry pour le mask comme les wedges
-  // chanfrein v6.4). Le slider reste pour test ponctuel.
-  let railBevel = 0;
-  // Lot 8.11 — Neon dans la rainure : mesh séparé extrudé du même
-  // shape que la piste, légèrement plus étroit (neonInset) et plus
-  // court (neonHeightMargin) que la rainure pour ne pas toucher les
-  // parois. Material emissive pour le glow (le bloom du Postprocess
-  // amplifiera la luminance > 1).
+  // Lot 8.11 — Neon dans la rainure : mesh séparé extrudé du shape
+  // de piste avec une largeur neonW < railW (slider dédié). Material
+  // emissive pour le glow (le bloom du Postprocess amplifie la
+  // luminance > 1). neonHeightMargin reste fixe pour ne pas toucher
+  // le fond/haut de la rainure.
   let neonColor = '#00d4ff';     // cyan néon par défaut
   let neonIntensity = 2.5;       // emissive intensity
-  let neonInset = 0.5;           // marge latérale (réduction de railW)
-  let neonHeightMargin = 0.2;    // marge verticale (centrage dans la rainure)
+  let neonW = 8;                 // épaisseur (largeur) du néon visible
+  const neonHeightMargin = 0.2;  // marge verticale (fixe)
   $: pathW = cw * pathWRatio;
   $: bevelSize = (chanfreinPercent / 100) * (pathW / 2);
   $: bevelThickness = bevelSize;
@@ -193,7 +188,7 @@
             buildShape: builders[t],
             pathW, cw, ch, pathH,
             bevelSize, bevelThickness, bevelSegments,
-            railW, railDepth, railBevel,
+            railW, railDepth,
           });
         }
       } else {
@@ -229,13 +224,15 @@
   $: {
     for (const g of Object.values(neonGeometries)) g?.dispose?.();
     const next = {};
-    if (useBridge && railW > 0 && railDepth > 0) {
-      const neonW = Math.max(0.1, railW - 2 * neonInset);
-      const neonH = Math.max(0.1, railDepth - 2 * neonHeightMargin);
+    if (useBridge && railW > 0 && railDepth > 0 && neonW > 0) {
+      // Clamp pour ne jamais dépasser la rainure (l'utilisateur peut
+      // mettre neonW > railW au slider, on borne ici).
+      const w = Math.min(neonW, railW);
+      const h = Math.max(0.1, railDepth - 2 * neonHeightMargin);
       for (const t of types) {
-        const shape = builders[t](neonW, cw, ch, 0);
+        const shape = builders[t](w, cw, ch, 0);
         next[t] = new ExtrudeGeometry(shape, {
-          depth: neonH,
+          depth: h,
           bevelEnabled: false,
           steps: 1,
           curveSegments: 12,
@@ -500,10 +497,10 @@
           <span class="val">{railDepth.toFixed(1)}</span>
         </label>
         <label class="slider">
-          <span class="lbl">rail biseau</span>
-          <input type="range" min="0" max="10" step="0.5"
-                 bind:value={railBevel} />
-          <span class="val">{railBevel.toFixed(1)}</span>
+          <span class="lbl">neon épaisseur</span>
+          <input type="range" min="0" max="30" step="0.5"
+                 bind:value={neonW} />
+          <span class="val">{neonW.toFixed(1)}</span>
         </label>
         <label class="slider">
           <span class="lbl">neon intensité</span>
