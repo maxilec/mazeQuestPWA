@@ -415,13 +415,21 @@ export function buildClippedTileGeometry({
     //   donc il flare juste légèrement le bas où le neon viendra se loger.
     if (railBevel > 0) {
       const expandedShape = buildShape(railW + 2 * railBevel, cw, ch, 0);
+      // Complexité réduite par rapport à la tile base :
+      //   - curveSegments 8 (au lieu de 24) sur les smoothShape des
+      //     coins concaves → 3× moins de vertices d'outline
+      //   - bevelSegments capé à 3 (au lieu du slider) → arc plus
+      //     court mais reste smooth après mergeVertices + AO
+      //   Sans ces caps, le mask peut dépasser 1000 vertices sur cross
+      //   → CSG SUBTRACT séquentiel sur tile déjà complexifié
+      //   (wedges + deep groove) freeze le navigateur.
       const railChamferGeo = new ExtrudeGeometry(expandedShape, {
         depth: 0.01,
         bevelEnabled: true,
         bevelSize: railBevel,
         bevelThickness: railBevel,
-        bevelSegments: Math.max(1, Math.floor(bevelSegments)),
-        curveSegments: CURVE_DIVISIONS,
+        bevelSegments: Math.min(3, Math.max(1, Math.floor(bevelSegments))),
+        curveSegments: 8,
       });
       // Top extreme (z = depth + bt = 0.01 + railBevel) aligné sur pathH
       railChamferGeo.translate(0, 0, pathH - 0.01 - railBevel);
