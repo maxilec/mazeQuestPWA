@@ -54,7 +54,7 @@
   let showParams = true;       // panel sliders ouvert au mount
 
   function resetParams() {
-    pathWRatio = 0.65;
+    pathWRatio = 0.75;
     pathHRatio = DEFAULT_PATH_H_RATIO;
     bevelSegments = DEFAULT_BEVEL_SEGMENTS;
     chanfreinPercent = DEFAULT_CHANFREIN_PERCENT;
@@ -106,7 +106,7 @@
   // (trackRatio 0.65, pathH = DEFAULT_PATH_H_RATIO).
   const cw = 100, ch = 100;
   const cellSize = Math.min(cw, ch);
-  let pathWRatio = 0.65;     // épaisseur piste (fraction de cw)
+  let pathWRatio = 0.75;     // épaisseur piste (fraction de cw)
   let pathHRatio = DEFAULT_PATH_H_RATIO;  // hauteur extrusion (fraction de cellSize)
   let bevelSegments = DEFAULT_BEVEL_SEGMENTS;  // ignoré en v6 (chanfrein plat)
   // Lot 8.10 v6 — Mécanique chanfrein : rayon de cylindre centré sur l'arête.

@@ -159,7 +159,7 @@
   // ExtrudeGeometry verticale (depth = pathH) avec bevels intégrés + arrondis
   // appliqués via smoothShape sur le polygone.
   // Sol abaissé à -floorDepth pour effet de profondeur dans les fossés.
-  $: pathW      = G ? Math.min(G.cw, G.ch) * (G.trackRatio ?? 0.65) : 30;
+  $: pathW      = G ? Math.min(G.cw, G.ch) * (G.trackRatio ?? 0.75) : 30;
   $: pathH      = G ? Math.min(G.cw, G.ch) * DEFAULT_PATH_H_RATIO : 15;
   $: floorDepth = pathH * 0.4;                            // profondeur sol creusé
   // Lot 8.11 v5 : factory CSG partagée avec la gallery. Le chanfrein
