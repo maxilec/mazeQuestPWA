@@ -55,6 +55,8 @@
     pathHRatio = 0.80;
     bevelSegments = DEFAULT_BEVEL_SEGMENTS;
     chanfreinPercent = 0;
+    railW = 12;
+    railDepth = 6;
     useBridge = true;
   }
 
@@ -110,6 +112,11 @@
   //   Le chanfrein s'applique uniquement aux arêtes fermées (pas aux
   //   jonctions cell-boundary entre tiles adjacentes).
   let chanfreinPercent = 0;
+  // Lot 8.11 — Rainure centrale (futur néon). railW=0 désactive.
+  // Valeurs absolues (pas % de pathW) → épaisseur visuelle CONSTANTE
+  // quel que soit pathW. Cohérent avec le rôle de néon de largeur fixe.
+  let railW = 12;
+  let railDepth = 6;
   $: pathW = cw * pathWRatio;
   $: bevelSize = (chanfreinPercent / 100) * (pathW / 2);
   $: bevelThickness = bevelSize;
@@ -169,6 +176,7 @@
             buildShape: builders[t],
             pathW, cw, ch, pathH,
             bevelSize, bevelThickness, bevelSegments,
+            railW, railDepth,
           });
         }
       } else {
@@ -399,6 +407,18 @@
           <input type="range" min="0" max="100" step="1"
                  bind:value={chanfreinPercent} />
           <span class="val">{chanfreinPercent}</span>
+        </label>
+        <label class="slider">
+          <span class="lbl">rail largeur</span>
+          <input type="range" min="0" max="30" step="1"
+                 bind:value={railW} />
+          <span class="val">{railW}</span>
+        </label>
+        <label class="slider">
+          <span class="lbl">rail profondeur</span>
+          <input type="range" min="0" max="20" step="0.5"
+                 bind:value={railDepth} />
+          <span class="val">{railDepth.toFixed(1)}</span>
         </label>
         <label class="toggle">
           <input type="checkbox" bind:checked={useBridge} />

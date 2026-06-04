@@ -285,6 +285,7 @@ function buildSweptChamferMask(points, segment, L, pathH, segCount) {
 export function buildClippedTileGeometry({
   buildShape, pathW, cw, ch, pathH,
   bevelSize, bevelThickness, bevelSegments,
+  railW = 0, railDepth = 0,
 }) {
   const L = bevelSize;
 
@@ -366,6 +367,36 @@ export function buildClippedTileGeometry({
     logFactory('error', 'Pipeline crash, fallback straight: ' + (err?.message || err));
     applyVertexAO(tileGeo, 0);
     return tileGeo;
+  }
+
+  // 4.bis Rainure centrale (Lot 8.11) : SUBTRACT d'un masque rail
+  //       qui suit la même topologie que la piste, avec une largeur
+  //       railW < pathW. La rainure descend depuis le top de la tile
+  //       sur railDepth, avec overshoot ε en haut anti-coplanarité.
+  if (railW > 0 && railDepth > 0) {
+    const RAIL_OVERSHOOT = 0.1;
+    const railShape = buildShape(railW, cw, ch, 0);
+    const railMaskGeo = new ExtrudeGeometry(railShape, {
+      depth: railDepth + RAIL_OVERSHOOT,
+      bevelEnabled: false,
+      steps: 1,
+      curveSegments: CURVE_DIVISIONS,
+    });
+    railMaskGeo.translate(0, 0, pathH - railDepth);
+
+    try {
+      const railBrush = new Brush(railMaskGeo);
+      railBrush.updateMatrixWorld();
+      const previousGeo = resultBrush.geometry;
+      resultBrush = evaluator.evaluate(resultBrush, railBrush, SUBTRACTION);
+      if (previousGeo !== tileGeo && previousGeo !== resultBrush.geometry) {
+        previousGeo.dispose();
+      }
+    } catch (err) {
+      logFactory('error', 'Rail SUBTRACT failed: ' + (err?.message || err));
+    } finally {
+      railMaskGeo.dispose();
+    }
   }
 
   let finalGeo = resultBrush.geometry;
