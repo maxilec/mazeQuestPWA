@@ -62,7 +62,11 @@
   let unitType = 'cross';
   let cameraRef;
   let lightRef;
-  let showParams = true;       // panel sliders ouvert au mount
+  // Lot 9 — Panneaux params : tabs au lieu de panneaux empilés.
+  // Permet de toujours voir les 2 toggles "géométrie" et "lumière"
+  // même quand un panneau est ouvert (sinon ça déborde du viewport
+  // mobile sur iPhone et le toggle lumière était pushed off-screen).
+  let paramsTab = 'geo';       // 'geo' | 'light' | null (fermé)
 
   // Lot 9 — Génère le contenu de lighting-config.js avec les valeurs
   // courantes des sliders et le copie dans le clipboard. L'user colle
@@ -527,13 +531,22 @@
     </Canvas>
   </div>
 
-  <!-- Panel sliders : pathW (épaisseur piste) et pathH (hauteur).
-       Toggle pour libérer le canvas. -->
-  <div class="params" class:open={showParams}>
-    <button class="params-toggle" on:click={() => showParams = !showParams}>
-      ⚙ params {showParams ? '▴' : '▾'}
+  <!-- Lot 9 — Tabs params : géométrie / lumière. Un seul panneau
+       visible à la fois → permet de toujours afficher les deux
+       toggles, même sur écran mobile compact. -->
+  <div class="params-tabs">
+    <button class="params-tab" class:active={paramsTab === 'geo'}
+            on:click={() => paramsTab = paramsTab === 'geo' ? null : 'geo'}>
+      ⚙ géométrie {paramsTab === 'geo' ? '▴' : '▾'}
     </button>
-    {#if showParams}
+    <button class="params-tab" class:active={paramsTab === 'light'}
+            on:click={() => paramsTab = paramsTab === 'light' ? null : 'light'}>
+      ☀ lumière {paramsTab === 'light' ? '▴' : '▾'}
+    </button>
+  </div>
+
+  {#if paramsTab === 'geo'}
+    <div class="params">
       <div class="params-body">
         <label class="slider">
           <span class="lbl">épaisseur piste</span>
@@ -594,17 +607,10 @@
         </label>
         <button class="reset-btn" on:click={resetParams}>reset</button>
       </div>
-    {/if}
-  </div>
-
-  <!-- Lot 9 — Panneau lumière séparé. Toggle indépendant du params
-       géométrie pour ne pas alourdir l'affichage. -->
-  <div class="params" class:open={showLightParams}>
-    <button class="params-toggle" on:click={() => showLightParams = !showLightParams}>
-      ☀ lumière {showLightParams ? '▴' : '▾'}
-    </button>
-    {#if showLightParams}
-      <div class="params-body">
+    </div>
+  {:else if paramsTab === 'light'}
+    <div class="params">
+      <div class="params-body light-body">
       <div class="light-section">hémisphère</div>
       <label class="slider">
         <span class="lbl">intensité</span>
@@ -729,8 +735,8 @@
 
         <button class="reset-btn" on:click={copyLightingDefaults}>copier defaults</button>
       </div>
-    {/if}
-  </div>
+    </div>
+  {/if}
 
   <!-- Panneau debug in-app (capture console.warn/error). Permet de
        diagnostiquer crashes sur mobile sans DevTools. Visible par
@@ -867,6 +873,29 @@
     border-bottom: 1px solid rgba(0,0,0,0.06);
   }
   .params-toggle:active { color: #3a2f24; }
+
+  /* Lot 9 — Tabs params (géométrie / lumière) toujours visibles */
+  .params-tabs {
+    display: flex;
+    background: rgba(241,233,217,0.85);
+    border-top: 1px solid rgba(0,0,0,0.08);
+  }
+  .params-tab {
+    flex: 1;
+    background: transparent; border: none;
+    padding: 7px 8px;
+    font-family: inherit; font-size: 11px; font-weight: 600;
+    letter-spacing: 1.5px; color: #6b5634;
+    cursor: pointer;
+    border-right: 1px solid rgba(0,0,0,0.06);
+  }
+  .params-tab:last-child { border-right: none; }
+  .params-tab:active { color: #3a2f24; }
+  .params-tab.active {
+    background: rgba(154,126,84,0.18);
+    color: #3a2f24;
+    box-shadow: inset 0 -2px 0 #9a7e54;
+  }
   .params-body {
     display: flex; flex-direction: column; gap: 6px;
     padding: 8px 14px;
