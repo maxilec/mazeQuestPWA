@@ -21,6 +21,9 @@
     applyVertexAO, detectTileType,
     BEVEL_SIZE_RATIO, BEVEL_THICKNESS_RATIO,
     DEFAULT_PATH_H_RATIO, DEFAULT_BEVEL_SEGMENTS,
+    DEFAULT_CHANFREIN_PERCENT, DEFAULT_RAIL_W, DEFAULT_RAIL_DEPTH,
+    DEFAULT_NEON_W, DEFAULT_NEON_INTENSITY, DEFAULT_NEON_COLOR,
+    NEON_HEIGHT_MARGIN,
   } from '../lib/tile-geometry.js';
   import { buildClippedTileGeometry } from '../lib/tile-factory.js';
   import { debugLog, clearDebug, pushDebug, formatArg } from '../lib/debug-log.js';
@@ -52,14 +55,14 @@
 
   function resetParams() {
     pathWRatio = 0.65;
-    pathHRatio = 0.80;
+    pathHRatio = DEFAULT_PATH_H_RATIO;
     bevelSegments = DEFAULT_BEVEL_SEGMENTS;
-    chanfreinPercent = 0;
-    railW = 12;
-    railDepth = 6;
-    neonW = 8;
-    neonColor = '#00d4ff';
-    neonIntensity = 2.5;
+    chanfreinPercent = DEFAULT_CHANFREIN_PERCENT;
+    railW = DEFAULT_RAIL_W;
+    railDepth = DEFAULT_RAIL_DEPTH;
+    neonW = DEFAULT_NEON_W;
+    neonColor = DEFAULT_NEON_COLOR;
+    neonIntensity = DEFAULT_NEON_INTENSITY;
     useBridge = true;
   }
 
@@ -114,21 +117,21 @@
   //   bevelThickness = bevelSize (45° lock).
   //   Le chanfrein s'applique uniquement aux arêtes fermées (pas aux
   //   jonctions cell-boundary entre tiles adjacentes).
-  let chanfreinPercent = 0;
+  let chanfreinPercent = DEFAULT_CHANFREIN_PERCENT;
   // Lot 8.11 — Rainure centrale (futur néon). railW=0 désactive.
   // Valeurs absolues (pas % de pathW) → épaisseur visuelle CONSTANTE
   // quel que soit pathW. Cohérent avec le rôle de néon de largeur fixe.
-  let railW = 12;
-  let railDepth = 6;
+  let railW = DEFAULT_RAIL_W;
+  let railDepth = DEFAULT_RAIL_DEPTH;
   // Lot 8.11 — Neon dans la rainure : mesh séparé extrudé du shape
   // de piste avec une largeur neonW < railW (slider dédié). Material
   // emissive pour le glow (le bloom du Postprocess amplifie la
   // luminance > 1). neonHeightMargin reste fixe pour ne pas toucher
   // le fond/haut de la rainure.
-  let neonColor = '#00d4ff';     // cyan néon par défaut
-  let neonIntensity = 2.5;       // emissive intensity
-  let neonW = 8;                 // épaisseur (largeur) du néon visible
-  const neonHeightMargin = 0.2;  // marge verticale (fixe)
+  let neonColor = DEFAULT_NEON_COLOR;
+  let neonIntensity = DEFAULT_NEON_INTENSITY;
+  let neonW = DEFAULT_NEON_W;
+  const neonHeightMargin = NEON_HEIGHT_MARGIN;
   $: pathW = cw * pathWRatio;
   $: bevelSize = (chanfreinPercent / 100) * (pathW / 2);
   $: bevelThickness = bevelSize;

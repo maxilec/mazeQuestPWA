@@ -32,8 +32,12 @@
     applyVertexAO, buildAOTexture,
     detectTileType,
     AO_BASE, AO_SHADOW, TILE_CLOSED_SIDES,
-    DEFAULT_PATH_H_RATIO,
+    DEFAULT_PATH_H_RATIO, DEFAULT_BEVEL_SEGMENTS,
+    DEFAULT_CHANFREIN_PERCENT, DEFAULT_RAIL_W, DEFAULT_RAIL_DEPTH,
+    DEFAULT_NEON_W, DEFAULT_NEON_INTENSITY, DEFAULT_NEON_COLOR,
+    NEON_HEIGHT_MARGIN, chanfreinToBevelSize,
   } from '../lib/tile-geometry.js';
+  import { buildClippedTileGeometry } from '../lib/tile-factory.js';
   import Postprocess            from './Postprocess.svelte';
 
   export let G            = null;
@@ -158,19 +162,22 @@
   $: pathW      = G ? Math.min(G.cw, G.ch) * (G.trackRatio ?? 0.65) : 30;
   $: pathH      = G ? Math.min(G.cw, G.ch) * DEFAULT_PATH_H_RATIO : 15;
   $: floorDepth = pathH * 0.4;                            // profondeur sol creusé
-  // Lot 8.8.1 : rollback formule bevel — le changement vers
-  // cellSize × ratios cassait le rendu in-game (canvas vide). On
-  // garde la formule historique pathH × 0.12 / 0.15. Les constantes
-  // BEVEL_*_RATIO restent dans le lib pour la gallery uniquement.
-  // L'unification complète demandera une migration plus prudente.
-  $: bevelSize      = pathH * 0.12;
-  $: bevelThickness = pathH * 0.15;
-  // pathTop : z juste au-dessus du top du bevel de la piste (avec marge
-  // 0.5). Utilisé pour positionner les neon stripes, dots, checkpoints
-  // et sprites. ExtrudeGeometry étend la géométrie de bevelThickness
-  // au-dessus de depth=pathH → top réel à pathH + bevelThickness.
-  $: pathTop    = pathH + bevelThickness + 0.5;
-  $: neonW      = G ? Math.min(G.cw, G.ch) * 0.07 : 3.5;
+  // Lot 8.11 v5 : factory CSG partagée avec la gallery. Le chanfrein
+  // est dérivé de DEFAULT_CHANFREIN_PERCENT (20%) appliqué à pathW/2,
+  // 45° lock (bevelThickness = bevelSize). bevelSegments fixe à 2 (chanfrein
+  // plat-arrondi soft clay).
+  $: bevelSize      = chanfreinToBevelSize(DEFAULT_CHANFREIN_PERCENT, pathW);
+  $: bevelThickness = bevelSize;
+  // pathTop : z juste au-dessus du top du tile (marge 0.5). Avec la
+  // nouvelle factory, le top tile est exactement à z=pathH (pas de
+  // bevelThickness qui dépasse comme dans l'ancienne ExtrudeGeometry).
+  $: pathTop    = pathH + 0.5;
+  // Position Z du neon mesh : bottom de la rainure + margin. La tile
+  // base est à z=0 (Instance par défaut), top à z=pathH. La rainure va
+  // de z=pathH-railDepth à z=pathH. Le neon mesh (hauteur railDepth-2·margin)
+  // doit être centré verticalement dans la rainure.
+  $: neonZ = pathH - DEFAULT_RAIL_DEPTH + NEON_HEIGHT_MARGIN;
+  $: neonStripeW = G ? Math.min(G.cw, G.ch) * 0.07 : 3.5;  // ancien neonStripeW, renommé pour ne pas masquer le rail neon
   const PATH_COLOR  = '#f1e9d9';
   // Lot 7.2.b : path et floor partagent EXACTEMENT la même couleur
   // (cream BG #f1e9d9) → continuité visuelle parfaite, plus de
@@ -267,6 +274,7 @@
   // ── Cache geometries + instances (rebuild only when level changes) ─────
   // Sans cache, on recompile 5 ExtrudeGeometry par frame → crash mobile.
   let tileGeometries = null;
+  let railNeonGeos   = null;   // Lot 8.11 v5 : neon mesh dans la rainure
   let aoTextures     = null;   // Lot 7.3 : AO map per tile type
   let tileInstances  = null;
   let neonSegments   = [];
@@ -280,36 +288,30 @@
     // référer. bevelSize est passé aux build*Shape pour l'expansion
     // boundary (trick seamless Lot 6.22) ; bevelThickness est purement
     // vertical donc n'affecte pas le shape 2D.
-    const extrudeSettings = {
-      depth: pathH,
-      bevelEnabled: true,
-      bevelThickness,
-      bevelSize,
-      bevelOffset: 0,
-      bevelSegments: 5,     // courbe lissée vs chanfrein plat (était 2)
-      steps: 1,
-      curveSegments: 24,    // arrondis fluides des virages (était 6)
-    };
-    const shapes = {
-      straight: buildStraightShape(pathW, G.cw, G.ch, bevelSize),
-      corner:   buildCornerShape  (pathW, G.cw, G.ch, bevelSize),
-      T:        buildTShape       (pathW, G.cw, G.ch, bevelSize),
-      cross:    buildCrossShape   (pathW, G.cw, G.ch, bevelSize),
-      deadEnd:  buildDeadEndShape (pathW, G.cw, G.ch, bevelSize),
+    // Lot 8.11 v5 : utilise la factory CSG partagée avec la gallery.
+    // Mêmes valeurs par défaut → même géométrie qu'en mode dev.
+    // chanfrein 20%, rail 10×20, bevelSegments=2 (cf. defaults dans
+    // tile-geometry.js).
+    const builders = {
+      straight: buildStraightShape, corner: buildCornerShape,
+      T: buildTShape, cross: buildCrossShape, deadEnd: buildDeadEndShape,
     };
     // Dispose previous geometries to free GPU memory.
     if (tileGeometries) {
       for (const k of Object.keys(tileGeometries)) tileGeometries[k].dispose();
     }
-    tileGeometries = {
-      straight: new ExtrudeGeometry(shapes.straight, extrudeSettings),
-      corner:   new ExtrudeGeometry(shapes.corner,   extrudeSettings),
-      T:        new ExtrudeGeometry(shapes.T,        extrudeSettings),
-      cross:    new ExtrudeGeometry(shapes.cross,    extrudeSettings),
-      deadEnd:  new ExtrudeGeometry(shapes.deadEnd,  extrudeSettings),
-    };
-    // Lot 7.2 : injection AO vertex colors (zéro coût runtime)
-    // Lot 7.3 : + uv2 (= uv) pour permettre aoMap par tile type
+    tileGeometries = {};
+    for (const key of Object.keys(builders)) {
+      tileGeometries[key] = buildClippedTileGeometry({
+        buildShape:    builders[key],
+        pathW, cw: G.cw, ch: G.ch, pathH,
+        bevelSize, bevelThickness,
+        bevelSegments: DEFAULT_BEVEL_SEGMENTS,
+        railW:     DEFAULT_RAIL_W,
+        railDepth: DEFAULT_RAIL_DEPTH,
+      });
+    }
+    // Lot 7.3 : aoTextures gardés en cache (le facto les ré-applique pas)
     if (!aoTextures) {
       aoTextures = {
         straight: buildAOTexture('straight'),
@@ -319,15 +321,34 @@
         deadEnd:  buildAOTexture('deadEnd'),
       };
     }
+    // Note : applyVertexAO est déjà appliqué par la factory. On ajoute
+    // juste uv2 (= uv) ici pour la compat aoMap si on en réactive.
     for (const key of Object.keys(tileGeometries)) {
       const geo = tileGeometries[key];
-      applyVertexAO(geo, bevelThickness);
-      // Three.js requires uv2 attribute for aoMap. Duplicate from uv.
       const uv = geo.attributes.uv;
       if (uv) {
         geo.setAttribute('uv2', new Float32BufferAttribute(uv.array.slice(), 2));
       }
     }
+    // Lot 8.11 v5 : neon mesh dans la rainure des tiles. Extrude le
+    // shape de piste avec largeur DEFAULT_NEON_W (5.5), depth =
+    // railDepth - 2·margin. Position Z calculée à part dans neonZ.
+    if (railNeonGeos) {
+      for (const k of Object.keys(railNeonGeos)) railNeonGeos[k].dispose();
+    }
+    railNeonGeos = {};
+    const _neonW = Math.min(DEFAULT_NEON_W, DEFAULT_RAIL_W);
+    const _neonH = Math.max(0.1, DEFAULT_RAIL_DEPTH - 2 * NEON_HEIGHT_MARGIN);
+    for (const key of Object.keys(builders)) {
+      const shape = builders[key](_neonW, G.cw, G.ch, 0);
+      railNeonGeos[key] = new ExtrudeGeometry(shape, {
+        depth: _neonH,
+        bevelEnabled: false,
+        steps: 1,
+        curveSegments: 12,
+      });
+    }
+
     tileInstances = computeTileInstances(G);
     neonSegments  = computeNeonSegments(G);
     neonNodes     = computeNeonNodes(G);
@@ -610,6 +631,9 @@
     if (tileGeometries) {
       for (const k of Object.keys(tileGeometries)) tileGeometries[k].dispose();
     }
+    if (railNeonGeos) {
+      for (const k of Object.keys(railNeonGeos)) railNeonGeos[k].dispose();
+    }
     if (aoTextures) {
       for (const k of Object.keys(aoTextures)) aoTextures[k].dispose();
     }
@@ -736,6 +760,23 @@
                           rotation={[0, 0, inst.rot]} />
               {/each}
             </InstancedMesh>
+            <!-- Lot 8.11 v5 : neon mesh dans la rainure des tiles.
+                 Material emissive (intensity > 1 → déclenche le bloom
+                 du Postprocess). toneMapped:false pour préserver la
+                 luminance. -->
+            {#if railNeonGeos && railNeonGeos[tileType]}
+              <InstancedMesh geometry={railNeonGeos[tileType]}>
+                <T.MeshStandardMaterial color={DEFAULT_NEON_COLOR}
+                                        emissive={DEFAULT_NEON_COLOR}
+                                        emissiveIntensity={DEFAULT_NEON_INTENSITY}
+                                        roughness={0.4} metalness={0.0}
+                                        toneMapped={false} />
+                {#each tileInstances[tileType] as inst, i (`neon-${tileType}-${i}`)}
+                  <Instance position={[inst.x, inst.y, neonZ]}
+                            rotation={[0, 0, inst.rot]} />
+                {/each}
+              </InstancedMesh>
+            {/if}
           {/each}
 
           <!-- Shadow groove (Lot 6.26 v2) : alphaMap gradient (sombre au
@@ -748,8 +789,8 @@
               <T.Mesh position={[seg.x, seg.y, pathTop - 0.05]} renderOrder={1}>
                 <T.PlaneGeometry args={
                   seg.type === 'h'
-                    ? [seg.length, neonW * 2.8]
-                    : [neonW * 2.8, seg.length]
+                    ? [seg.length, neonStripeW * 2.8]
+                    : [neonStripeW * 2.8, seg.length]
                 } />
                 <T.MeshBasicMaterial color="#1a0e08"
                                      alphaMap={seg.type === 'h' ? grooveAlphaH : grooveAlphaV}
@@ -763,7 +804,7 @@
             {#each neonNodes as node, i (`shn${i}`)}
               {#if node.isIntersection}
                 <T.Mesh position={[node.x, node.y, pathTop - 0.05]} renderOrder={1}>
-                  <T.CircleGeometry args={[neonW * 2.2, 24]} />
+                  <T.CircleGeometry args={[neonStripeW * 2.2, 24]} />
                   <T.MeshBasicMaterial color="#1a0e08"
                                        alphaMap={grooveAlphaR}
                                        transparent={true}
@@ -783,8 +824,8 @@
             <T.Mesh position={[seg.x, seg.y, pathTop]} renderOrder={2}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 0.32]
-                  : [neonW * 0.32, seg.length]
+                  ? [seg.length, neonStripeW * 0.32]
+                  : [neonStripeW * 0.32, seg.length]
               } />
               <T.MeshStandardMaterial color="#ffffff"
                                       emissive="#ffffff"
@@ -799,8 +840,8 @@
             <T.Mesh position={[seg.x, seg.y, pathTop + 0.1]} renderOrder={3}>
               <T.PlaneGeometry args={
                 seg.type === 'h'
-                  ? [seg.length, neonW * 0.85]
-                  : [neonW * 0.85, seg.length]
+                  ? [seg.length, neonStripeW * 0.85]
+                  : [neonStripeW * 0.85, seg.length]
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
@@ -818,7 +859,7 @@
           {#each neonNodes as node, i (`nb${i}`)}
             {#if node.isIntersection}
               <T.Mesh position={[node.x, node.y, pathTop + 0.3]} renderOrder={4}>
-                <T.SphereGeometry args={[neonW * 0.6, 16, 8]} />
+                <T.SphereGeometry args={[neonStripeW * 0.6, 16, 8]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
                                         emissiveIntensity={1.5}
@@ -840,7 +881,7 @@
             {@const cy      = G.H / 2 - (cp.r * G.ch + G.ch / 2)}
             {@const cpClr   = cp.passed ? '#ffcc00' : '#88ff66'}
             {@const cpLen   = pathW * 1.20}
-            {@const cpThick = neonW * 1.3}
+            {@const cpThick = neonStripeW * 1.3}
             <T.Mesh position={[cx, cy, pathTop + 0.5]}>
               <T.PlaneGeometry args={
                 cp.horizontal

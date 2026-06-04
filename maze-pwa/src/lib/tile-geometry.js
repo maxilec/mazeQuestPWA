@@ -42,13 +42,38 @@ export const AO_SHADOW = new Color(0x9a7e54);
 export const BEVEL_SIZE_RATIO      = 0.096;   // = 9.6 pour cell=100
 export const BEVEL_THICKNESS_RATIO = 0.120;   // = 12.0 pour cell=100
 
-// Nombre de segments pour la courbe du bevel. Plus haut = plus lisse
-// (et plus de vertices). Défaut Scene3D = 5.
-export const DEFAULT_BEVEL_SEGMENTS = 5;
+// Lot 8.11 v5 : presets partagés Scene3D / TileGallery
+// Tous les nombres absolus ci-dessous sont dans le repère cell=100
+// (= "unités tile"). Scene3D et la gallery utilisent les mêmes valeurs
+// par défaut → la factory CSG produit exactement la même géométrie.
 
-// Hauteur d'extrusion par défaut (en proportion de min(cw,ch)).
-// Scene3D utilisait 0.80 hardcodé ; même valeur ici pour rétro-compat.
-export const DEFAULT_PATH_H_RATIO  = 0.80;
+// Nombre de segments pour la courbe du chanfrein (1 = chanfrein plat,
+// 5+ = arc lisse Soft Clay). Défaut Scene3D / gallery.
+export const DEFAULT_BEVEL_SEGMENTS = 2;
+
+// Hauteur d'extrusion par défaut (proportion de min(cw, ch)).
+export const DEFAULT_PATH_H_RATIO  = 1.50;
+
+// Chanfrein des arêtes fermées de la piste (rayon r normalisé à pathW/2).
+// L = (P / 100) × (pathW / 2). 20% = chanfrein subtil "soft clay".
+export const DEFAULT_CHANFREIN_PERCENT = 20;
+
+// Rainure centrale (largeur, profondeur absolues en unités tile).
+export const DEFAULT_RAIL_W     = 10;
+export const DEFAULT_RAIL_DEPTH = 20;
+
+// Néon dans la rainure (largeur, intensité emissive, couleur).
+// La hauteur du néon est calculée depuis railDepth - 2 × margin (fixe).
+export const DEFAULT_NEON_W         = 5.5;
+export const DEFAULT_NEON_INTENSITY = 2.0;
+export const DEFAULT_NEON_COLOR     = '#00d4ff';
+export const NEON_HEIGHT_MARGIN     = 0.2;
+
+// Conversion slider chanfrein % (0-100) → bevelSize en unités tile.
+// bevelThickness = bevelSize (45° lock).
+export function chanfreinToBevelSize(chanfreinPercent, pathW) {
+  return (chanfreinPercent / 100) * (pathW / 2);
+}
 
 // Helper pour calculer bevel à partir d'une taille de cell uniforme.
 // cellSize = min(cw, ch) typiquement.
