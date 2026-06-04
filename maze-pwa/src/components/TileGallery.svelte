@@ -58,6 +58,8 @@
     railW = 12;
     railDepth = 6;
     railBevel = 0;
+    neonColor = '#00d4ff';
+    neonIntensity = 2.5;
     useBridge = true;
   }
 
@@ -123,6 +125,15 @@
   // plus tard (manual BufferGeometry pour le mask comme les wedges
   // chanfrein v6.4). Le slider reste pour test ponctuel.
   let railBevel = 0;
+  // Lot 8.11 — Neon dans la rainure : mesh séparé extrudé du même
+  // shape que la piste, légèrement plus étroit (neonInset) et plus
+  // court (neonHeightMargin) que la rainure pour ne pas toucher les
+  // parois. Material emissive pour le glow (le bloom du Postprocess
+  // amplifiera la luminance > 1).
+  let neonColor = '#00d4ff';     // cyan néon par défaut
+  let neonIntensity = 2.5;       // emissive intensity
+  let neonInset = 0.5;           // marge latérale (réduction de railW)
+  let neonHeightMargin = 0.2;    // marge verticale (centrage dans la rainure)
   $: pathW = cw * pathWRatio;
   $: bevelSize = (chanfreinPercent / 100) * (pathW / 2);
   $: bevelThickness = bevelSize;
@@ -210,6 +221,36 @@
     }
   }
 
+  // Lot 8.11 — Neon geometries (mesh séparé, pas de CSG). Extrude le
+  // shape de piste avec une largeur railW - 2·neonInset (légèrement
+  // plus étroit que la rainure pour ne pas toucher les parois). Z
+  // position calculé à part dans neonPosZ.
+  let neonGeometries = {};
+  $: {
+    for (const g of Object.values(neonGeometries)) g?.dispose?.();
+    const next = {};
+    if (useBridge && railW > 0 && railDepth > 0) {
+      const neonW = Math.max(0.1, railW - 2 * neonInset);
+      const neonH = Math.max(0.1, railDepth - 2 * neonHeightMargin);
+      for (const t of types) {
+        const shape = builders[t](neonW, cw, ch, 0);
+        next[t] = new ExtrudeGeometry(shape, {
+          depth: neonH,
+          bevelEnabled: false,
+          steps: 1,
+          curveSegments: 12,
+        });
+      }
+    }
+    neonGeometries = next;
+  }
+
+  // Position Z du mesh neon (offset relatif au tile group).
+  // La rainure va de z=pathH-railDepth à z=pathH. Le neon mesh a une
+  // hauteur railDepth-2·margin et son origine est au bas → on l'élève
+  // pour le centrer dans la rainure.
+  $: neonPosZ = tilePosZ + (pathH - railDepth) + neonHeightMargin;
+
   // ── Global : grille 2×3 portrait, 5 tuiles avec gap entre cases ──
   // 2 cols (gx ±cw*0.7 = ±70, spacing 140, gap 40) × 3 rows
   // (gy ±cw*1.3, spacing 130, gap 30). 5 tuiles → 6e case vide ;
@@ -277,6 +318,7 @@
 
   onDestroy(() => {
     for (const g of Object.values(tileGeometries)) g.dispose();
+    for (const g of Object.values(neonGeometries)) g?.dispose?.();
   });
 </script>
 
@@ -358,6 +400,16 @@
                                     roughness={0.65} metalness={0.02}
                                     envMapIntensity={0.40} />
           </T.Mesh>
+          {#if neonGeometries[p.type]}
+            <T.Mesh position={[p.gx, p.gy, neonPosZ]}
+                    geometry={neonGeometries[p.type]}>
+              <T.MeshStandardMaterial color={neonColor}
+                                      emissive={neonColor}
+                                      emissiveIntensity={neonIntensity}
+                                      roughness={0.4} metalness={0.0}
+                                      toneMapped={false} />
+            </T.Mesh>
+          {/if}
         {/each}
       {:else if tab === 'unitaire'}
         <T.Mesh position={[0, 0, tilePosZ]}
@@ -367,6 +419,16 @@
                                   roughness={0.65} metalness={0.02}
                                   envMapIntensity={0.40} />
         </T.Mesh>
+        {#if neonGeometries[unitType]}
+          <T.Mesh position={[0, 0, neonPosZ]}
+                  geometry={neonGeometries[unitType]}>
+            <T.MeshStandardMaterial color={neonColor}
+                                    emissive={neonColor}
+                                    emissiveIntensity={neonIntensity}
+                                    roughness={0.4} metalness={0.0}
+                                    toneMapped={false} />
+          </T.Mesh>
+        {/if}
       {:else}
         {#each EXAMPLE_INSTANCES as p, i (i)}
           <T.Mesh position={[p.gx, p.gy, tilePosZ]}
@@ -377,6 +439,17 @@
                                     roughness={0.65} metalness={0.02}
                                     envMapIntensity={0.40} />
           </T.Mesh>
+          {#if neonGeometries[p.type]}
+            <T.Mesh position={[p.gx, p.gy, neonPosZ]}
+                    rotation={[0, 0, p.rotZ]}
+                    geometry={neonGeometries[p.type]}>
+              <T.MeshStandardMaterial color={neonColor}
+                                      emissive={neonColor}
+                                      emissiveIntensity={neonIntensity}
+                                      roughness={0.4} metalness={0.0}
+                                      toneMapped={false} />
+            </T.Mesh>
+          {/if}
         {/each}
       {/if}
     </Canvas>
@@ -431,6 +504,17 @@
           <input type="range" min="0" max="10" step="0.5"
                  bind:value={railBevel} />
           <span class="val">{railBevel.toFixed(1)}</span>
+        </label>
+        <label class="slider">
+          <span class="lbl">neon intensité</span>
+          <input type="range" min="0" max="10" step="0.5"
+                 bind:value={neonIntensity} />
+          <span class="val">{neonIntensity.toFixed(1)}</span>
+        </label>
+        <label class="color-pick">
+          <span class="lbl">neon couleur</span>
+          <input type="color" bind:value={neonColor} />
+          <span class="val">{neonColor}</span>
         </label>
         <label class="toggle">
           <input type="checkbox" bind:checked={useBridge} />
@@ -596,6 +680,25 @@
   .slider .val {
     text-align: right; font-weight: 700;
     color: #3a2f24; font-variant-numeric: tabular-nums;
+  }
+  .color-pick {
+    display: grid;
+    grid-template-columns: 110px 1fr 80px;
+    align-items: center; gap: 10px;
+    font-size: 10px; color: #4b4032;
+    letter-spacing: 0.5px;
+  }
+  .color-pick .lbl { text-align: right; }
+  .color-pick input[type="color"] {
+    width: 100%; height: 28px;
+    border: 1px solid rgba(0,0,0,0.15);
+    border-radius: 4px;
+    padding: 0; cursor: pointer;
+    background: transparent;
+  }
+  .color-pick .val {
+    text-align: right; font-family: monospace; font-size: 9px;
+    color: #3a2f24;
   }
   .toggle {
     display: flex; align-items: center; gap: 8px;
