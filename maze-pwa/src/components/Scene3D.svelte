@@ -455,6 +455,10 @@
   // paraissent plus forts que bleu/cyan. On scale l'emissiveIntensity et
   // les lights par color pour égaliser la perception entre thèmes.
   $: neonFactor = getPerceptualIntensityFactor(neonColor);
+  // Lot 9.10 — scale unique pour la position des dir lights, calquée
+  // sur LIGHT_POS_SCALE de la gallery (300) ramené à la dim max du
+  // maze. Aspect ratios par axe appliqués directement dans le JSX.
+  $: lightScale = G ? Math.max(G.W, G.H) : 400;
 
   // Animation de chute (port du sc2 de render.js:422) : pendant la phase
   // 'falling' (bille dans un trou ou aspirée par le finish), la bille
@@ -690,21 +694,22 @@
     <T.HemisphereLight skyColor={DEFAULT_HEMI_SKY_COLOR}
                        groundColor={DEFAULT_HEMI_GROUND_COLOR}
                        intensity={DEFAULT_HEMI_INTENSITY} />
-    <!-- Lot 7.3.b / 9 : key light. Position normalisée -1..1 dans le
-         lighting-config, scalée ici par G.W (X), G.H (Y) et un facteur
-         Z grand (cellSize × 14) pour atteindre l'échelle scène. -->
+    <!-- Lot 9.10 — key/rim positions calquées sur les ratios gallery
+         (key : 1, 1, 4.67 — rim : 1, 2.33, 0.83), scalées par
+         max(G.W, G.H) pour rester maze-proportionnelles. Auparavant la
+         scale (G.W, G.H, cellSize × 14) donnait une direction très
+         différente de la gallery → la calibration "exemple" ne
+         transposait pas (lights trop rasantes, maze qui flottait). -->
     <T.DirectionalLight bind:ref={lightRef}
-                        position={[G ? G.W * DEFAULT_KEY_POS_X : -30,
-                                   G ? G.H * DEFAULT_KEY_POS_Y : 30,
-                                   (G ? Math.min(G.cw, G.ch) : 80) * 14 * DEFAULT_KEY_POS_Z]}
+                        position={[lightScale * DEFAULT_KEY_POS_X,
+                                   lightScale * DEFAULT_KEY_POS_Y,
+                                   lightScale * DEFAULT_KEY_POS_Z * 4.67]}
                         intensity={DEFAULT_KEY_INTENSITY}
                         color={DEFAULT_KEY_COLOR}
                         castShadow />
-    <!-- Lot 7.1.e / 9 : rim light. Scalée par G.W/G.H/cellSize × 2.5
-         comme la key, mais en mode rasant (Y dominant). -->
-    <T.DirectionalLight position={[G ? G.W * DEFAULT_RIM_POS_X : 0,
-                                   G ? G.H * DEFAULT_RIM_POS_Y : 400,
-                                   (G ? Math.min(G.cw, G.ch) : 80) * 2.5 * DEFAULT_RIM_POS_Z]}
+    <T.DirectionalLight position={[lightScale * DEFAULT_RIM_POS_X,
+                                   lightScale * DEFAULT_RIM_POS_Y * 2.33,
+                                   lightScale * DEFAULT_RIM_POS_Z * 0.83]}
                         intensity={DEFAULT_RIM_INTENSITY}
                         color={neonColor} />
 
