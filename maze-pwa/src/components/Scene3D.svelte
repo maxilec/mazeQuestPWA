@@ -23,7 +23,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Canvas, T }          from '@threlte/core';
   import { InstancedMesh, Instance } from '@threlte/extras';
-  import { CanvasTexture, SRGBColorSpace, LinearSRGBColorSpace, PCFSoftShadowMap, Shape, Path, ExtrudeGeometry, LinearFilter, MathUtils, Color, Float32BufferAttribute } from 'three';
+  import { CanvasTexture, SRGBColorSpace, LinearSRGBColorSpace, VSMShadowMap, Shape, Path, ExtrudeGeometry, LinearFilter, MathUtils, Color, Float32BufferAttribute } from 'three';
   import { getSvgSource, svgReady } from '../lib/render.js';
   import {
     expandBoundary, smoothShape,
@@ -656,7 +656,11 @@
   <!-- Lot 7.2.d : rendererParameters alpha:true + premultipliedAlpha:false
        pour vraie transparence canvas (approche Gemini). Combiné avec
        renderPass.clearAlpha=0 dans Postprocess.svelte. -->
-  <Canvas shadows={PCFSoftShadowMap}
+  <!-- Lot 9 — VSMShadowMap : seul algo dont shadow.radius produit
+       réellement un flou (PCF/PCFSoft ignorent radius, kernel hardcoded
+       dans le shader). Compromis : light leakage potentiel sur fines
+       géométries → on compense via shadow.bias / normalBias. -->
+  <Canvas shadows={VSMShadowMap}
           rendererParameters={{ alpha: true, premultipliedAlpha: false }}>
     <T.PerspectiveCamera bind:ref={cameraRef} makeDefault
                          position={[0, camY, camZ]}

@@ -36,6 +36,9 @@
   let composer    = null;
   let bloomPass   = null;
   let n8aoPass    = null;
+  let n8aoLoading = false;
+  let currentW    = 0;
+  let currentH    = 0;
   let envMap      = null;
   let sizeUnsub   = null;
 
@@ -106,40 +109,48 @@
     composer.addPass(new OutputPass());
     composer.setSize(w, h);
     composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-    // Lot 9 — N8AO dynamique : import différé pour ne pas casser le
-    // composer si n8ao a un souci de chargement (peer deps fragiles,
-    // WebGL2 unsupported, etc.). On insère le pass AVANT Bloom +
-    // OutputPass quand il arrive (Bloom doit voir l'image AO-foncée).
-    if (aoIntensity > 0) {
-      import('n8ao')
-        .then(({ N8AOPostPass }) => {
-          if (!composer) return; // unmounted entretemps
-          try {
-            n8aoPass = new N8AOPostPass(scene, camera.current, w, h);
-            n8aoPass.configuration.aoRadius        = aoRadius;
-            n8aoPass.configuration.distanceFalloff = aoDistanceFalloff;
-            n8aoPass.configuration.intensity       = aoIntensity;
-            // Insère AVANT bloom (passes[1])
-            composer.insertPass(n8aoPass, 1);
-          } catch (err) {
-            // eslint-disable-next-line no-console
-            console.error('[Postprocess] N8AO init failed:', err);
-          }
-        })
-        .catch((err) => {
-          // eslint-disable-next-line no-console
-          console.error('[Postprocess] n8ao module load failed:', err);
-        });
-    }
+    currentW = w;
+    currentH = h;
 
     // Resize : subscribe persistent au size store
     sizeUnsub = size.subscribe(s => {
       if (composer && s?.width && s?.height) {
         composer.setSize(s.width, s.height);
+        currentW = s.width;
+        currentH = s.height;
+        if (n8aoPass?.setSize) n8aoPass.setSize(s.width, s.height);
       }
     });
   });
+
+  // Lot 9 — N8AO lazy reactive : on crée le pass à la demande quand
+  // aoIntensity passe de 0 à >0 (slider gallery). Le default est 0 pour
+  // éviter le crash mobile au mount. Import dynamique pour isoler les
+  // erreurs de module (peer deps fragiles).
+  $: if (composer && !n8aoPass && !n8aoLoading && aoIntensity > 0) {
+    n8aoLoading = true;
+    import('n8ao')
+      .then(({ N8AOPostPass }) => {
+        if (!composer || n8aoPass) { n8aoLoading = false; return; }
+        try {
+          n8aoPass = new N8AOPostPass(scene, camera.current, currentW, currentH);
+          n8aoPass.configuration.aoRadius        = aoRadius;
+          n8aoPass.configuration.distanceFalloff = aoDistanceFalloff;
+          n8aoPass.configuration.intensity       = aoIntensity;
+          // Insère AVANT bloom (passes[1])
+          composer.insertPass(n8aoPass, 1);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('[Postprocess] N8AO init failed:', err);
+        }
+        n8aoLoading = false;
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[Postprocess] n8ao module load failed:', err);
+        n8aoLoading = false;
+      });
+  }
 
   // Update bloom params reactively (after onMount, bloomPass exists)
   $: if (bloomPass) {
@@ -148,10 +159,7 @@
     bloomPass.threshold = bloomThreshold;
   }
 
-  // Update N8AO params reactively. Note : si le pass n'a pas été créé
-  // (aoIntensity=0 au mount), on ne peut pas l'activer après-coup sans
-  // rebuild du composer. Pour une activation runtime, faire un reset
-  // de la gallery (ce qui re-mount Postprocess).
+  // Update N8AO params reactively (le pass est créé lazy ci-dessus).
   $: if (n8aoPass) {
     n8aoPass.configuration.aoRadius        = aoRadius;
     n8aoPass.configuration.distanceFalloff = aoDistanceFalloff;

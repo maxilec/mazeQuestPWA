@@ -12,7 +12,7 @@
   import { onDestroy } from 'svelte';
   import { Canvas, T } from '@threlte/core';
   import { OrbitControls } from '@threlte/extras';
-  import { ExtrudeGeometry, PCFSoftShadowMap } from 'three';
+  import { ExtrudeGeometry, VSMShadowMap } from 'three';
   import { screen } from '../stores.js';
   import Postprocess from './Postprocess.svelte';
   import {
@@ -415,7 +415,7 @@
   {/if}
 
   <div class="canvas-wrap">
-    <Canvas shadows={PCFSoftShadowMap}
+    <Canvas shadows={VSMShadowMap}
             rendererParameters={{ alpha: true, premultipliedAlpha: false }}>
       <!-- near/far : en mode unitaire OrbitControls laisse la caméra
            zoomer de 0.2× à 2.0× cameraDist du target. Le near tight
