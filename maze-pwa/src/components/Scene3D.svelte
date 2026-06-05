@@ -46,7 +46,6 @@
     DEFAULT_RIM_POS_X, DEFAULT_RIM_POS_Y, DEFAULT_RIM_POS_Z,
     DEFAULT_SHADOW_BIAS, DEFAULT_SHADOW_NORMAL_BIAS,
     DEFAULT_SHADOW_RADIUS, DEFAULT_SHADOW_MAP_SIZE,
-    DEFAULT_AO_RADIUS, DEFAULT_AO_DISTANCE_FALLOFF, DEFAULT_AO_INTENSITY,
     DEFAULT_BLOOM_STRENGTH, DEFAULT_BLOOM_RADIUS, DEFAULT_BLOOM_THRESHOLD,
   } from '../lib/lighting-config.js';
   import Postprocess            from './Postprocess.svelte';
@@ -673,10 +672,7 @@
          maintenant l'illumination globale. -->
     <Postprocess bloomStrength={DEFAULT_BLOOM_STRENGTH}
                  bloomRadius={DEFAULT_BLOOM_RADIUS}
-                 bloomThreshold={DEFAULT_BLOOM_THRESHOLD}
-                 aoRadius={DEFAULT_AO_RADIUS}
-                 aoDistanceFalloff={DEFAULT_AO_DISTANCE_FALLOFF}
-                 aoIntensity={DEFAULT_AO_INTENSITY} />
+                 bloomThreshold={DEFAULT_BLOOM_THRESHOLD} />
 
     <!-- Lighting (Lot 6.19) — setup "Soft Clay" per Gemini :
          - Ambient 0.80 (blanc très légèrement chaud), pas d'ombres noires

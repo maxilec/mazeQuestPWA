@@ -38,15 +38,6 @@ export const DEFAULT_SHADOW_NORMAL_BIAS  = 0.02;
 export const DEFAULT_SHADOW_RADIUS       = 12;
 export const DEFAULT_SHADOW_MAP_SIZE     = 2048;
 
-// ── N8AO (post-process Ambient Occlusion temps réel) ──────────────
-// IMPORTANT : défaut intensity=0 = pass NON créé → pas de risque de
-// crash sur iOS Safari (N8AO requiert WebGL2 + dépendance fragile à
-// postprocessing/three versions). À monter via le slider de la gallery
-// pour tester. Si stable, on pourra le passer à 3.0 ici.
-export const DEFAULT_AO_RADIUS            = 2.0;
-export const DEFAULT_AO_DISTANCE_FALLOFF  = 1.0;
-export const DEFAULT_AO_INTENSITY         = 0.0;
-
 // ── Bloom (UnrealBloomPass) ───────────────────────────────────────
 // Valeurs initiales = celles tune in-game (subtle, ne fait briller que
 // les emissive > 0.85). À monter si on veut un glow plus prononcé sur

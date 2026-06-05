@@ -4,6 +4,8 @@
   // (la RoomEnvironment grise rendait le métal de la bille trop sombre
   // sur les côtés). Maintenant le ball metalness=1.0 reflète des tons
   // crème/chauds → ne paraît plus "collé" sur le plateau.
+  // Lot 9.6 — N8AO retiré : trop instable (crash WebGL2 iOS, pipeline
+  // postprocessing fragile). On reste sur Bloom + env map + shadows VSM.
   //
   // Composant inline DANS le <Canvas> Threlte pour avoir accès au
   // renderer/scene/camera via useThrelte().
@@ -17,28 +19,16 @@
   import { RenderPass }          from 'three/examples/jsm/postprocessing/RenderPass.js';
   import { UnrealBloomPass }     from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
   import { OutputPass }          from 'three/examples/jsm/postprocessing/OutputPass.js';
-  // n8ao : import dynamique différé pour ne pas crasher Postprocess si
-  // le module n8ao a un souci de chargement (peer dep three / WebGL2
-  // unsupported). Loaded only when aoIntensity > 0 au mount.
 
   export let bloomStrength  = 0.9;     // intensité du glow
   export let bloomRadius    = 0.5;     // étalement du halo
   export let bloomThreshold = 0.15;    // seuil luminance (emissive captured)
-  // Lot 9 — Ambient Occlusion temps réel (N8AO). aoIntensity=0 désactive
-  // le pass complètement (perf mobile fallback).
-  export let aoRadius           = 2.0;
-  export let aoDistanceFalloff  = 1.0;
-  export let aoIntensity        = 3.0;
 
   const ctx = useThrelte();
   const { size, scene, camera, renderer } = ctx;
 
   let composer    = null;
   let bloomPass   = null;
-  let n8aoPass    = null;
-  let n8aoLoading = false;
-  let currentW    = 0;
-  let currentH    = 0;
   let envMap      = null;
   let sizeUnsub   = null;
 
@@ -89,7 +79,6 @@
     pmrem.dispose();
 
     // 2. EffectComposer pipeline : Render → Bloom → Output
-    // Lire size initiale via subscribe une-shot
     let w = window.innerWidth, h = window.innerHeight;
     const oneShot = size.subscribe(s => {
       if (s?.width)  w = s.width;
@@ -109,75 +98,13 @@
     composer.addPass(new OutputPass());
     composer.setSize(w, h);
     composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    currentW = w;
-    currentH = h;
 
-    // Resize : subscribe persistent au size store
     sizeUnsub = size.subscribe(s => {
       if (composer && s?.width && s?.height) {
         composer.setSize(s.width, s.height);
-        currentW = s.width;
-        currentH = s.height;
-        if (n8aoPass?.setSize) n8aoPass.setSize(s.width, s.height);
       }
     });
   });
-
-  // Lot 9 — N8AO lazy reactive : on crée le pass à la demande quand
-  // aoIntensity passe de 0 à >0 (slider gallery). Le default est 0 pour
-  // éviter le crash mobile au mount. Import dynamique pour isoler les
-  // erreurs de module (peer deps fragiles).
-  // Lot 9.5 — Auto-disable si crash : si composer.render throw après
-  // insertion N8AO, on retire le pass et on bloque toute re-création
-  // (n8aoBroken=true) pour éviter le ping-pong infini insert/crash.
-  let n8aoBroken = false;
-  function removeN8aoPass() {
-    if (!n8aoPass || !composer) return;
-    const idx = composer.passes.indexOf(n8aoPass);
-    if (idx >= 0) composer.passes.splice(idx, 1);
-    n8aoPass.dispose?.();
-    n8aoPass = null;
-  }
-  $: if (composer && !n8aoPass && !n8aoLoading && !n8aoBroken && aoIntensity > 0) {
-    n8aoLoading = true;
-    import('n8ao')
-      .then(({ N8AOPostPass }) => {
-        if (!composer || n8aoPass || n8aoBroken) { n8aoLoading = false; return; }
-        try {
-          const pass = new N8AOPostPass(scene, camera.current, currentW, currentH);
-          pass.configuration.aoRadius        = aoRadius;
-          pass.configuration.distanceFalloff = aoDistanceFalloff;
-          pass.configuration.intensity       = aoIntensity;
-          // Insère AVANT bloom (passes[1])
-          composer.insertPass(pass, 1);
-          // Smoke test : render une frame pour vérifier que le pipeline
-          // tient avec N8AO. Si ça throw → on retire et on marque broken
-          // pour éviter de re-tenter à chaque mouvement de slider.
-          try {
-            composer.render(0.016);
-            n8aoPass = pass;   // OK, on garde
-          } catch (renderErr) {
-            const i = composer.passes.indexOf(pass);
-            if (i >= 0) composer.passes.splice(i, 1);
-            pass.dispose?.();
-            n8aoBroken = true;
-            // eslint-disable-next-line no-console
-            console.error('[Postprocess] N8AO render smoke test failed → disabled:', renderErr);
-          }
-        } catch (err) {
-          n8aoBroken = true;
-          // eslint-disable-next-line no-console
-          console.error('[Postprocess] N8AO init failed:', err);
-        }
-        n8aoLoading = false;
-      })
-      .catch((err) => {
-        n8aoBroken = true;
-        // eslint-disable-next-line no-console
-        console.error('[Postprocess] n8ao module load failed:', err);
-        n8aoLoading = false;
-      });
-  }
 
   // Update bloom params reactively (after onMount, bloomPass exists)
   $: if (bloomPass) {
@@ -186,20 +113,9 @@
     bloomPass.threshold = bloomThreshold;
   }
 
-  // Update N8AO params reactively (le pass est créé lazy ci-dessus).
-  $: if (n8aoPass) {
-    n8aoPass.configuration.aoRadius        = aoRadius;
-    n8aoPass.configuration.distanceFalloff = aoDistanceFalloff;
-    n8aoPass.configuration.intensity       = aoIntensity;
-  }
-
   // Render via composer — useRender remplace automatiquement le default
   // renderer.render(scene, camera). Threlte détecte useRender instances
   // et skip son autoRenderTask.
-  // Lot 9.5 — si composer.render throw, on suspecte d'abord N8AO : on
-  // retire le pass et on retry composer.render. Si ça crash encore, on
-  // fallback sur renderer.render direct (avec autoClear remis et
-  // renderTarget=null pour réparer l'état GL corrompu par le pass).
   let composerErrorLogged = false;
   useRender((_, delta) => {
     if (!composer) {
@@ -209,30 +125,11 @@
     try {
       composer.render(delta);
     } catch (err) {
-      // 1ère tentative de remediation : N8AO suspect → retire-le.
-      if (n8aoPass) {
-        removeN8aoPass();
-        n8aoBroken = true;
-        if (!composerErrorLogged) {
-          // eslint-disable-next-line no-console
-          console.error('[Postprocess] composer.render crash → N8AO removed:', err);
-          composerErrorLogged = true;
-        }
-        try {
-          composer.render(delta);
-          return;
-        } catch (err2) {
-          // composer encore cassé après retrait N8AO → fallback direct.
-          err = err2;
-        }
-      }
       if (!composerErrorLogged) {
         // eslint-disable-next-line no-console
         console.error('[Postprocess] composer.render crash → fallback direct:', err);
         composerErrorLogged = true;
       }
-      // Répare l'état GL avant fallback (N8AO laisse souvent un
-      // renderTarget actif et autoClear=false).
       renderer.setRenderTarget(null);
       renderer.autoClear = true;
       renderer.render(scene, camera.current);
