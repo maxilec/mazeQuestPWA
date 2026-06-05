@@ -11,18 +11,19 @@ export const DEFAULT_HEMI_SKY_COLOR    = '#93e3fd';
 export const DEFAULT_HEMI_GROUND_COLOR = '#ffc5ab';
 
 // ── Key directional ───────────────────────────────────────────────
-// Lot 9.7 — couleur dérivée du néon (G.theme.neon en jeu, slider neon
-// en gallery). Plus de DEFAULT_KEY_COLOR statique.
-// Position normalisée (-1..1). En jeu, multipliée par G.W, G.H et un
-// facteur z pour atteindre l'échelle scène. En gallery, multipliée
-// par un facteur d'échelle local (300 par défaut).
+// Lot 9.7 — couleur fixe (cyan froid). Position normalisée (-1..1).
+// En jeu, multipliée par G.W, G.H et un facteur z pour atteindre
+// l'échelle scène. En gallery, multipliée par un facteur d'échelle
+// local (300 par défaut).
 export const DEFAULT_KEY_INTENSITY = 1.8;
+export const DEFAULT_KEY_COLOR     = '#52d6fc';
 export const DEFAULT_KEY_POS_X     = -0.15;
 export const DEFAULT_KEY_POS_Y     =  0.10;
 export const DEFAULT_KEY_POS_Z     =  0.15;
 
 // ── Rim directional ───────────────────────────────────────────────
-// Lot 9.7 — couleur dérivée du néon, idem key.
+// Lot 9.7 — couleur dérivée du néon (G.theme.neon en jeu, slider neon
+// en gallery). Pas de DEFAULT_RIM_COLOR statique.
 export const DEFAULT_RIM_INTENSITY = 2.15;
 export const DEFAULT_RIM_POS_X     = -0.45;
 export const DEFAULT_RIM_POS_Y     =  1.60;

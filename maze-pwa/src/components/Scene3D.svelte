@@ -40,7 +40,7 @@
   import { buildClippedTileGeometry } from '../lib/tile-factory.js';
   import {
     DEFAULT_HEMI_INTENSITY, DEFAULT_HEMI_SKY_COLOR, DEFAULT_HEMI_GROUND_COLOR,
-    DEFAULT_KEY_INTENSITY,
+    DEFAULT_KEY_INTENSITY,  DEFAULT_KEY_COLOR,
     DEFAULT_KEY_POS_X, DEFAULT_KEY_POS_Y, DEFAULT_KEY_POS_Z,
     DEFAULT_RIM_INTENSITY,
     DEFAULT_RIM_POS_X, DEFAULT_RIM_POS_Y, DEFAULT_RIM_POS_Z,
@@ -698,7 +698,7 @@
                                    G ? G.H * DEFAULT_KEY_POS_Y : 30,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 14 * DEFAULT_KEY_POS_Z]}
                         intensity={DEFAULT_KEY_INTENSITY}
-                        color={neonColor}
+                        color={DEFAULT_KEY_COLOR}
                         castShadow />
     <!-- Lot 7.1.e / 9 : rim light. Scalée par G.W/G.H/cellSize × 2.5
          comme la key, mais en mode rasant (Y dominant). -->

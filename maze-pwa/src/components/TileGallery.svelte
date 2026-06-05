@@ -28,7 +28,7 @@
   import { buildClippedTileGeometry } from '../lib/tile-factory.js';
   import {
     DEFAULT_HEMI_INTENSITY, DEFAULT_HEMI_SKY_COLOR, DEFAULT_HEMI_GROUND_COLOR,
-    DEFAULT_KEY_INTENSITY,
+    DEFAULT_KEY_INTENSITY,  DEFAULT_KEY_COLOR,
     DEFAULT_KEY_POS_X, DEFAULT_KEY_POS_Y, DEFAULT_KEY_POS_Z,
     DEFAULT_RIM_INTENSITY,
     DEFAULT_RIM_POS_X, DEFAULT_RIM_POS_Y, DEFAULT_RIM_POS_Z,
@@ -72,7 +72,7 @@
   // courantes des sliders et le copie dans le clipboard. L'user colle
   // dans le fichier pour figer les défauts.
   function copyLightingDefaults() {
-    const snippet = `// Snippet généré par le panneau lumière de TileGallery.\nexport const DEFAULT_HEMI_INTENSITY    = ${hemiIntensity};\nexport const DEFAULT_HEMI_SKY_COLOR    = '${hemiSkyColor}';\nexport const DEFAULT_HEMI_GROUND_COLOR = '${hemiGroundColor}';\nexport const DEFAULT_KEY_INTENSITY = ${keyIntensity};\nexport const DEFAULT_KEY_POS_X     = ${keyPosX};\nexport const DEFAULT_KEY_POS_Y     = ${keyPosY};\nexport const DEFAULT_KEY_POS_Z     = ${keyPosZ};\nexport const DEFAULT_RIM_INTENSITY = ${rimIntensity};\nexport const DEFAULT_RIM_POS_X     = ${rimPosX};\nexport const DEFAULT_RIM_POS_Y     = ${rimPosY};\nexport const DEFAULT_RIM_POS_Z     = ${rimPosZ};\nexport const DEFAULT_SHADOW_BIAS         = ${shadowBias};\nexport const DEFAULT_SHADOW_NORMAL_BIAS  = ${shadowNormalBias};\nexport const DEFAULT_SHADOW_RADIUS       = ${shadowRadius};\nexport const DEFAULT_BLOOM_STRENGTH  = ${bloomStrength};\nexport const DEFAULT_BLOOM_RADIUS    = ${bloomRadius};\nexport const DEFAULT_BLOOM_THRESHOLD = ${bloomThreshold};\n`;
+    const snippet = `// Snippet généré par le panneau lumière de TileGallery.\nexport const DEFAULT_HEMI_INTENSITY    = ${hemiIntensity};\nexport const DEFAULT_HEMI_SKY_COLOR    = '${hemiSkyColor}';\nexport const DEFAULT_HEMI_GROUND_COLOR = '${hemiGroundColor}';\nexport const DEFAULT_KEY_INTENSITY = ${keyIntensity};\nexport const DEFAULT_KEY_COLOR     = '${keyColor}';\nexport const DEFAULT_KEY_POS_X     = ${keyPosX};\nexport const DEFAULT_KEY_POS_Y     = ${keyPosY};\nexport const DEFAULT_KEY_POS_Z     = ${keyPosZ};\nexport const DEFAULT_RIM_INTENSITY = ${rimIntensity};\nexport const DEFAULT_RIM_POS_X     = ${rimPosX};\nexport const DEFAULT_RIM_POS_Y     = ${rimPosY};\nexport const DEFAULT_RIM_POS_Z     = ${rimPosZ};\nexport const DEFAULT_SHADOW_BIAS         = ${shadowBias};\nexport const DEFAULT_SHADOW_NORMAL_BIAS  = ${shadowNormalBias};\nexport const DEFAULT_SHADOW_RADIUS       = ${shadowRadius};\nexport const DEFAULT_BLOOM_STRENGTH  = ${bloomStrength};\nexport const DEFAULT_BLOOM_RADIUS    = ${bloomRadius};\nexport const DEFAULT_BLOOM_THRESHOLD = ${bloomThreshold};\n`;
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(snippet).then(
         () => pushDebug('info', 'lighting defaults copiés dans le clipboard'),
@@ -168,6 +168,7 @@
   let hemiSkyColor    = DEFAULT_HEMI_SKY_COLOR;
   let hemiGroundColor = DEFAULT_HEMI_GROUND_COLOR;
   let keyIntensity    = DEFAULT_KEY_INTENSITY;
+  let keyColor        = DEFAULT_KEY_COLOR;
   let keyPosX         = DEFAULT_KEY_POS_X;
   let keyPosY         = DEFAULT_KEY_POS_Y;
   let keyPosZ         = DEFAULT_KEY_POS_Z;
@@ -175,9 +176,9 @@
   let rimPosX         = DEFAULT_RIM_POS_X;
   let rimPosY         = DEFAULT_RIM_POS_Y;
   let rimPosZ         = DEFAULT_RIM_POS_Z;
-  // Lot 9.7 — key/rim color suivent neonColor. Facteur de compensation
-  // perceptuelle pour égaliser le ressenti du néon entre couleurs (bleu
-  // → boost, rouge → réduit légèrement).
+  // Lot 9.7 — rim color suit neonColor (pas de picker). Facteur de
+  // compensation perceptuelle pour égaliser le ressenti du néon entre
+  // couleurs (bleu → boost, rouge → réduit légèrement).
   $: neonFactor = getPerceptualIntensityFactor(neonColor);
   let shadowBias        = DEFAULT_SHADOW_BIAS;
   let shadowNormalBias  = DEFAULT_SHADOW_NORMAL_BIAS;
@@ -447,7 +448,7 @@
       <T.DirectionalLight bind:ref={lightRef}
                           position={keyLightPos}
                           intensity={keyIntensity}
-                          color={neonColor}
+                          color={keyColor}
                           castShadow />
       <T.DirectionalLight position={rimLightPos}
                           intensity={rimIntensity}
@@ -624,11 +625,16 @@
         <span class="val">{hemiGroundColor}</span>
       </label>
 
-      <div class="light-section">key directional <span class="hint">(color = néon)</span></div>
+      <div class="light-section">key directional</div>
       <label class="slider">
         <span class="lbl">intensité</span>
         <input type="range" min="0" max="3" step="0.05" bind:value={keyIntensity} />
         <span class="val">{keyIntensity.toFixed(2)}</span>
+      </label>
+      <label class="color-pick">
+        <span class="lbl">color</span>
+        <input type="color" bind:value={keyColor} />
+        <span class="val">{keyColor}</span>
       </label>
       <label class="slider">
         <span class="lbl">pos X</span>
