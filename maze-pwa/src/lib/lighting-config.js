@@ -28,8 +28,13 @@ export const DEFAULT_RIM_POS_Y     =  1.10;   // +Y (haut du plateau)
 export const DEFAULT_RIM_POS_Z     =  0.20;
 
 // ── Shadow setup ──────────────────────────────────────────────────
-export const DEFAULT_SHADOW_BIAS         = -0.001;
-export const DEFAULT_SHADOW_NORMAL_BIAS  = 2.0;
+// Lot 9.4 — normalBias drastiquement baissé (2.0 → 0.02). À 2.0 le
+// shader poussait l'occluder de 2 unités le long du normal, ce qui
+// révélait les arêtes des murs adjacents aux jonctions tuile/tuile
+// comme des bandes sombres. 0.02 reste suffisant pour éliminer le
+// shadow acne sur surfaces presque parallèles à la lumière.
+export const DEFAULT_SHADOW_BIAS         = -0.0001;
+export const DEFAULT_SHADOW_NORMAL_BIAS  = 0.02;
 export const DEFAULT_SHADOW_RADIUS       = 12;
 export const DEFAULT_SHADOW_MAP_SIZE     = 2048;
 
