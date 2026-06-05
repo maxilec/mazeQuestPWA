@@ -28,13 +28,14 @@
   import { buildClippedTileGeometry } from '../lib/tile-factory.js';
   import {
     DEFAULT_HEMI_INTENSITY, DEFAULT_HEMI_SKY_COLOR, DEFAULT_HEMI_GROUND_COLOR,
-    DEFAULT_KEY_INTENSITY,  DEFAULT_KEY_COLOR,
+    DEFAULT_KEY_INTENSITY,
     DEFAULT_KEY_POS_X, DEFAULT_KEY_POS_Y, DEFAULT_KEY_POS_Z,
-    DEFAULT_RIM_INTENSITY,  DEFAULT_RIM_COLOR,
+    DEFAULT_RIM_INTENSITY,
     DEFAULT_RIM_POS_X, DEFAULT_RIM_POS_Y, DEFAULT_RIM_POS_Z,
     DEFAULT_SHADOW_BIAS, DEFAULT_SHADOW_NORMAL_BIAS,
     DEFAULT_SHADOW_RADIUS, DEFAULT_SHADOW_MAP_SIZE,
     DEFAULT_BLOOM_STRENGTH, DEFAULT_BLOOM_RADIUS, DEFAULT_BLOOM_THRESHOLD,
+    getPerceptualIntensityFactor,
   } from '../lib/lighting-config.js';
   import { debugLog, clearDebug, pushDebug, formatArg } from '../lib/debug-log.js';
 
@@ -71,7 +72,7 @@
   // courantes des sliders et le copie dans le clipboard. L'user colle
   // dans le fichier pour figer les défauts.
   function copyLightingDefaults() {
-    const snippet = `// Snippet généré par le panneau lumière de TileGallery.\nexport const DEFAULT_HEMI_INTENSITY    = ${hemiIntensity};\nexport const DEFAULT_HEMI_SKY_COLOR    = '${hemiSkyColor}';\nexport const DEFAULT_HEMI_GROUND_COLOR = '${hemiGroundColor}';\nexport const DEFAULT_KEY_INTENSITY = ${keyIntensity};\nexport const DEFAULT_KEY_COLOR     = '${keyColor}';\nexport const DEFAULT_KEY_POS_X     = ${keyPosX};\nexport const DEFAULT_KEY_POS_Y     = ${keyPosY};\nexport const DEFAULT_KEY_POS_Z     = ${keyPosZ};\nexport const DEFAULT_RIM_INTENSITY = ${rimIntensity};\nexport const DEFAULT_RIM_COLOR     = '${rimColor}';\nexport const DEFAULT_RIM_POS_X     = ${rimPosX};\nexport const DEFAULT_RIM_POS_Y     = ${rimPosY};\nexport const DEFAULT_RIM_POS_Z     = ${rimPosZ};\nexport const DEFAULT_SHADOW_BIAS         = ${shadowBias};\nexport const DEFAULT_SHADOW_NORMAL_BIAS  = ${shadowNormalBias};\nexport const DEFAULT_SHADOW_RADIUS       = ${shadowRadius};\nexport const DEFAULT_BLOOM_STRENGTH  = ${bloomStrength};\nexport const DEFAULT_BLOOM_RADIUS    = ${bloomRadius};\nexport const DEFAULT_BLOOM_THRESHOLD = ${bloomThreshold};\n`;
+    const snippet = `// Snippet généré par le panneau lumière de TileGallery.\nexport const DEFAULT_HEMI_INTENSITY    = ${hemiIntensity};\nexport const DEFAULT_HEMI_SKY_COLOR    = '${hemiSkyColor}';\nexport const DEFAULT_HEMI_GROUND_COLOR = '${hemiGroundColor}';\nexport const DEFAULT_KEY_INTENSITY = ${keyIntensity};\nexport const DEFAULT_KEY_POS_X     = ${keyPosX};\nexport const DEFAULT_KEY_POS_Y     = ${keyPosY};\nexport const DEFAULT_KEY_POS_Z     = ${keyPosZ};\nexport const DEFAULT_RIM_INTENSITY = ${rimIntensity};\nexport const DEFAULT_RIM_POS_X     = ${rimPosX};\nexport const DEFAULT_RIM_POS_Y     = ${rimPosY};\nexport const DEFAULT_RIM_POS_Z     = ${rimPosZ};\nexport const DEFAULT_SHADOW_BIAS         = ${shadowBias};\nexport const DEFAULT_SHADOW_NORMAL_BIAS  = ${shadowNormalBias};\nexport const DEFAULT_SHADOW_RADIUS       = ${shadowRadius};\nexport const DEFAULT_BLOOM_STRENGTH  = ${bloomStrength};\nexport const DEFAULT_BLOOM_RADIUS    = ${bloomRadius};\nexport const DEFAULT_BLOOM_THRESHOLD = ${bloomThreshold};\n`;
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(snippet).then(
         () => pushDebug('info', 'lighting defaults copiés dans le clipboard'),
@@ -167,15 +168,17 @@
   let hemiSkyColor    = DEFAULT_HEMI_SKY_COLOR;
   let hemiGroundColor = DEFAULT_HEMI_GROUND_COLOR;
   let keyIntensity    = DEFAULT_KEY_INTENSITY;
-  let keyColor        = DEFAULT_KEY_COLOR;
   let keyPosX         = DEFAULT_KEY_POS_X;
   let keyPosY         = DEFAULT_KEY_POS_Y;
   let keyPosZ         = DEFAULT_KEY_POS_Z;
   let rimIntensity    = DEFAULT_RIM_INTENSITY;
-  let rimColor        = DEFAULT_RIM_COLOR;
   let rimPosX         = DEFAULT_RIM_POS_X;
   let rimPosY         = DEFAULT_RIM_POS_Y;
   let rimPosZ         = DEFAULT_RIM_POS_Z;
+  // Lot 9.7 — key/rim color suivent neonColor. Facteur de compensation
+  // perceptuelle pour égaliser le ressenti du néon entre couleurs (bleu
+  // → boost, rouge → réduit légèrement).
+  $: neonFactor = getPerceptualIntensityFactor(neonColor);
   let shadowBias        = DEFAULT_SHADOW_BIAS;
   let shadowNormalBias  = DEFAULT_SHADOW_NORMAL_BIAS;
   let shadowRadius      = DEFAULT_SHADOW_RADIUS;
@@ -444,11 +447,11 @@
       <T.DirectionalLight bind:ref={lightRef}
                           position={keyLightPos}
                           intensity={keyIntensity}
-                          color={keyColor}
+                          color={neonColor}
                           castShadow />
       <T.DirectionalLight position={rimLightPos}
                           intensity={rimIntensity}
-                          color={rimColor} />
+                          color={neonColor} />
 
       <!-- Sol cream creusé à -floorDepth (comme Scene3D) → fossés
            visibles entre les pistes en mode exemple, et points de
@@ -474,7 +477,7 @@
                     geometry={neonGeometries[p.type]}>
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
-                                      emissiveIntensity={neonIntensity}
+                                      emissiveIntensity={neonIntensity * neonFactor}
                                       roughness={0.4} metalness={0.0}
                                       toneMapped={false} />
             </T.Mesh>
@@ -493,7 +496,7 @@
                   geometry={neonGeometries[unitType]}>
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
-                                    emissiveIntensity={neonIntensity}
+                                    emissiveIntensity={neonIntensity * neonFactor}
                                     roughness={0.4} metalness={0.0}
                                     toneMapped={false} />
           </T.Mesh>
@@ -514,7 +517,7 @@
                     geometry={neonGeometries[p.type]}>
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
-                                      emissiveIntensity={neonIntensity}
+                                      emissiveIntensity={neonIntensity * neonFactor}
                                       roughness={0.4} metalness={0.0}
                                       toneMapped={false} />
             </T.Mesh>
@@ -621,16 +624,11 @@
         <span class="val">{hemiGroundColor}</span>
       </label>
 
-      <div class="light-section">key directional</div>
+      <div class="light-section">key directional <span class="hint">(color = néon)</span></div>
       <label class="slider">
         <span class="lbl">intensité</span>
         <input type="range" min="0" max="3" step="0.05" bind:value={keyIntensity} />
         <span class="val">{keyIntensity.toFixed(2)}</span>
-      </label>
-      <label class="color-pick">
-        <span class="lbl">color</span>
-        <input type="color" bind:value={keyColor} />
-        <span class="val">{keyColor}</span>
       </label>
       <label class="slider">
         <span class="lbl">pos X</span>
@@ -648,16 +646,11 @@
         <span class="val">{keyPosZ.toFixed(2)}</span>
       </label>
 
-      <div class="light-section">rim directional</div>
+      <div class="light-section">rim directional <span class="hint">(color = néon)</span></div>
       <label class="slider">
         <span class="lbl">intensité</span>
         <input type="range" min="0" max="3" step="0.05" bind:value={rimIntensity} />
         <span class="val">{rimIntensity.toFixed(2)}</span>
-      </label>
-      <label class="color-pick">
-        <span class="lbl">color</span>
-        <input type="color" bind:value={rimColor} />
-        <span class="val">{rimColor}</span>
       </label>
       <label class="slider">
         <span class="lbl">pos X</span>
@@ -930,6 +923,12 @@
     color: #6b5634;
   }
   .light-section:first-child { margin-top: 0; }
+  .light-section .hint {
+    margin-left: 6px;
+    font-size: 9px; font-weight: 400;
+    letter-spacing: 0; text-transform: none;
+    color: #8b7556;
+  }
   .toggle {
     display: flex; align-items: center; gap: 8px;
     font-size: 10px; color: #4b4032;

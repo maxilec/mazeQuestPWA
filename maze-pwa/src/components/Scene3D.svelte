@@ -40,13 +40,14 @@
   import { buildClippedTileGeometry } from '../lib/tile-factory.js';
   import {
     DEFAULT_HEMI_INTENSITY, DEFAULT_HEMI_SKY_COLOR, DEFAULT_HEMI_GROUND_COLOR,
-    DEFAULT_KEY_INTENSITY,  DEFAULT_KEY_COLOR,
+    DEFAULT_KEY_INTENSITY,
     DEFAULT_KEY_POS_X, DEFAULT_KEY_POS_Y, DEFAULT_KEY_POS_Z,
-    DEFAULT_RIM_INTENSITY,  DEFAULT_RIM_COLOR,
+    DEFAULT_RIM_INTENSITY,
     DEFAULT_RIM_POS_X, DEFAULT_RIM_POS_Y, DEFAULT_RIM_POS_Z,
     DEFAULT_SHADOW_BIAS, DEFAULT_SHADOW_NORMAL_BIAS,
     DEFAULT_SHADOW_RADIUS, DEFAULT_SHADOW_MAP_SIZE,
     DEFAULT_BLOOM_STRENGTH, DEFAULT_BLOOM_RADIUS, DEFAULT_BLOOM_THRESHOLD,
+    getPerceptualIntensityFactor,
   } from '../lib/lighting-config.js';
   import Postprocess            from './Postprocess.svelte';
 
@@ -450,6 +451,10 @@
 
   // ── Couleur néon dynamique (theme.neon) pour cadre + accent ────────────
   $: neonColor = G?.theme?.neon ?? '#00c8ff';
+  // Compensation perceptuelle : à intensité numérique égale, rouge/magenta
+  // paraissent plus forts que bleu/cyan. On scale l'emissiveIntensity et
+  // les lights par color pour égaliser la perception entre thèmes.
+  $: neonFactor = getPerceptualIntensityFactor(neonColor);
 
   // Animation de chute (port du sc2 de render.js:422) : pendant la phase
   // 'falling' (bille dans un trou ou aspirée par le finish), la bille
@@ -693,7 +698,7 @@
                                    G ? G.H * DEFAULT_KEY_POS_Y : 30,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 14 * DEFAULT_KEY_POS_Z]}
                         intensity={DEFAULT_KEY_INTENSITY}
-                        color={DEFAULT_KEY_COLOR}
+                        color={neonColor}
                         castShadow />
     <!-- Lot 7.1.e / 9 : rim light. Scalée par G.W/G.H/cellSize × 2.5
          comme la key, mais en mode rasant (Y dominant). -->
@@ -701,7 +706,7 @@
                                    G ? G.H * DEFAULT_RIM_POS_Y : 400,
                                    (G ? Math.min(G.cw, G.ch) : 80) * 2.5 * DEFAULT_RIM_POS_Z]}
                         intensity={DEFAULT_RIM_INTENSITY}
-                        color={DEFAULT_RIM_COLOR} />
+                        color={neonColor} />
 
     <!-- Lot 7.2.e : BG plane 2D restauré après test transparence peu
          concluant. Approche éprouvée : floor + BG plane cream
@@ -781,7 +786,7 @@
               <InstancedMesh geometry={railNeonGeos[tileType]}>
                 <T.MeshStandardMaterial color={DEFAULT_NEON_COLOR}
                                         emissive={DEFAULT_NEON_COLOR}
-                                        emissiveIntensity={DEFAULT_NEON_INTENSITY}
+                                        emissiveIntensity={DEFAULT_NEON_INTENSITY * getPerceptualIntensityFactor(DEFAULT_NEON_COLOR)}
                                         roughness={0.4} metalness={0.0}
                                         toneMapped={false} />
                 {#each tileInstances[tileType] as inst, i (`neon-${tileType}-${i}`)}
@@ -858,7 +863,7 @@
               } />
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
-                                      emissiveIntensity={2.4}
+                                      emissiveIntensity={2.4 * neonFactor}
                                       toneMapped={false}
                                       transparent={true}
                                       opacity={0.95}
@@ -875,7 +880,7 @@
                 <T.SphereGeometry args={[neonStripeW * 0.6, 16, 8]} />
                 <T.MeshStandardMaterial color={neonColor}
                                         emissive={neonColor}
-                                        emissiveIntensity={1.5}
+                                        emissiveIntensity={1.5 * neonFactor}
                                         transparent={true}
                                         opacity={0.95}
                                         toneMapped={false}
@@ -940,7 +945,7 @@
           <T.Mesh geometry={frameGeometry} position={[0, 0, pathH + bevelThickness]}>
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
-                                    emissiveIntensity={2.0}
+                                    emissiveIntensity={2.0 * neonFactor}
                                     toneMapped={false} />
           </T.Mesh>
         {/if}
