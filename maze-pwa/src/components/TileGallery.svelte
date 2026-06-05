@@ -900,6 +900,14 @@
     display: flex; flex-direction: column; gap: 6px;
     padding: 8px 14px;
   }
+  /* Lot 9.2 — Le panneau lumière a beaucoup de sliders (~22) → on
+     cap la hauteur et active le scroll vertical. -webkit-overflow-
+     scrolling pour iOS Safari momentum. */
+  .params-body.light-body {
+    max-height: 45vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
   .slider {
     display: grid;
     grid-template-columns: 110px 1fr 44px;

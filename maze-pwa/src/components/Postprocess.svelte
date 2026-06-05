@@ -17,7 +17,9 @@
   import { RenderPass }          from 'three/examples/jsm/postprocessing/RenderPass.js';
   import { UnrealBloomPass }     from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
   import { OutputPass }          from 'three/examples/jsm/postprocessing/OutputPass.js';
-  import { N8AOPostPass }        from 'n8ao';
+  // n8ao : import dynamique différé pour ne pas crasher Postprocess si
+  // le module n8ao a un souci de chargement (peer dep three / WebGL2
+  // unsupported). Loaded only when aoIntensity > 0 au mount.
 
   export let bloomStrength  = 0.9;     // intensité du glow
   export let bloomRadius    = 0.5;     // étalement du halo
@@ -94,15 +96,6 @@
 
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera.current));
-    // Lot 9 — N8AO entre Render et Bloom : l'AO fonce les recoins
-    // AVANT que le bloom amplifie les emissive par-dessus.
-    if (aoIntensity > 0) {
-      n8aoPass = new N8AOPostPass(scene, camera.current, w, h);
-      n8aoPass.configuration.aoRadius         = aoRadius;
-      n8aoPass.configuration.distanceFalloff  = aoDistanceFalloff;
-      n8aoPass.configuration.intensity        = aoIntensity;
-      composer.addPass(n8aoPass);
-    }
     bloomPass = new UnrealBloomPass(
       new Vector2(w, h),
       bloomStrength,
@@ -113,6 +106,32 @@
     composer.addPass(new OutputPass());
     composer.setSize(w, h);
     composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    // Lot 9 — N8AO dynamique : import différé pour ne pas casser le
+    // composer si n8ao a un souci de chargement (peer deps fragiles,
+    // WebGL2 unsupported, etc.). On insère le pass AVANT Bloom +
+    // OutputPass quand il arrive (Bloom doit voir l'image AO-foncée).
+    if (aoIntensity > 0) {
+      import('n8ao')
+        .then(({ N8AOPostPass }) => {
+          if (!composer) return; // unmounted entretemps
+          try {
+            n8aoPass = new N8AOPostPass(scene, camera.current, w, h);
+            n8aoPass.configuration.aoRadius        = aoRadius;
+            n8aoPass.configuration.distanceFalloff = aoDistanceFalloff;
+            n8aoPass.configuration.intensity       = aoIntensity;
+            // Insère AVANT bloom (passes[1])
+            composer.insertPass(n8aoPass, 1);
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.error('[Postprocess] N8AO init failed:', err);
+          }
+        })
+        .catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error('[Postprocess] n8ao module load failed:', err);
+        });
+    }
 
     // Resize : subscribe persistent au size store
     sizeUnsub = size.subscribe(s => {
@@ -142,8 +161,24 @@
   // Render via composer — useRender remplace automatiquement le default
   // renderer.render(scene, camera). Threlte détecte useRender instances
   // et skip son autoRenderTask.
+  let composerErrorLogged = false;
   useRender((_, delta) => {
-    if (composer) composer.render(delta);
+    if (!composer) {
+      // Fallback : composer pas (encore) prêt → render direct (sinon
+      // Threlte skip son autoRenderTask et on a un canvas noir).
+      renderer.render(scene, camera.current);
+      return;
+    }
+    try {
+      composer.render(delta);
+    } catch (err) {
+      if (!composerErrorLogged) {
+        // eslint-disable-next-line no-console
+        console.error('[Postprocess] composer.render crash → fallback direct:', err);
+        composerErrorLogged = true;
+      }
+      renderer.render(scene, camera.current);
+    }
   });
 
   onDestroy(() => {
