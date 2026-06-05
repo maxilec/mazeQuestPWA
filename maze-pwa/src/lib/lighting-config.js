@@ -16,7 +16,7 @@ export const DEFAULT_HEMI_GROUND_COLOR = '#ffc5ab';
 // l'échelle scène. En gallery, multipliée par un facteur d'échelle
 // local (300 par défaut).
 export const DEFAULT_KEY_INTENSITY = 1.8;
-export const DEFAULT_KEY_COLOR     = '#52d6fc';
+export const DEFAULT_KEY_COLOR     = '#fff5e0';
 export const DEFAULT_KEY_POS_X     = -0.15;
 export const DEFAULT_KEY_POS_Y     =  0.10;
 export const DEFAULT_KEY_POS_Z     =  0.15;
