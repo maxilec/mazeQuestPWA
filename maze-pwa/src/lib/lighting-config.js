@@ -6,7 +6,7 @@
 // snippet à coller ici.
 
 // ── Hémisphère ────────────────────────────────────────────────────
-export const DEFAULT_HEMI_INTENSITY    = 0.8;
+export const DEFAULT_HEMI_INTENSITY    = 0.7;
 export const DEFAULT_HEMI_SKY_COLOR    = '#93e3fd';
 export const DEFAULT_HEMI_GROUND_COLOR = '#ffc5ab';
 
@@ -15,16 +15,16 @@ export const DEFAULT_HEMI_GROUND_COLOR = '#ffc5ab';
 // En jeu, multipliée par G.W, G.H et un facteur z pour atteindre
 // l'échelle scène. En gallery, multipliée par un facteur d'échelle
 // local (300 par défaut).
-export const DEFAULT_KEY_INTENSITY = 1.8;
+export const DEFAULT_KEY_INTENSITY = 2.15;
 export const DEFAULT_KEY_COLOR     = '#fff5e0';
 export const DEFAULT_KEY_POS_X     = -0.15;
 export const DEFAULT_KEY_POS_Y     =  0.10;
-export const DEFAULT_KEY_POS_Z     =  0.2;
+export const DEFAULT_KEY_POS_Z     =  0.3;
 
 // ── Rim directional ───────────────────────────────────────────────
 // Lot 9.7 — couleur dérivée du néon (G.theme.neon en jeu, slider neon
 // en gallery). Pas de DEFAULT_RIM_COLOR statique.
-export const DEFAULT_RIM_INTENSITY = 2.15;
+export const DEFAULT_RIM_INTENSITY = 1.05;
 export const DEFAULT_RIM_POS_X     = -0.45;
 export const DEFAULT_RIM_POS_Y     =  1.60;
 export const DEFAULT_RIM_POS_Z     =  0.00;
@@ -40,12 +40,12 @@ export const DEFAULT_SHADOW_MAP_SIZE     = 2048;
 // EffectComposer natif) — pas N8AOPostPass qui était pour la lib
 // postprocessing. Le pass est désormais instancié au mount et toggle
 // via .enabled, donc DEFAULT_AO_INTENSITY peut être > 0 sans risque.
-export const DEFAULT_AO_RADIUS            = 2.0;
-export const DEFAULT_AO_DISTANCE_FALLOFF  = 1.0;
+export const DEFAULT_AO_RADIUS            = 10;
+export const DEFAULT_AO_DISTANCE_FALLOFF  = 3;
 export const DEFAULT_AO_INTENSITY         = 0;
 
 // ── Bloom (UnrealBloomPass) ───────────────────────────────────────
-export const DEFAULT_BLOOM_STRENGTH  = 0.30;
+export const DEFAULT_BLOOM_STRENGTH  = 0.15;
 export const DEFAULT_BLOOM_RADIUS    = 0.05;
 export const DEFAULT_BLOOM_THRESHOLD = 0.95;
 
