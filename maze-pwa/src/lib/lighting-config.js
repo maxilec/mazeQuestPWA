@@ -6,7 +6,7 @@
 // snippet à coller ici.
 
 // ── Hémisphère ────────────────────────────────────────────────────
-export const DEFAULT_HEMI_INTENSITY    = 0.75;
+export const DEFAULT_HEMI_INTENSITY    = 0.8;
 export const DEFAULT_HEMI_SKY_COLOR    = '#93e3fd';
 export const DEFAULT_HEMI_GROUND_COLOR = '#ffc5ab';
 
@@ -19,7 +19,7 @@ export const DEFAULT_KEY_INTENSITY = 1.8;
 export const DEFAULT_KEY_COLOR     = '#fff5e0';
 export const DEFAULT_KEY_POS_X     = -0.15;
 export const DEFAULT_KEY_POS_Y     =  0.10;
-export const DEFAULT_KEY_POS_Z     =  0.15;
+export const DEFAULT_KEY_POS_Z     =  0.2;
 
 // ── Rim directional ───────────────────────────────────────────────
 // Lot 9.7 — couleur dérivée du néon (G.theme.neon en jeu, slider neon
@@ -42,12 +42,12 @@ export const DEFAULT_SHADOW_MAP_SIZE     = 2048;
 // via .enabled, donc DEFAULT_AO_INTENSITY peut être > 0 sans risque.
 export const DEFAULT_AO_RADIUS            = 2.0;
 export const DEFAULT_AO_DISTANCE_FALLOFF  = 1.0;
-export const DEFAULT_AO_INTENSITY         = 3.0;
+export const DEFAULT_AO_INTENSITY         = 0;
 
 // ── Bloom (UnrealBloomPass) ───────────────────────────────────────
 export const DEFAULT_BLOOM_STRENGTH  = 0.30;
 export const DEFAULT_BLOOM_RADIUS    = 0.05;
-export const DEFAULT_BLOOM_THRESHOLD = 1.00;
+export const DEFAULT_BLOOM_THRESHOLD = 0.95;
 
 // ── Compensation perceptuelle d'intensité néon ────────────────────
 // La luminance perçue d'un emissive dépend fortement de sa couleur
