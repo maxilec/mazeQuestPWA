@@ -1,11 +1,11 @@
 <script>
   // Lot 6.17 — Post-processing : Bloom + Environment map procédural.
-  // Lot 6.26 v2.7 — Env map remplacé par gradient warm cream custom
-  // (la RoomEnvironment grise rendait le métal de la bille trop sombre
-  // sur les côtés). Maintenant le ball metalness=1.0 reflète des tons
-  // crème/chauds → ne paraît plus "collé" sur le plateau.
-  // Lot 9.6 — N8AO retiré : trop instable (crash WebGL2 iOS, pipeline
-  // postprocessing fragile). On reste sur Bloom + env map + shadows VSM.
+  // Lot 9.11 — Ambient Occlusion temps réel (N8AO) réintroduite avec
+  // la BONNE classe : N8AOPass (compatible three's EffectComposer
+  // natif), pas N8AOPostPass (qui est pour la lib postprocessing de
+  // vanruesc). Le pass est instancié au mount et toggle via .enabled
+  // pour éviter toute manipulation runtime du pipeline (le Lot 9.5
+  // crashait à cause de l'add/remove dynamique).
   //
   // Composant inline DANS le <Canvas> Threlte pour avoir accès au
   // renderer/scene/camera via useThrelte().
@@ -19,36 +19,37 @@
   import { RenderPass }          from 'three/examples/jsm/postprocessing/RenderPass.js';
   import { UnrealBloomPass }     from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
   import { OutputPass }          from 'three/examples/jsm/postprocessing/OutputPass.js';
+  import { N8AOPass }            from 'n8ao';
 
   export let bloomStrength  = 0.9;     // intensité du glow
   export let bloomRadius    = 0.5;     // étalement du halo
   export let bloomThreshold = 0.15;    // seuil luminance (emissive captured)
+  export let aoRadius           = 2.0;
+  export let aoDistanceFalloff  = 1.0;
+  export let aoIntensity        = 3.0; // 0 = pass.enabled = false
 
   const ctx = useThrelte();
   const { size, scene, camera, renderer } = ctx;
 
   let composer    = null;
   let bloomPass   = null;
+  let n8aoPass    = null;
   let envMap      = null;
   let sizeUnsub   = null;
 
   // Construit une CanvasTexture equirectangulaire (2:1) avec gradient
-  // vertical : sky chaud → équateur crème → sol sombre/AO. Le sol très
-  // sombre simule l'ambient occlusion vue depuis la bille metalness=1.0
-  // (le bord visible de la bille — silhouette vue de la caméra du dessus
-  // — reflète le SUD du env map, donc en assombrissant cette zone on
-  // crée un dégradé sombre sur les bords de la bille → effet AO).
+  // vertical : sky chaud → équateur crème → sol sombre/AO.
   function createWarmEnvTexture() {
     const c = document.createElement('canvas');
     c.width = 512; c.height = 256;
     const cx = c.getContext('2d');
     const g = cx.createLinearGradient(0, 0, 0, 256);
-    g.addColorStop(0.00, '#fff5e0');  // north pole : sky warm white
-    g.addColorStop(0.30, '#f5e0c0');  // upper hemisphere
-    g.addColorStop(0.50, '#d4b58c');  // equator (refl. au-dessus du ball)
-    g.addColorStop(0.70, '#8a6242');  // lower hemisphere (refl. côtés)
-    g.addColorStop(0.85, '#4a2e1a');  // near south (refl. silhouette)
-    g.addColorStop(1.00, '#1a0c08');  // south pole : AO sombre (refl. bas)
+    g.addColorStop(0.00, '#fff5e0');
+    g.addColorStop(0.30, '#f5e0c0');
+    g.addColorStop(0.50, '#d4b58c');
+    g.addColorStop(0.70, '#8a6242');
+    g.addColorStop(0.85, '#4a2e1a');
+    g.addColorStop(1.00, '#1a0c08');
     cx.fillStyle = g; cx.fillRect(0, 0, 512, 256);
     const tex = new CanvasTexture(c);
     tex.mapping     = EquirectangularReflectionMapping;
@@ -61,12 +62,6 @@
   }
 
   onMount(() => {
-    // Lot 7.2.e : scene.background = Color cream restauré après test
-    // transparence concluant que l'EffectComposer/Bloom écrasait
-    // l'alpha malgré renderPass.clearAlpha=0. Triple safety net :
-    // - scene.background = Color #f1e9d9 (fond cream uniforme)
-    // - Floor mesh restauré côté Scene3D (color #f1e9d9)
-    // - BG plane 2D restauré côté Scene3D (color #f1e9d9)
     scene.background = new Color(0xf1e9d9);
 
     // 1. Env map procédural via PMREMGenerator + texture custom warm.
@@ -78,16 +73,26 @@
     warmTex.dispose();
     pmrem.dispose();
 
-    // 2. EffectComposer pipeline : Render → Bloom → Output
+    // 2. EffectComposer pipeline : Render → N8AO → Bloom → Output
     let w = window.innerWidth, h = window.innerHeight;
     const oneShot = size.subscribe(s => {
       if (s?.width)  w = s.width;
       if (s?.height) h = s.height;
     });
-    oneShot();   // unsub immédiatement (valeurs capturées)
+    oneShot();
 
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera.current));
+
+    // N8AO inséré dès le mount à sa position correcte (avant Bloom).
+    // Toggle via .enabled au lieu de manipuler composer.passes.
+    n8aoPass = new N8AOPass(scene, camera.current, w, h);
+    n8aoPass.configuration.aoRadius        = aoRadius;
+    n8aoPass.configuration.distanceFalloff = aoDistanceFalloff;
+    n8aoPass.configuration.intensity       = aoIntensity;
+    n8aoPass.enabled                       = aoIntensity > 0;
+    composer.addPass(n8aoPass);
+
     bloomPass = new UnrealBloomPass(
       new Vector2(w, h),
       bloomStrength,
@@ -96,12 +101,14 @@
     );
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
+
     composer.setSize(w, h);
     composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
     sizeUnsub = size.subscribe(s => {
       if (composer && s?.width && s?.height) {
         composer.setSize(s.width, s.height);
+        if (n8aoPass) n8aoPass.setSize(s.width, s.height);
       }
     });
   });
@@ -113,9 +120,21 @@
     bloomPass.threshold = bloomThreshold;
   }
 
-  // Render via composer — useRender remplace automatiquement le default
-  // renderer.render(scene, camera). Threlte détecte useRender instances
-  // et skip son autoRenderTask.
+  // Update N8AO params + enabled flag reactively. Slider à 0 → pass
+  // désactivé (économise les passes GPU). Le pass reste dans le
+  // composer, ré-activable instantanément.
+  $: if (n8aoPass) {
+    n8aoPass.enabled = aoIntensity > 0;
+    if (n8aoPass.enabled) {
+      n8aoPass.configuration.aoRadius        = aoRadius;
+      n8aoPass.configuration.distanceFalloff = aoDistanceFalloff;
+      n8aoPass.configuration.intensity       = aoIntensity;
+    }
+  }
+
+  // Render via composer. try/catch reste comme filet de sécurité
+  // (en cas de crash inattendu sur un device exotique, on retombe sur
+  // un render direct).
   let composerErrorLogged = false;
   useRender((_, delta) => {
     if (!composer) {

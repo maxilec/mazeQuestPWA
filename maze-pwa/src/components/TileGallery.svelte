@@ -34,6 +34,7 @@
     DEFAULT_RIM_POS_X, DEFAULT_RIM_POS_Y, DEFAULT_RIM_POS_Z,
     DEFAULT_SHADOW_BIAS, DEFAULT_SHADOW_NORMAL_BIAS,
     DEFAULT_SHADOW_RADIUS, DEFAULT_SHADOW_MAP_SIZE,
+    DEFAULT_AO_RADIUS, DEFAULT_AO_DISTANCE_FALLOFF, DEFAULT_AO_INTENSITY,
     DEFAULT_BLOOM_STRENGTH, DEFAULT_BLOOM_RADIUS, DEFAULT_BLOOM_THRESHOLD,
     getPerceptualIntensityFactor,
   } from '../lib/lighting-config.js';
@@ -72,7 +73,7 @@
   // courantes des sliders et le copie dans le clipboard. L'user colle
   // dans le fichier pour figer les défauts.
   function copyLightingDefaults() {
-    const snippet = `// Snippet généré par le panneau lumière de TileGallery.\nexport const DEFAULT_HEMI_INTENSITY    = ${hemiIntensity};\nexport const DEFAULT_HEMI_SKY_COLOR    = '${hemiSkyColor}';\nexport const DEFAULT_HEMI_GROUND_COLOR = '${hemiGroundColor}';\nexport const DEFAULT_KEY_INTENSITY = ${keyIntensity};\nexport const DEFAULT_KEY_COLOR     = '${keyColor}';\nexport const DEFAULT_KEY_POS_X     = ${keyPosX};\nexport const DEFAULT_KEY_POS_Y     = ${keyPosY};\nexport const DEFAULT_KEY_POS_Z     = ${keyPosZ};\nexport const DEFAULT_RIM_INTENSITY = ${rimIntensity};\nexport const DEFAULT_RIM_POS_X     = ${rimPosX};\nexport const DEFAULT_RIM_POS_Y     = ${rimPosY};\nexport const DEFAULT_RIM_POS_Z     = ${rimPosZ};\nexport const DEFAULT_SHADOW_BIAS         = ${shadowBias};\nexport const DEFAULT_SHADOW_NORMAL_BIAS  = ${shadowNormalBias};\nexport const DEFAULT_SHADOW_RADIUS       = ${shadowRadius};\nexport const DEFAULT_BLOOM_STRENGTH  = ${bloomStrength};\nexport const DEFAULT_BLOOM_RADIUS    = ${bloomRadius};\nexport const DEFAULT_BLOOM_THRESHOLD = ${bloomThreshold};\n`;
+    const snippet = `// Snippet généré par le panneau lumière de TileGallery.\nexport const DEFAULT_HEMI_INTENSITY    = ${hemiIntensity};\nexport const DEFAULT_HEMI_SKY_COLOR    = '${hemiSkyColor}';\nexport const DEFAULT_HEMI_GROUND_COLOR = '${hemiGroundColor}';\nexport const DEFAULT_KEY_INTENSITY = ${keyIntensity};\nexport const DEFAULT_KEY_COLOR     = '${keyColor}';\nexport const DEFAULT_KEY_POS_X     = ${keyPosX};\nexport const DEFAULT_KEY_POS_Y     = ${keyPosY};\nexport const DEFAULT_KEY_POS_Z     = ${keyPosZ};\nexport const DEFAULT_RIM_INTENSITY = ${rimIntensity};\nexport const DEFAULT_RIM_POS_X     = ${rimPosX};\nexport const DEFAULT_RIM_POS_Y     = ${rimPosY};\nexport const DEFAULT_RIM_POS_Z     = ${rimPosZ};\nexport const DEFAULT_SHADOW_BIAS         = ${shadowBias};\nexport const DEFAULT_SHADOW_NORMAL_BIAS  = ${shadowNormalBias};\nexport const DEFAULT_SHADOW_RADIUS       = ${shadowRadius};\nexport const DEFAULT_AO_RADIUS            = ${aoRadius};\nexport const DEFAULT_AO_DISTANCE_FALLOFF  = ${aoDistanceFalloff};\nexport const DEFAULT_AO_INTENSITY         = ${aoIntensity};\nexport const DEFAULT_BLOOM_STRENGTH  = ${bloomStrength};\nexport const DEFAULT_BLOOM_RADIUS    = ${bloomRadius};\nexport const DEFAULT_BLOOM_THRESHOLD = ${bloomThreshold};\n`;
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(snippet).then(
         () => pushDebug('info', 'lighting defaults copiés dans le clipboard'),
@@ -183,6 +184,9 @@
   let shadowBias        = DEFAULT_SHADOW_BIAS;
   let shadowNormalBias  = DEFAULT_SHADOW_NORMAL_BIAS;
   let shadowRadius      = DEFAULT_SHADOW_RADIUS;
+  let aoRadius          = DEFAULT_AO_RADIUS;
+  let aoDistanceFalloff = DEFAULT_AO_DISTANCE_FALLOFF;
+  let aoIntensity       = DEFAULT_AO_INTENSITY;
   let bloomStrength     = DEFAULT_BLOOM_STRENGTH;
   let bloomRadius       = DEFAULT_BLOOM_RADIUS;
   let bloomThreshold    = DEFAULT_BLOOM_THRESHOLD;
@@ -440,7 +444,10 @@
 
       <Postprocess bloomStrength={bloomStrength}
                    bloomRadius={bloomRadius}
-                   bloomThreshold={bloomThreshold} />
+                   bloomThreshold={bloomThreshold}
+                   aoRadius={aoRadius}
+                   aoDistanceFalloff={aoDistanceFalloff}
+                   aoIntensity={aoIntensity} />
 
       <T.HemisphereLight skyColor={hemiSkyColor}
                          groundColor={hemiGroundColor}
@@ -689,6 +696,23 @@
         <span class="lbl">radius</span>
         <input type="range" min="0" max="20" step="1" bind:value={shadowRadius} />
         <span class="val">{shadowRadius}</span>
+      </label>
+
+      <div class="light-section">N8AO (ambient occlusion)</div>
+      <label class="slider">
+        <span class="lbl">radius</span>
+        <input type="range" min="0" max="10" step="0.1" bind:value={aoRadius} />
+        <span class="val">{aoRadius.toFixed(1)}</span>
+      </label>
+      <label class="slider">
+        <span class="lbl">falloff</span>
+        <input type="range" min="0" max="3" step="0.1" bind:value={aoDistanceFalloff} />
+        <span class="val">{aoDistanceFalloff.toFixed(1)}</span>
+      </label>
+      <label class="slider">
+        <span class="lbl">intensité</span>
+        <input type="range" min="0" max="10" step="0.5" bind:value={aoIntensity} />
+        <span class="val">{aoIntensity.toFixed(1)}</span>
       </label>
 
       <div class="light-section">bloom</div>

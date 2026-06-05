@@ -35,6 +35,15 @@ export const DEFAULT_SHADOW_NORMAL_BIAS  = 1.5;
 export const DEFAULT_SHADOW_RADIUS       = 20;
 export const DEFAULT_SHADOW_MAP_SIZE     = 2048;
 
+// ── N8AO (post-process Ambient Occlusion temps réel) ──────────────
+// Lot 9.11 — Réintroduit avec la bonne classe N8AOPass (compatible
+// EffectComposer natif) — pas N8AOPostPass qui était pour la lib
+// postprocessing. Le pass est désormais instancié au mount et toggle
+// via .enabled, donc DEFAULT_AO_INTENSITY peut être > 0 sans risque.
+export const DEFAULT_AO_RADIUS            = 2.0;
+export const DEFAULT_AO_DISTANCE_FALLOFF  = 1.0;
+export const DEFAULT_AO_INTENSITY         = 3.0;
+
 // ── Bloom (UnrealBloomPass) ───────────────────────────────────────
 export const DEFAULT_BLOOM_STRENGTH  = 0.30;
 export const DEFAULT_BLOOM_RADIUS    = 0.05;
