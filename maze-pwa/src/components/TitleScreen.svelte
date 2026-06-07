@@ -17,9 +17,10 @@
 
   const modeColor = { survie: '#00c8ff', hardcore: '#ff5555', zen: '#bb44ff' };
 
+  // Lot 9.14 — Palette unifiée (mêmes 8 couleurs qu'in-game).
   const ZEN_COLORS = [
-    '#00c8ff', '#ff44cc', '#44ff99', '#ffaa00',
-    '#bb44ff', '#ff5555', '#44ffff', '#ffff55',
+    '#00d4ff', '#00d400', '#ffc800', '#ff3e00',
+    '#a70000', '#a700ff', '#0000ca', '#ffffff',
   ];
 
   function handleInteraction() {

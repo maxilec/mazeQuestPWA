@@ -7,7 +7,7 @@ import { TRACK_PALETTES } from './constants.js';
 export { TRACK_PALETTES as NEON_PALETTE };
 
 // Couleur d'accent (Zen color) par défaut si rien n'est défini.
-export const ZEN_FALLBACK = '#00c8ff';
+export const ZEN_FALLBACK = '#00d4ff';
 
 // Couleur néon principale pour un niveau et un mode donnés.
 // En mode Zen, on respecte la couleur choisie par l'utilisateur.

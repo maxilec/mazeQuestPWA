@@ -289,8 +289,6 @@
   let railNeonGeos   = null;   // Lot 8.11 v5 : neon mesh dans la rainure
   let aoTextures     = null;   // Lot 7.3 : AO map per tile type
   let tileInstances  = null;
-  let neonSegments   = [];
-  let neonNodes      = [];
   let frameGeometry  = null;   // Lot 6.31 : cadre néon rounded
   let muretGeometry  = null;   // Lot 7.1.d : muret extrudé sous le cadre
   let lastMazeLvl    = -1;
@@ -362,8 +360,6 @@
     }
 
     tileInstances = computeTileInstances(G);
-    neonSegments  = computeNeonSegments(G);
-    neonNodes     = computeNeonNodes(G);
 
     // Lot 6.31 : cadre néon avec coins arrondis — un seul ExtrudeGeometry
     // depuis un Shape rounded-rectangle avec un hole rounded-rectangle.
@@ -410,44 +406,6 @@
     applyVertexAO(muretGeometry, bevelThickness);
 
     lastMazeLvl   = G.lvl;
-  }
-
-  // Path neon segments (rainures) — réutilisation de l'ancienne logique pour
-  // poser les neon stripes au centre des couloirs. Build une fois par changement
-  // de niveau.
-  function computeNeonSegments(g) {
-    const out = [];
-    for (let r = 0; r < g.R; r++) {
-      for (let c = 0; c < g.C; c++) {
-        const ce = g.maze[r][c];
-        const cx = c * g.cw + g.cw / 2 - g.W / 2;
-        const cy = g.H / 2 - r * g.ch - g.ch / 2;
-        if (!ce.R && c < g.C - 1) {
-          out.push({ type: 'h', x: cx + g.cw / 2, y: cy, length: g.cw });
-        }
-        if (!ce.B && r < g.R - 1) {
-          out.push({ type: 'v', x: cx, y: cy - g.ch / 2, length: g.ch });
-        }
-      }
-    }
-    return out;
-  }
-
-  function computeNeonNodes(g) {
-    const out = [];
-    for (let r = 0; r < g.R; r++) {
-      for (let c = 0; c < g.C; c++) {
-        const ce = g.maze[r][c];
-        const openCount = (!ce.T?1:0) + (!ce.R?1:0) + (!ce.B?1:0) + (!ce.L?1:0);
-        if (openCount === 0) continue;
-        out.push({
-          x: c * g.cw + g.cw / 2 - g.W / 2,
-          y: g.H / 2 - r * g.ch - g.ch / 2,
-          isIntersection: openCount >= 3,
-        });
-      }
-    }
-    return out;
   }
 
   // ── Couleur néon dynamique (theme.neon) pour cadre + accent ────────────
@@ -579,59 +537,8 @@
     return tex;
   }
 
-  // ── Groove shadow gradient (Lot 6.26 v2) ──────────────────────────────
-  // alphaMap qui simule la lèvre haute d'une rainure 3D vue de dessus :
-  // sombre sur la bande centrale (fond du creux), fade vers transparent
-  // aux bords (haut des parois). Trois variantes : H/V pour segments
-  // linéaires, radiale pour intersections.
-  let grooveAlphaH = null;
-  let grooveAlphaV = null;
-  let grooveAlphaR = null;
-
-  function createGrooveLinearAlpha() {
-    const c = document.createElement('canvas');
-    c.width = 8; c.height = 64;
-    const ctx = c.getContext('2d');
-    const g = ctx.createLinearGradient(0, 0, 0, 64);
-    g.addColorStop(0.00, 'rgba(0,0,0,0)');
-    g.addColorStop(0.35, 'rgba(0,0,0,0.55)');
-    g.addColorStop(0.50, 'rgba(0,0,0,0.85)');
-    g.addColorStop(0.65, 'rgba(0,0,0,0.55)');
-    g.addColorStop(1.00, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, 8, 64);
-    const tex = new CanvasTexture(c);
-    tex.minFilter = LinearFilter;
-    tex.magFilter = LinearFilter;
-    tex.generateMipmaps = false;
-    tex.needsUpdate = true;
-    return tex;
-  }
-
-  function createGrooveRadialAlpha() {
-    const c = document.createElement('canvas');
-    c.width = c.height = 64;
-    const ctx = c.getContext('2d');
-    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    g.addColorStop(0.0,  'rgba(0,0,0,0.85)');
-    g.addColorStop(0.55, 'rgba(0,0,0,0.45)');
-    g.addColorStop(1.0,  'rgba(0,0,0,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
-    const tex = new CanvasTexture(c);
-    tex.minFilter = LinearFilter;
-    tex.magFilter = LinearFilter;
-    tex.generateMipmaps = false;
-    tex.needsUpdate = true;
-    return tex;
-  }
-
   onMount(() => {
     ballGlowTexture = createBallGlowTexture();
-    grooveAlphaH = createGrooveLinearAlpha();
-    grooveAlphaV = createGrooveLinearAlpha();
-    grooveAlphaV.center.set(0.5, 0.5);
-    grooveAlphaV.rotation = Math.PI / 2;
-    grooveAlphaV.needsUpdate = true;
-    grooveAlphaR = createGrooveRadialAlpha();
     ballContactShadowTex = createBallContactShadow();
     checkTextures();
     animRaf = requestAnimationFrame(animTick);
@@ -642,9 +549,6 @@
     if (animRaf)         cancelAnimationFrame(animRaf);
     if (plateauTexture)  plateauTexture.dispose();
     if (ballGlowTexture) ballGlowTexture.dispose();
-    grooveAlphaH?.dispose();
-    grooveAlphaV?.dispose();
-    grooveAlphaR?.dispose();
     ballContactShadowTex?.dispose();
     frameGeometry?.dispose();
     muretGeometry?.dispose();
@@ -793,9 +697,9 @@
                  luminance. -->
             {#if railNeonGeos && railNeonGeos[tileType]}
               <InstancedMesh geometry={railNeonGeos[tileType]}>
-                <T.MeshStandardMaterial color={DEFAULT_NEON_COLOR}
-                                        emissive={DEFAULT_NEON_COLOR}
-                                        emissiveIntensity={DEFAULT_NEON_INTENSITY * getPerceptualIntensityFactor(DEFAULT_NEON_COLOR)}
+                <T.MeshStandardMaterial color={neonColor}
+                                        emissive={neonColor}
+                                        emissiveIntensity={DEFAULT_NEON_INTENSITY * neonFactor}
                                         roughness={0.4} metalness={0.0}
                                         toneMapped={false} />
                 {#each tileInstances[tileType] as inst, i (`neon-${tileType}-${i}`)}
@@ -806,97 +710,11 @@
             {/if}
           {/each}
 
-          <!-- Shadow groove (Lot 6.26 v2) : alphaMap gradient (sombre au
-               centre, fade aux bords) qui simule la lèvre haute d'une
-               rainure 3D. MeshBasicMaterial = pas de réaction à la light
-               (creux reste sombre quel que soit le tilt). renderOrder=1
-               + depthWrite=false : invariants anti-flicker Lot 6.24. -->
-          {#if grooveAlphaH && grooveAlphaV}
-            {#each neonSegments as seg, i (`sh${i}`)}
-              <T.Mesh position={[seg.x, seg.y, pathTop - 0.05]} renderOrder={1}>
-                <T.PlaneGeometry args={
-                  seg.type === 'h'
-                    ? [seg.length, neonStripeW * 2.8]
-                    : [neonStripeW * 2.8, seg.length]
-                } />
-                <T.MeshBasicMaterial color="#1a0e08"
-                                     alphaMap={seg.type === 'h' ? grooveAlphaH : grooveAlphaV}
-                                     transparent={true}
-                                     opacity={0.55}
-                                     depthWrite={false} />
-              </T.Mesh>
-            {/each}
-          {/if}
-          {#if grooveAlphaR}
-            {#each neonNodes as node, i (`shn${i}`)}
-              {#if node.isIntersection}
-                <T.Mesh position={[node.x, node.y, pathTop - 0.05]} renderOrder={1}>
-                  <T.CircleGeometry args={[neonStripeW * 2.2, 24]} />
-                  <T.MeshBasicMaterial color="#1a0e08"
-                                       alphaMap={grooveAlphaR}
-                                       transparent={true}
-                                       opacity={0.55}
-                                       depthWrite={false} />
-                </T.Mesh>
-              {/if}
-            {/each}
-          {/if}
-
-          <!-- Rainure néon sur le dessus de la piste (Lot 6.21 : z = pathTop
-               pour être au-dessus du bevel + toneMapped=false pour bloom).
-               Dual-layer : white core + color halo pour match ref 2D. -->
-          {#each neonSegments as seg, i (`ns${i}`)}
-            <!-- White core (intense emissive) — Lot 6.24 : transparent=false
-                 (opacity 1.0 → opaque, écrit dans depth buffer) + renderOrder=2. -->
-            <T.Mesh position={[seg.x, seg.y, pathTop]} renderOrder={2}>
-              <T.PlaneGeometry args={
-                seg.type === 'h'
-                  ? [seg.length, neonStripeW * 0.32]
-                  : [neonStripeW * 0.32, seg.length]
-              } />
-              <T.MeshStandardMaterial color="#ffffff"
-                                      emissive="#ffffff"
-                                      emissiveIntensity={2.2}
-                                      toneMapped={false}
-                                      transparent={false} />
-            </T.Mesh>
-            <!-- Color halo (liseré bleu crisp) — Lot 6.24 : renderOrder=3 +
-                 depthWrite=false (fix flicker tilt). Lot 6.26 v2.2 : largeur
-                 resserrée + emissive haute + opacity haute → liseré net sans
-                 bloom diffus. -->
-            <T.Mesh position={[seg.x, seg.y, pathTop + 0.1]} renderOrder={3}>
-              <T.PlaneGeometry args={
-                seg.type === 'h'
-                  ? [seg.length, neonStripeW * 0.85]
-                  : [neonStripeW * 0.85, seg.length]
-              } />
-              <T.MeshStandardMaterial color={neonColor}
-                                      emissive={neonColor}
-                                      emissiveIntensity={2.4 * neonFactor}
-                                      toneMapped={false}
-                                      transparent={true}
-                                      opacity={0.95}
-                                      depthWrite={false} />
-            </T.Mesh>
-          {/each}
-
-          <!-- Dots aux INTERSECTIONS (>=3 sorties) — SphereGeometry pour
-               soft glow naturel (falloff sphérique). Lot 6.24 : renderOrder=4
-               + depthWrite=false (fix flicker tilt). -->
-          {#each neonNodes as node, i (`nb${i}`)}
-            {#if node.isIntersection}
-              <T.Mesh position={[node.x, node.y, pathTop + 0.3]} renderOrder={4}>
-                <T.SphereGeometry args={[neonStripeW * 0.6, 16, 8]} />
-                <T.MeshStandardMaterial color={neonColor}
-                                        emissive={neonColor}
-                                        emissiveIntensity={1.5 * neonFactor}
-                                        transparent={true}
-                                        opacity={0.95}
-                                        toneMapped={false}
-                                        depthWrite={false} />
-              </T.Mesh>
-            {/if}
-          {/each}
+          <!-- Lot 9.14 : Anciens overlays néon 2D (shadow groove,
+               white core, color halo, intersection dots) retirés.
+               Le rail néon est désormais produit par la factory CSG
+               (railNeonGeos ci-dessus) — même rendu qu'en gallery,
+               pas de double néon. -->
         {/if}
 
         <!-- Checkpoints (Lot 6.13) — thin luminous stripes (PlaneGeometry)
