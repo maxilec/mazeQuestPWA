@@ -428,15 +428,6 @@
     : 1;
   $: ballVisible = fallScale > 0.03;
 
-  // ── Plateau texture (Lot 3) ────────────────────────────────────────────
-  let plateauTexture = null;
-  $: if (G?.staticTexture && (plateauTexture?.image !== G.staticTexture)) {
-    if (plateauTexture) plateauTexture.dispose();
-    plateauTexture = new CanvasTexture(G.staticTexture);
-    plateauTexture.colorSpace = SRGBColorSpace;
-    plateauTexture.needsUpdate = true;
-  }
-
   // ── Sprite textures (Lot 4) ────────────────────────────────────────────
   // Les 4 SVGs sont rasterisés à la volée par render.js (svgCanvasCache).
   // On poll jusqu'à ce qu'ils soient prêts, puis on emballe en CanvasTexture.
@@ -547,7 +538,6 @@
   onDestroy(() => {
     if (textureCheckRaf) cancelAnimationFrame(textureCheckRaf);
     if (animRaf)         cancelAnimationFrame(animRaf);
-    if (plateauTexture)  plateauTexture.dispose();
     if (ballGlowTexture) ballGlowTexture.dispose();
     ballContactShadowTex?.dispose();
     frameGeometry?.dispose();
@@ -644,21 +634,15 @@
              Lot 7.1.e : étendu jusqu'au muret (+cellSize*2 en X/Y) pour
              éliminer le gap visible entre l'ancien edge du floor et
              le muret. Couleur FLOOR_COLOR (plus claire que PATH_COLOR). -->
-        <!-- Lot 7.2.e : floor restauré. Même couleur #f1e9d9 que la
-             piste (PATH_COLOR) et le BG plane → continuité parfaite. -->
+        <!-- Lot 9.15 : sol aligné sur la gallery — plain cream, plus
+             de plateauTexture (ancien canvas 2D rendu en theme.trackFloor
+             qui assombrissait l'arrière-plan in-game). Matériau identique
+             au gallery floor : roughness 0.8, envMapIntensity default. -->
         {#if G}
           <T.Mesh position={[0, 0, -floorDepth]} receiveShadow>
             <T.PlaneGeometry args={[G.W * 3, G.H * 3]} />
-            {#if plateauTexture}
-              <T.MeshStandardMaterial map={plateauTexture}
-                                      color={FLOOR_COLOR}
-                                      roughness={0.92} metalness={0.0}
-                                      envMapIntensity={0.15} />
-            {:else}
-              <T.MeshStandardMaterial color={FLOOR_COLOR}
-                                      roughness={0.92} metalness={0.0}
-                                      envMapIntensity={0.15} />
-            {/if}
+            <T.MeshStandardMaterial color={FLOOR_COLOR}
+                                    roughness={0.8} metalness={0.0} />
           </T.Mesh>
         {/if}
 

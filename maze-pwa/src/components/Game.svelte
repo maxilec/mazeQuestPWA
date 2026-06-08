@@ -4,7 +4,7 @@
   import { getTrackRatio, bfsPath,
            computeCheckpoints, computeCollectibles } from '../lib/maze-utils.js';
   import { stepPhysics, checkWallFall }           from '../lib/physics.js';
-  import { draw, renderStaticTexture, renderClearTexture } from '../lib/render.js';
+  import { draw, renderStaticTexture } from '../lib/render.js';
   import { getTheme, neonToRgba }                 from '../lib/theme.js';
   import { screen as appScreen, gameMode,
            runStats, settings, audioMgrStore }    from '../stores.js';
@@ -213,10 +213,9 @@
     // (surface + piste + néon) du plateau. Sera uploadé en CanvasTexture
     // par Scene3D et appliqué au plateau 3D. Texture invalidée à chaque
     // initLevel (palette néon, dimensions ou maze topology peuvent changer).
-    // Lot 6 : le rendu 3D utilise la texture « clear » (sol beige uniforme +
-    // ligne néon visible, sans le fake-bevel slate). Les murs sont des meshes
-    // 3D dans Scene3D — plus besoin du look concrete texturé.
-    if (is3D) G.staticTexture = renderClearTexture(G);
+    // Lot 9.15 — staticTexture pour le mode 3D retirée. Le sol Scene3D
+    // est désormais une couleur cream plain (#f1e9d9), pas une texture
+    // canvas qui assombrissait l'arrière-plan.
   }
 
   function handleOrientationChange() {

@@ -189,27 +189,6 @@ export function renderStaticTexture(g) {
   return off;
 }
 
-// Variant pour le rendu 3D « zen » (Lot 6) : sol beige uniforme + ligne
-// néon visible au centre des couloirs. Les murs sont désormais des meshes
-// 3D dans Scene3D — plus besoin de fake-bevel sur la track 2D.
-export function renderClearTexture(g) {
-  if (typeof document === 'undefined' || !g) return null;
-  const off = document.createElement('canvas');
-  off.width  = g.W;
-  off.height = g.H;
-  const ctx  = off.getContext('2d');
-  const t    = getTheme(g);
-
-  // Lot 6.9 : sol uniforme beige (theme.trackFloor) sans ligne néon
-  // peinte. La piste est désormais extrudée en 3D dans Scene3D, et la
-  // ligne néon est rendue comme des meshes émissifs sur le dessus de
-  // la piste. Le sol n'apparaît plus que dans les zones « void » entre
-  // segments de piste — uniforme beige neutre.
-  ctx.fillStyle = t.trackFloor || '#d6cebc';
-  ctx.fillRect(0, 0, g.W, g.H);
-  return off;
-}
-
 // Extrait des passes 5-7 de drawTrack : la ligne néon glacée seule (sans
 // drop shadow, lit edge, ni body beige — ces couches simulaient la
 // piste creusée, plus utiles ici puisque la piste est juste le sol plat
