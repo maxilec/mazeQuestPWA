@@ -326,6 +326,85 @@ export function buildFinishNeonRingGeometry({
 }
 
 /**
+ * Build la geometry complète du néon pour une tile finish :
+ *   (straight neon ∖ cylindre R_inner) ∪ ring néon.
+ *
+ * Le néon droit est clippé à l'intérieur du rayon R_inner (= bord
+ * interne du néon anneau) pour qu'il ne traverse plus le trou. Puis
+ * unioné avec l'anneau pour ne former qu'un seul mesh continu.
+ *
+ * @param {object} opts
+ * @param {(w, cw, ch, bs) => Shape} opts.buildShape - shape du path
+ * @param {number} opts.cw
+ * @param {number} opts.ch
+ * @param {number} opts.neonW
+ * @param {number} opts.railW
+ * @param {number} opts.railDepth
+ * @param {number} opts.holeRadius
+ * @param {number} opts.neonHeightMargin
+ * @returns {BufferGeometry}
+ */
+export function buildFinishNeonGeometry({
+  buildShape, cw, ch,
+  neonW, railW, railDepth, holeRadius, neonHeightMargin,
+}) {
+  const RIM_LEAK_MARGIN = 0.2;
+  const neonHeight = Math.max(0.01, railDepth - 2 * neonHeightMargin);
+  const center  = holeRadius + railW / 2;
+  // R_inner = bord interne du néon anneau (= bord externe du clip).
+  // À partir de ce rayon, le néon droit est supprimé et l'anneau le
+  // remplace : les deux meshes se touchent pile à R_inner.
+  const R_inner = Math.max(holeRadius + RIM_LEAK_MARGIN, center - neonW / 2);
+
+  // 1. Néon droit standard (clamp w ≤ railW pour ne pas dépasser le rail).
+  const w = Math.min(neonW, railW);
+  const straightShape = buildShape(w, cw, ch, 0);
+  const straightGeo = new ExtrudeGeometry(straightShape, {
+    depth: neonHeight,
+    bevelEnabled: false,
+    steps: 1,
+    curveSegments: 12,
+  });
+
+  // 2. Cylindre de clip (R_inner) — traverse en Z avec overshoot pour
+  //    éviter coplanarité avec les faces top/bottom du néon droit.
+  const clipGeo = new ExtrudeGeometry(circleShape(R_inner), {
+    depth: neonHeight + 2 * FINISH_EPS,
+    bevelEnabled: false,
+    steps: 1,
+    curveSegments: FINISH_CIRCLE_SEGMENTS,
+  });
+  clipGeo.translate(0, 0, -FINISH_EPS);
+
+  // 3. Anneau néon.
+  const ringGeo = buildFinishNeonRingGeometry({
+    holeRadius, railW, railDepth, neonW, neonHeightMargin,
+  });
+
+  // 4. SUBTRACT clip from straight, puis UNION avec ring.
+  try {
+    let resultBrush = new Brush(straightGeo); resultBrush.updateMatrixWorld();
+    const clipBrush = new Brush(clipGeo);     clipBrush.updateMatrixWorld();
+    const ringBrush = new Brush(ringGeo);     ringBrush.updateMatrixWorld();
+
+    resultBrush = evaluator.evaluate(resultBrush, clipBrush, SUBTRACTION);
+    resultBrush = evaluator.evaluate(resultBrush, ringBrush, ADDITION);
+
+    straightGeo.dispose();
+    clipGeo.dispose();
+    ringGeo.dispose();
+    return resultBrush.geometry;
+  } catch (err) {
+    logFactory('error', 'Finish neon CSG failed: ' + (err?.message || err));
+    // Fallback : retourne au moins l'anneau seul (le néon droit a déjà
+    // été disposé en cas de crash CSG → on rebuild un anneau propre).
+    straightGeo.dispose();
+    clipGeo.dispose();
+    return ringGeo;
+  }
+}
+
+/**
  * Build la geometry chanfreinée d'une tile.
  *
  * @param {object} opts

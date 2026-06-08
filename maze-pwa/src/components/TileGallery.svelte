@@ -27,7 +27,7 @@
     DEFAULT_HOLE_RADIUS, DEFAULT_PERIM_RADIUS,
   } from '../lib/tile-geometry.js';
   import {
-    buildClippedTileGeometry, buildFinishNeonRingGeometry,
+    buildClippedTileGeometry, buildFinishNeonGeometry,
   } from '../lib/tile-factory.js';
   import {
     DEFAULT_HEMI_INTENSITY, DEFAULT_HEMI_SKY_COLOR, DEFAULT_HEMI_GROUND_COLOR,
@@ -297,31 +297,26 @@
       const w = Math.min(neonW, railW);
       const h = Math.max(0.1, railDepth - 2 * neonHeightMargin);
       for (const t of types) {
-        const shape = builders[t](w, cw, ch, 0);
-        next[t] = new ExtrudeGeometry(shape, {
-          depth: h,
-          bevelEnabled: false,
-          steps: 1,
-          curveSegments: 12,
-        });
+        if (finish && holeRadius > 0) {
+          // Lot 10 — Néon finish unifié : (straight ∖ R_inner) ∪ ring.
+          // Coupé par le trou circulaire ET unioné avec l'anneau pour
+          // ne former qu'un seul mesh continu.
+          next[t] = buildFinishNeonGeometry({
+            buildShape: builders[t], cw, ch,
+            neonW: w, railW, railDepth, holeRadius, neonHeightMargin,
+          });
+        } else {
+          const shape = builders[t](w, cw, ch, 0);
+          next[t] = new ExtrudeGeometry(shape, {
+            depth: h,
+            bevelEnabled: false,
+            steps: 1,
+            curveSegments: 12,
+          });
+        }
       }
     }
     neonGeometries = next;
-  }
-
-  // Lot 10 — Anneau néon pour la rainure circulaire du finish portal.
-  // Géométrie centrée sur (0,0,0), identique pour les 5 types (toujours
-  // au milieu de la tile). Sa position Z = neonPosZ.
-  let finishRingGeometry = null;
-  $: {
-    finishRingGeometry?.dispose?.();
-    finishRingGeometry = (finish && railW > 0 && railDepth > 0 && neonW > 0 && holeRadius > 0)
-      ? buildFinishNeonRingGeometry({
-          holeRadius, railW, railDepth,
-          neonW: Math.min(neonW, railW),
-          neonHeightMargin,
-        })
-      : null;
   }
 
   // Position Z du mesh neon (offset relatif au tile group).
@@ -494,16 +489,6 @@
                                       toneMapped={false} />
             </T.Mesh>
           {/if}
-          {#if finish && finishRingGeometry}
-            <T.Mesh position={[p.gx, p.gy, neonPosZ]}
-                    geometry={finishRingGeometry}>
-              <T.MeshStandardMaterial color={neonColor}
-                                      emissive={neonColor}
-                                      emissiveIntensity={neonIntensity * neonFactor}
-                                      roughness={0.4} metalness={0.0}
-                                      toneMapped={false} />
-            </T.Mesh>
-          {/if}
         {/each}
       {:else if tab === 'unitaire'}
         <T.Mesh position={[0, 0, tilePosZ]}
@@ -516,16 +501,6 @@
         {#if neonGeometries[unitType]}
           <T.Mesh position={[0, 0, neonPosZ]}
                   geometry={neonGeometries[unitType]}>
-            <T.MeshStandardMaterial color={neonColor}
-                                    emissive={neonColor}
-                                    emissiveIntensity={neonIntensity * neonFactor}
-                                    roughness={0.4} metalness={0.0}
-                                    toneMapped={false} />
-          </T.Mesh>
-        {/if}
-        {#if finish && finishRingGeometry}
-          <T.Mesh position={[0, 0, neonPosZ]}
-                  geometry={finishRingGeometry}>
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
                                     emissiveIntensity={neonIntensity * neonFactor}
@@ -547,17 +522,6 @@
             <T.Mesh position={[p.gx, p.gy, neonPosZ]}
                     rotation={[0, 0, p.rotZ]}
                     geometry={neonGeometries[p.type]}>
-              <T.MeshStandardMaterial color={neonColor}
-                                      emissive={neonColor}
-                                      emissiveIntensity={neonIntensity * neonFactor}
-                                      roughness={0.4} metalness={0.0}
-                                      toneMapped={false} />
-            </T.Mesh>
-          {/if}
-          {#if finish && finishRingGeometry}
-            <T.Mesh position={[p.gx, p.gy, neonPosZ]}
-                    rotation={[0, 0, p.rotZ]}
-                    geometry={finishRingGeometry}>
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
                                       emissiveIntensity={neonIntensity * neonFactor}
