@@ -73,8 +73,8 @@ export const NEON_HEIGHT_MARGIN     = 0.2;
 // Le trou est dimensionné pour accueillir la bille → indépendant de
 // pathW/cellSize. Ces valeurs sont en unités tile (cell=100). En jeu
 // (lot suivant), holeRadius sera calculé depuis ballR × ratio.
-export const DEFAULT_HOLE_RADIUS  = 25;
-export const DEFAULT_PERIM_RADIUS = 40;
+export const DEFAULT_HOLE_RADIUS  = 18;
+export const DEFAULT_PERIM_RADIUS = 35;
 
 // Conversion slider chanfrein % (0-100) → bevelSize en unités tile.
 // bevelThickness = bevelSize (45° lock).

@@ -351,10 +351,14 @@ export function buildFinishNeonGeometry({
   const RIM_LEAK_MARGIN = 0.2;
   const neonHeight = Math.max(0.01, railDepth - 2 * neonHeightMargin);
   const center  = holeRadius + railW / 2;
-  // R_inner = bord interne du néon anneau (= bord externe du clip).
-  // À partir de ce rayon, le néon droit est supprimé et l'anneau le
-  // remplace : les deux meshes se touchent pile à R_inner.
+  // R_inner = bord interne du néon anneau.
   const R_inner = Math.max(holeRadius + RIM_LEAK_MARGIN, center - neonW / 2);
+  // Lot 10.2 — Le clip est légèrement plus petit que R_inner pour
+  // garantir un OVERLAP avec l'anneau (sinon CSG ADDITION sur faces
+  // coplanaires produit des artefacts de précision = trous visibles
+  // aux 4 jonctions du cross / 3 du T / etc).
+  const CLIP_OVERLAP = 0.8;
+  const R_clip = Math.max(0.1, R_inner - CLIP_OVERLAP);
 
   // 1. Néon droit standard (clamp w ≤ railW pour ne pas dépasser le rail).
   const w = Math.min(neonW, railW);
@@ -366,9 +370,9 @@ export function buildFinishNeonGeometry({
     curveSegments: 12,
   });
 
-  // 2. Cylindre de clip (R_inner) — traverse en Z avec overshoot pour
-  //    éviter coplanarité avec les faces top/bottom du néon droit.
-  const clipGeo = new ExtrudeGeometry(circleShape(R_inner), {
+  // 2. Cylindre de clip (R_clip < R_inner) — traverse en Z avec overshoot
+  //    pour éviter coplanarité avec les faces top/bottom du néon droit.
+  const clipGeo = new ExtrudeGeometry(circleShape(R_clip), {
     depth: neonHeight + 2 * FINISH_EPS,
     bevelEnabled: false,
     steps: 1,
