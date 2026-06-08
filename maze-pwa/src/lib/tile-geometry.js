@@ -69,6 +69,13 @@ export const DEFAULT_NEON_INTENSITY = 2.0;
 export const DEFAULT_NEON_COLOR     = '#00d4ff';
 export const NEON_HEIGHT_MARGIN     = 0.2;
 
+// Lot 10 — Finish portal (trou cylindrique + rainure circulaire).
+// Le trou est dimensionné pour accueillir la bille → indépendant de
+// pathW/cellSize. Ces valeurs sont en unités tile (cell=100). En jeu
+// (lot suivant), holeRadius sera calculé depuis ballR × ratio.
+export const DEFAULT_HOLE_RADIUS  = 25;
+export const DEFAULT_PERIM_RADIUS = 40;
+
 // Conversion slider chanfrein % (0-100) → bevelSize en unités tile.
 // bevelThickness = bevelSize (45° lock).
 export function chanfreinToBevelSize(chanfreinPercent, pathW) {

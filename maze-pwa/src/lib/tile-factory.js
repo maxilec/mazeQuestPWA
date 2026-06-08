@@ -27,8 +27,9 @@
 
 import {
   BufferGeometry, ExtrudeGeometry, Float32BufferAttribute,
+  Shape, Path,
 } from 'three';
-import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
+import { Brush, Evaluator, SUBTRACTION, ADDITION } from 'three-bvh-csg';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { applyVertexAO } from './tile-geometry.js';
 import { pushDebug, formatArg } from './debug-log.js';
@@ -268,6 +269,62 @@ function buildSweptChamferMask(points, segment, L, pathH, segCount) {
   return geo;
 }
 
+// ── Lot 10 — Finish portal helpers ─────────────────────────────────
+const FINISH_CIRCLE_SEGMENTS = 48;   // résolution des cylindres (hole, perim, ring rail)
+const FINISH_EPS = 0.1;              // overshoot anti-coplanarité (= EPS effectif local)
+
+/** Shape circulaire pleine de rayon r. */
+function circleShape(radius) {
+  const s = new Shape();
+  s.absarc(0, 0, radius, 0, Math.PI * 2, false);
+  return s;
+}
+
+/** Shape annulaire (anneau) : disque outer avec hole inner. */
+function annularShape(innerRadius, outerRadius) {
+  const s = circleShape(outerRadius);
+  const h = new Path();
+  h.absarc(0, 0, innerRadius, 0, Math.PI * 2, true);
+  s.holes.push(h);
+  return s;
+}
+
+/**
+ * Build la geometry d'un anneau néon pour le rim du trou finish.
+ * Extrusion d'une shape annulaire, centrée à z=0, hauteur =
+ * railDepth - 2 × neonHeightMargin. À positionner par le caller à
+ * z = pathH - railDepth + neonHeightMargin.
+ *
+ * @param {object} opts
+ * @param {number} opts.holeRadius
+ * @param {number} opts.railW
+ * @param {number} opts.railDepth
+ * @param {number} opts.neonW
+ * @param {number} opts.neonHeightMargin
+ * @returns {BufferGeometry}
+ */
+export function buildFinishNeonRingGeometry({
+  holeRadius, railW, railDepth, neonW, neonHeightMargin,
+}) {
+  // Néon centré dans la rainure : milieu = holeRadius + railW/2,
+  // largeur = neonW. Un micro-margin (0.2) sur le bord interne évite
+  // que l'emissive bave dans le trou via rim leakage.
+  const RIM_LEAK_MARGIN = 0.2;
+  const center  = holeRadius + railW / 2;
+  const inner   = Math.max(holeRadius + RIM_LEAK_MARGIN, center - neonW / 2);
+  const outer   = center + neonW / 2;
+  const height  = Math.max(0.01, railDepth - 2 * neonHeightMargin);
+
+  const shape = annularShape(inner, outer);
+  const geo = new ExtrudeGeometry(shape, {
+    depth: height,
+    bevelEnabled: false,
+    steps: 1,
+    curveSegments: FINISH_CIRCLE_SEGMENTS,
+  });
+  return geo;
+}
+
 /**
  * Build la geometry chanfreinée d'une tile.
  *
@@ -280,19 +337,23 @@ function buildSweptChamferMask(points, segment, L, pathH, segCount) {
  * @param {number} opts.bevelSize  - L positive (slider chanfrein %)
  * @param {number} opts.bevelThickness  - ignoré (45° lock dans gallery)
  * @param {number} opts.bevelSegments  - ignoré en v6 (chanfrein plat)
+ * @param {boolean} [opts.finish=false]  - tile variant avec trou cylindrique
+ * @param {number}  [opts.holeRadius]   - rayon du trou (requis si finish)
+ * @param {number}  [opts.perimRadius]  - rayon de la piste périmètre (requis si finish)
  * @returns {BufferGeometry}
  */
 export function buildClippedTileGeometry({
   buildShape, pathW, cw, ch, pathH,
   bevelSize, bevelThickness, bevelSegments,
   railW = 0, railDepth = 0,
+  finish = false, holeRadius = 0, perimRadius = 0,
 }) {
   const L = bevelSize;
 
   // 1. Tile base : extrusion straight, pas de bevel, pas d'expand.
   //    buildShape(.., bs=0) → expandBoundary neutre, outline = pathW exact.
   const shape = buildShape(pathW, cw, ch, 0);
-  const tileGeo = new ExtrudeGeometry(shape, {
+  let tileGeo = new ExtrudeGeometry(shape, {
     depth: pathH,
     bevelEnabled: false,
     // steps: 4 → subdivisions horizontales du tile de base. Après
@@ -304,7 +365,33 @@ export function buildClippedTileGeometry({
     curveSegments: CURVE_DIVISIONS,
   });
 
-  if (L === 0) {
+  // 1.bis Lot 10 — Finish : UNION avec un disque perimRadius centré.
+  //       Ça élargit le moyeu central pour héberger le trou + sa
+  //       rainure circulaire, même quand pathW est étroit. Overshoot
+  //       FINISH_EPS pour garantir un overlap (sinon CSG produit des
+  //       faces dégénérées sur edge coplanar).
+  if (finish && perimRadius > 0) {
+    try {
+      const perimShape = circleShape(perimRadius + FINISH_EPS);
+      const perimGeo = new ExtrudeGeometry(perimShape, {
+        depth: pathH,
+        bevelEnabled: false,
+        steps: 4,
+        curveSegments: FINISH_CIRCLE_SEGMENTS,
+      });
+      const tileBrush  = new Brush(tileGeo);  tileBrush.updateMatrixWorld();
+      const perimBrush = new Brush(perimGeo); perimBrush.updateMatrixWorld();
+      const unioned = evaluator.evaluate(tileBrush, perimBrush, ADDITION);
+      perimGeo.dispose();
+      tileGeo.dispose();
+      tileGeo = unioned.geometry;
+    } catch (err) {
+      logFactory('error', 'Finish perim UNION failed: ' + (err?.message || err));
+    }
+  }
+
+  // Early exit : ni chanfrein, ni rail, ni finish → tile straight + AO.
+  if (L === 0 && (railW === 0 || railDepth === 0) && !finish) {
     applyVertexAO(tileGeo, 0);
     return tileGeo;
   }
@@ -332,7 +419,8 @@ export function buildClippedTileGeometry({
   let segIdx = 0;
 
   try {
-    for (const segment of segments) {
+    // Guard L > 0 : wedge mask est dégénéré si L === 0.
+    for (const segment of (L > 0 ? segments : [])) {
       const maskGeo = buildSweptChamferMask(points, segment, L, pathH, bevelSegments);
       if (!maskGeo) { segIdx++; continue; }
 
@@ -396,6 +484,63 @@ export function buildClippedTileGeometry({
       logFactory('error', 'Rail SUBTRACT failed: ' + (err?.message || err));
     } finally {
       railMaskGeo.dispose();
+    }
+  }
+
+  // 4.ter Lot 10 — Finish : SUBTRACT du trou central + de la rainure
+  //       circulaire. L'opération combinée crée naturellement un anneau
+  //       de section rectangulaire (railW × railDepth) au top, autour
+  //       du trou cylindrique qui traverse toute la tile.
+  if (finish && holeRadius > 0) {
+    const RAIL_OVERSHOOT = 0.1;
+
+    // a) Trou central : cylindre traversant (z ∈ [-ε, pathH+ε])
+    try {
+      const holeShape = circleShape(holeRadius);
+      const holeGeo = new ExtrudeGeometry(holeShape, {
+        depth: pathH + 2 * FINISH_EPS,
+        bevelEnabled: false,
+        steps: 1,
+        curveSegments: FINISH_CIRCLE_SEGMENTS,
+      });
+      holeGeo.translate(0, 0, -FINISH_EPS);
+
+      const holeBrush = new Brush(holeGeo); holeBrush.updateMatrixWorld();
+      const previousGeo = resultBrush.geometry;
+      resultBrush = evaluator.evaluate(resultBrush, holeBrush, SUBTRACTION);
+      if (previousGeo !== tileGeo && previousGeo !== resultBrush.geometry) {
+        previousGeo.dispose();
+      }
+      holeGeo.dispose();
+    } catch (err) {
+      logFactory('error', 'Finish hole SUBTRACT failed: ' + (err?.message || err));
+    }
+
+    // b) Rainure circulaire : large cylindre peu profond depuis le top
+    //    (z ∈ [pathH - railDepth, pathH + ε]). Combiné au trou (a) ça
+    //    forme un anneau de largeur railW autour du trou.
+    if (railW > 0 && railDepth > 0) {
+      try {
+        const rimOuterR = holeRadius + railW;
+        const rimShape = circleShape(rimOuterR);
+        const rimGeo = new ExtrudeGeometry(rimShape, {
+          depth: railDepth + RAIL_OVERSHOOT,
+          bevelEnabled: false,
+          steps: 1,
+          curveSegments: FINISH_CIRCLE_SEGMENTS,
+        });
+        rimGeo.translate(0, 0, pathH - railDepth);
+
+        const rimBrush = new Brush(rimGeo); rimBrush.updateMatrixWorld();
+        const previousGeo = resultBrush.geometry;
+        resultBrush = evaluator.evaluate(resultBrush, rimBrush, SUBTRACTION);
+        if (previousGeo !== tileGeo && previousGeo !== resultBrush.geometry) {
+          previousGeo.dispose();
+        }
+        rimGeo.dispose();
+      } catch (err) {
+        logFactory('error', 'Finish rim SUBTRACT failed: ' + (err?.message || err));
+      }
     }
   }
 

@@ -18,14 +18,17 @@
   import {
     buildStraightShape, buildCornerShape, buildTShape,
     buildCrossShape, buildDeadEndShape,
-    applyVertexAO, detectTileType,
+    detectTileType,
     BEVEL_SIZE_RATIO, BEVEL_THICKNESS_RATIO,
     DEFAULT_PATH_H_RATIO, DEFAULT_BEVEL_SEGMENTS,
     DEFAULT_CHANFREIN_PERCENT, DEFAULT_RAIL_W, DEFAULT_RAIL_DEPTH,
     DEFAULT_NEON_W, DEFAULT_NEON_INTENSITY, DEFAULT_NEON_COLOR,
     NEON_HEIGHT_MARGIN,
+    DEFAULT_HOLE_RADIUS, DEFAULT_PERIM_RADIUS,
   } from '../lib/tile-geometry.js';
-  import { buildClippedTileGeometry } from '../lib/tile-factory.js';
+  import {
+    buildClippedTileGeometry, buildFinishNeonRingGeometry,
+  } from '../lib/tile-factory.js';
   import {
     DEFAULT_HEMI_INTENSITY, DEFAULT_HEMI_SKY_COLOR, DEFAULT_HEMI_GROUND_COLOR,
     DEFAULT_KEY_INTENSITY,  DEFAULT_KEY_COLOR,
@@ -94,7 +97,9 @@
     neonW = DEFAULT_NEON_W;
     neonColor = DEFAULT_NEON_COLOR;
     neonIntensity = DEFAULT_NEON_INTENSITY;
-    useBridge = true;
+    finish = false;
+    holeRadius = DEFAULT_HOLE_RADIUS;
+    perimRadius = DEFAULT_PERIM_RADIUS;
   }
 
   // OrbitControls (unitaire) prend la main sur la caméra → on désactive
@@ -210,18 +215,21 @@
   $: pathW = cw * pathWRatio;
   $: bevelSize = (chanfreinPercent / 100) * (pathW / 2);
   $: bevelThickness = bevelSize;
-  let useBridge = true;
+  // Lot 10 — Finish portal : variant des 5 tuiles avec trou central +
+  // rainure circulaire + néon en anneau. Toggle remplace l'ex
+  // "jonctions coussin/ponts" (le mode ponts CSG est seul retenu).
+  let finish      = false;
+  let holeRadius  = DEFAULT_HOLE_RADIUS;
+  let perimRadius = DEFAULT_PERIM_RADIUS;
   $: pathH = cellSize * pathHRatio;
   // floorDepth comme Scene3D : sol creusé pour effet de profondeur
   // dans les fossés entre cellules de piste (visible dans le mode
   // exemple notamment).
   $: floorDepth = pathH * 0.4;
-  // Lot 8.10 : en mode ponts (CSG), la géométrie est massicotée pile à
-  // z=0 → on descend le mesh de floorDepth pour que la base de la tile
-  // atterrisse exactement sur le sol (plus de lévitation). En mode
-  // coussin, on garde z=0 (le bevel inférieur va naturellement dans le
-  // fossé).
-  $: tilePosZ = useBridge ? -floorDepth : 0;
+  // La géométrie est massicotée pile à z=0 → on descend le mesh de
+  // floorDepth pour que la base de la tile atterrisse exactement sur
+  // le sol.
+  $: tilePosZ = -floorDepth;
 
   // Caméra téléobjectif (FOV 7, tilt 6°) comme Scene3D. VISIBLE_H
   // dépend de l'onglet pour cadrer chaque layout proprement :
@@ -260,33 +268,14 @@
       // Dispose les anciennes geometries avant rebuild.
       for (const g of Object.values(tileGeometries)) g?.dispose?.();
       const next = {};
-      if (useBridge) {
-        for (const t of types) {
-          next[t] = buildClippedTileGeometry({
-            buildShape: builders[t],
-            pathW, cw, ch, pathH,
-            bevelSize, bevelThickness, bevelSegments,
-            railW, railDepth,
-          });
-        }
-      } else {
-        // Système "coussin" historique : extrude avec bevel complet,
-        // base flare hors-cellule (peut créer des overlaps aux jonctions).
-        const extrudeSettings = {
-          depth: pathH,
-          bevelEnabled: true,
-          bevelThickness, bevelSize,
-          bevelOffset: 0,
-          bevelSegments,
-          steps: 1,
-          curveSegments: 24,
-        };
-        for (const t of types) {
-          const shape = builders[t](pathW, cw, ch, bevelSize);
-          const geo = new ExtrudeGeometry(shape, extrudeSettings);
-          applyVertexAO(geo, bevelThickness);
-          next[t] = geo;
-        }
+      for (const t of types) {
+        next[t] = buildClippedTileGeometry({
+          buildShape: builders[t],
+          pathW, cw, ch, pathH,
+          bevelSize, bevelThickness, bevelSegments,
+          railW, railDepth,
+          finish, holeRadius, perimRadius,
+        });
       }
       tileGeometries = next;
     } catch (err) {
@@ -302,7 +291,7 @@
   $: {
     for (const g of Object.values(neonGeometries)) g?.dispose?.();
     const next = {};
-    if (useBridge && railW > 0 && railDepth > 0 && neonW > 0) {
+    if (railW > 0 && railDepth > 0 && neonW > 0) {
       // Clamp pour ne jamais dépasser la rainure (l'utilisateur peut
       // mettre neonW > railW au slider, on borne ici).
       const w = Math.min(neonW, railW);
@@ -318,6 +307,21 @@
       }
     }
     neonGeometries = next;
+  }
+
+  // Lot 10 — Anneau néon pour la rainure circulaire du finish portal.
+  // Géométrie centrée sur (0,0,0), identique pour les 5 types (toujours
+  // au milieu de la tile). Sa position Z = neonPosZ.
+  let finishRingGeometry = null;
+  $: {
+    finishRingGeometry?.dispose?.();
+    finishRingGeometry = (finish && railW > 0 && railDepth > 0 && neonW > 0 && holeRadius > 0)
+      ? buildFinishNeonRingGeometry({
+          holeRadius, railW, railDepth,
+          neonW: Math.min(neonW, railW),
+          neonHeightMargin,
+        })
+      : null;
   }
 
   // Position Z du mesh neon (offset relatif au tile group).
@@ -490,6 +494,16 @@
                                       toneMapped={false} />
             </T.Mesh>
           {/if}
+          {#if finish && finishRingGeometry}
+            <T.Mesh position={[p.gx, p.gy, neonPosZ]}
+                    geometry={finishRingGeometry}>
+              <T.MeshStandardMaterial color={neonColor}
+                                      emissive={neonColor}
+                                      emissiveIntensity={neonIntensity * neonFactor}
+                                      roughness={0.4} metalness={0.0}
+                                      toneMapped={false} />
+            </T.Mesh>
+          {/if}
         {/each}
       {:else if tab === 'unitaire'}
         <T.Mesh position={[0, 0, tilePosZ]}
@@ -502,6 +516,16 @@
         {#if neonGeometries[unitType]}
           <T.Mesh position={[0, 0, neonPosZ]}
                   geometry={neonGeometries[unitType]}>
+            <T.MeshStandardMaterial color={neonColor}
+                                    emissive={neonColor}
+                                    emissiveIntensity={neonIntensity * neonFactor}
+                                    roughness={0.4} metalness={0.0}
+                                    toneMapped={false} />
+          </T.Mesh>
+        {/if}
+        {#if finish && finishRingGeometry}
+          <T.Mesh position={[0, 0, neonPosZ]}
+                  geometry={finishRingGeometry}>
             <T.MeshStandardMaterial color={neonColor}
                                     emissive={neonColor}
                                     emissiveIntensity={neonIntensity * neonFactor}
@@ -523,6 +547,17 @@
             <T.Mesh position={[p.gx, p.gy, neonPosZ]}
                     rotation={[0, 0, p.rotZ]}
                     geometry={neonGeometries[p.type]}>
+              <T.MeshStandardMaterial color={neonColor}
+                                      emissive={neonColor}
+                                      emissiveIntensity={neonIntensity * neonFactor}
+                                      roughness={0.4} metalness={0.0}
+                                      toneMapped={false} />
+            </T.Mesh>
+          {/if}
+          {#if finish && finishRingGeometry}
+            <T.Mesh position={[p.gx, p.gy, neonPosZ]}
+                    rotation={[0, 0, p.rotZ]}
+                    geometry={finishRingGeometry}>
               <T.MeshStandardMaterial color={neonColor}
                                       emissive={neonColor}
                                       emissiveIntensity={neonIntensity * neonFactor}
@@ -606,9 +641,23 @@
           <span class="val">{neonColor}</span>
         </label>
         <label class="toggle">
-          <input type="checkbox" bind:checked={useBridge} />
-          <span>jonctions <strong>{useBridge ? 'ponts (CSG)' : 'coussin'}</strong></span>
+          <input type="checkbox" bind:checked={finish} />
+          <span><strong>finish</strong> (trou + rainure circulaire)</span>
         </label>
+        {#if finish}
+          <label class="slider">
+            <span class="lbl">trou rayon</span>
+            <input type="range" min="10" max="50" step="1"
+                   bind:value={holeRadius} />
+            <span class="val">{holeRadius}</span>
+          </label>
+          <label class="slider">
+            <span class="lbl">périmètre rayon</span>
+            <input type="range" min="20" max="70" step="1"
+                   bind:value={perimRadius} />
+            <span class="val">{perimRadius}</span>
+          </label>
+        {/if}
         <button class="reset-btn" on:click={resetParams}>reset</button>
       </div>
     </div>
