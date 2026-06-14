@@ -26,10 +26,10 @@
 // après SUBTRACT.
 
 import {
-  BufferGeometry, ExtrudeGeometry, Float32BufferAttribute,
+  BufferGeometry, BoxGeometry, ExtrudeGeometry, Float32BufferAttribute,
   Shape, Path,
 } from 'three';
-import { Brush, Evaluator, SUBTRACTION, ADDITION } from 'three-bvh-csg';
+import { Brush, Evaluator, SUBTRACTION, ADDITION, INTERSECTION } from 'three-bvh-csg';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { applyVertexAO } from './tile-geometry.js';
 import { pushDebug, formatArg } from './debug-log.js';
@@ -408,65 +408,58 @@ export function buildFinishNeonGeometry({
  *
  * @param {object} opts
  * @param {(pathW, cw, ch, bs) => Shape} opts.buildShape
+ *   Shape principal de la tile. Si finish=true, c'est une buildFinish*Shape
+ *   qui inclut déjà la fusion 2D path + cercle périmètre.
+ * @param {(pathW, cw, ch, bs) => Shape} [opts.buildPathShape]
+ *   Shape de la piste régulière (sans périm circle). Utilisé pour le
+ *   masque rail → la rainure linéaire ne suit que les bras, pas le moyeu.
+ *   Défaut: buildShape (rétro-compat finish=false).
  * @param {number} opts.pathW
  * @param {number} opts.cw
  * @param {number} opts.ch
  * @param {number} opts.pathH
  * @param {number} opts.bevelSize  - L positive (slider chanfrein %)
  * @param {number} opts.bevelThickness  - ignoré (45° lock dans gallery)
- * @param {number} opts.bevelSegments  - ignoré en v6 (chanfrein plat)
+ * @param {number} opts.bevelSegments  - segments de l'arc soft clay (2 par défaut)
  * @param {boolean} [opts.finish=false]  - tile variant avec trou cylindrique
  * @param {number}  [opts.holeRadius]   - rayon du trou (requis si finish)
- * @param {number}  [opts.perimRadius]  - rayon de la piste périmètre (requis si finish)
  * @returns {BufferGeometry}
  */
 export function buildClippedTileGeometry({
-  buildShape, pathW, cw, ch, pathH,
+  buildShape, buildPathShape, pathW, cw, ch, pathH,
   bevelSize, bevelThickness, bevelSegments,
   railW = 0, railDepth = 0,
   finish = false, holeRadius = 0, perimRadius = 0,
 }) {
   const L = bevelSize;
+  const railShapeBuilder = buildPathShape || buildShape;
 
-  // 1. Tile base : extrusion straight, pas de bevel, pas d'expand.
-  //    buildShape(.., bs=0) → expandBoundary neutre, outline = pathW exact.
-  const shape = buildShape(pathW, cw, ch, 0);
+  // 1. Tile base — deux pipelines selon `finish` :
+  //
+  //  - finish=false : extrusion straight, pas de bevel. La pipeline wedge
+  //    plus bas applique le chanfrein soft-clay sur les arêtes fermées.
+  //
+  //  - finish=true  : la shape (buildFinish*Shape) fusionne déjà piste +
+  //    cercle périmètre en 2D, avec fillets aux jonctions et expandBoundary
+  //    sur les cell-boundary verts. ExtrudeGeometry applique le NATIVE
+  //    BEVEL → soft clay uniforme et continu (pas de seam de jonction
+  //    bras↔moyeu). La pipeline wedge est sautée. Un CSG INTERSECT cell
+  //    box ensuite clip les parois étendues à la cell exacte → jonctions
+  //    droites flush aux tiles adjacentes, ET drop du bottom bevel (z<0).
+  const shape = buildShape(pathW, cw, ch, finish ? L : 0);
   let tileGeo = new ExtrudeGeometry(shape, {
     depth: pathH,
-    bevelEnabled: false,
-    // steps: 4 → subdivisions horizontales du tile de base. Après
-    // CSG SUBTRACT des wedges, ça force des triangles plus petits
-    // et symétriques sur les parois verticales → l'interpolation
-    // linéaire du vertex AO devient uniforme (élimine les bandes
-    // d'ombre parasites héritées des shards CSG asymétriques).
-    steps: 4,
+    bevelEnabled: finish,
+    bevelSize:      finish ? L : 0,
+    bevelThickness: finish ? L : 0,   // 45° lock cohérent avec wedge
+    bevelOffset: 0,
+    bevelSegments: finish ? Math.max(1, bevelSegments | 0) : 0,
+    // steps: 4 sur la pipeline wedge → subdivisions horizontales pour
+    // shards CSG plus symétriques (cf. Lot 7.3.h). Inutile en native
+    // bevel : steps=1 suffit, le bevel a sa propre subdivision.
+    steps: finish ? 1 : 4,
     curveSegments: CURVE_DIVISIONS,
   });
-
-  // 1.bis Lot 10 — Finish : UNION avec un disque perimRadius centré.
-  //       Ça élargit le moyeu central pour héberger le trou + sa
-  //       rainure circulaire, même quand pathW est étroit. Overshoot
-  //       FINISH_EPS pour garantir un overlap (sinon CSG produit des
-  //       faces dégénérées sur edge coplanar).
-  if (finish && perimRadius > 0) {
-    try {
-      const perimShape = circleShape(perimRadius + FINISH_EPS);
-      const perimGeo = new ExtrudeGeometry(perimShape, {
-        depth: pathH,
-        bevelEnabled: false,
-        steps: 4,
-        curveSegments: FINISH_CIRCLE_SEGMENTS,
-      });
-      const tileBrush  = new Brush(tileGeo);  tileBrush.updateMatrixWorld();
-      const perimBrush = new Brush(perimGeo); perimBrush.updateMatrixWorld();
-      const unioned = evaluator.evaluate(tileBrush, perimBrush, ADDITION);
-      perimGeo.dispose();
-      tileGeo.dispose();
-      tileGeo = unioned.geometry;
-    } catch (err) {
-      logFactory('error', 'Finish perim UNION failed: ' + (err?.message || err));
-    }
-  }
 
   // Early exit : ni chanfrein, ni rail, ni finish → tile straight + AO.
   if (L === 0 && (railW === 0 || railDepth === 0) && !finish) {
@@ -474,74 +467,89 @@ export function buildClippedTileGeometry({
     return tileGeo;
   }
 
-  // 2. Discrétiser l'outline (matche le sampling d'ExtrudeGeometry).
-  const points2D = shape.getPoints(CURVE_DIVISIONS);
-  const points = points2D.map((p) => ({ x: p.x, y: p.y }));
-  // Strip trailing duplicate (closePath ajoute parfois le premier sommet en fin).
-  if (points.length > 1) {
-    const last = points[points.length - 1];
-    const first = points[0];
-    if (Math.abs(last.x - first.x) < 1e-6 && Math.abs(last.y - first.y) < 1e-6) {
-      points.pop();
-    }
-  }
-
-  // 3. Trouver les segments fermés.
-  const segments = findClosedSegments(points, cw, ch);
-
-  // 4. CSG SUBTRACT séquentiel de chaque wedge, avec guards + diagnostic.
-  //    Try/catch englobant : si TOUT le pipeline casse, on tombe sur le
-  //    fallback (return tileGeo straight) plus bas — l'app continue.
   let resultBrush = new Brush(tileGeo);
   resultBrush.updateMatrixWorld();
-  let segIdx = 0;
 
-  try {
-    // Guard L > 0 : wedge mask est dégénéré si L === 0.
-    for (const segment of (L > 0 ? segments : [])) {
-      const maskGeo = buildSweptChamferMask(points, segment, L, pathH, bevelSegments);
-      if (!maskGeo) { segIdx++; continue; }
-
-      if (!isGeometryFinite(maskGeo)) {
-        logFactory('warn', 'Skip wedge non-finite positions', {
-          segIdx, L, pathH, M: segment.vertexIndices.length, isLoop: segment.isLoop,
-        });
-        maskGeo.dispose();
-        segIdx++;
-        continue;
+  // 2. Pipeline wedge — uniquement quand !finish && L > 0.
+  if (!finish && L > 0) {
+    const points2D = shape.getPoints(CURVE_DIVISIONS);
+    const points = points2D.map((p) => ({ x: p.x, y: p.y }));
+    if (points.length > 1) {
+      const last = points[points.length - 1];
+      const first = points[0];
+      if (Math.abs(last.x - first.x) < 1e-6 && Math.abs(last.y - first.y) < 1e-6) {
+        points.pop();
       }
-
-      try {
-        const maskBrush = new Brush(maskGeo);
-        maskBrush.updateMatrixWorld();
-        const previousGeo = resultBrush.geometry;
-        resultBrush = evaluator.evaluate(resultBrush, maskBrush, SUBTRACTION);
-        if (previousGeo !== tileGeo && previousGeo !== resultBrush.geometry) {
-          previousGeo.dispose();
-        }
-      } catch (err) {
-        logFactory('error', 'CSG SUBTRACT failed: ' + (err?.message || err), {
-          segIdx, L, pathH, M: segment.vertexIndices.length, isLoop: segment.isLoop,
-        });
-        // Continue avec resultBrush actuel (sans cette wedge appliquée)
-      } finally {
-        maskGeo.dispose();
-      }
-      segIdx++;
     }
-  } catch (err) {
-    logFactory('error', 'Pipeline crash, fallback straight: ' + (err?.message || err));
-    applyVertexAO(tileGeo, 0);
-    return tileGeo;
+    const segments = findClosedSegments(points, cw, ch);
+    let segIdx = 0;
+    try {
+      for (const segment of segments) {
+        const maskGeo = buildSweptChamferMask(points, segment, L, pathH, bevelSegments);
+        if (!maskGeo) { segIdx++; continue; }
+
+        if (!isGeometryFinite(maskGeo)) {
+          logFactory('warn', 'Skip wedge non-finite positions', {
+            segIdx, L, pathH, M: segment.vertexIndices.length, isLoop: segment.isLoop,
+          });
+          maskGeo.dispose();
+          segIdx++;
+          continue;
+        }
+
+        try {
+          const maskBrush = new Brush(maskGeo);
+          maskBrush.updateMatrixWorld();
+          const previousGeo = resultBrush.geometry;
+          resultBrush = evaluator.evaluate(resultBrush, maskBrush, SUBTRACTION);
+          if (previousGeo !== tileGeo && previousGeo !== resultBrush.geometry) {
+            previousGeo.dispose();
+          }
+        } catch (err) {
+          logFactory('error', 'CSG SUBTRACT failed: ' + (err?.message || err), {
+            segIdx, L, pathH, M: segment.vertexIndices.length, isLoop: segment.isLoop,
+          });
+        } finally {
+          maskGeo.dispose();
+        }
+        segIdx++;
+      }
+    } catch (err) {
+      logFactory('error', 'Pipeline crash, fallback straight: ' + (err?.message || err));
+      applyVertexAO(tileGeo, 0);
+      return tileGeo;
+    }
   }
 
-  // 4.bis Rainure centrale (Lot 8.11) : SUBTRACT d'un masque rail
-  //       qui suit la même topologie que la piste, avec une largeur
-  //       railW < pathW. La rainure descend depuis le top de la tile
-  //       sur railDepth, avec overshoot ε en haut anti-coplanarité.
+  // 3. Finish — CSG INTERSECT avec une boîte cell pour :
+  //    (a) clipper les parois étendues par expandBoundary → walls verticales
+  //        à cw/ch exact → jonctions droites flush aux tiles voisines ;
+  //    (b) clipper le bottom bevel (z<0) → base plate à z=0.
+  //    La boîte couvre Z ∈ [0, pathH + L + ε] pour englober le top bevel.
+  if (finish) {
+    try {
+      const Zmax = pathH + L + FINISH_EPS;
+      const cellBox = new BoxGeometry(cw, ch, Zmax);
+      cellBox.translate(0, 0, Zmax / 2);
+      const cellBrush = new Brush(cellBox); cellBrush.updateMatrixWorld();
+      const previousGeo = resultBrush.geometry;
+      resultBrush = evaluator.evaluate(resultBrush, cellBrush, INTERSECTION);
+      if (previousGeo !== tileGeo && previousGeo !== resultBrush.geometry) {
+        previousGeo.dispose();
+      }
+      cellBox.dispose();
+    } catch (err) {
+      logFactory('error', 'Finish cell INTERSECT failed: ' + (err?.message || err));
+    }
+  }
+
+  // 4. Rainure centrale (Lot 8.11) : SUBTRACT d'un masque rail qui suit
+  //    la TOPOLOGIE PISTE (jamais finish) → la rainure linéaire ne
+  //    pénètre que dans les bras, pas dans le moyeu. La rainure descend
+  //    depuis le top de la tile sur railDepth, avec overshoot ε en haut.
   if (railW > 0 && railDepth > 0) {
     const RAIL_OVERSHOOT = 0.1;
-    const railShape = buildShape(railW, cw, ch, 0);
+    const railShape = railShapeBuilder(railW, cw, ch, 0);
     const railMaskGeo = new ExtrudeGeometry(railShape, {
       depth: railDepth + RAIL_OVERSHOOT,
       bevelEnabled: false,

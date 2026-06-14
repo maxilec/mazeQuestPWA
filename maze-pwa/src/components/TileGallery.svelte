@@ -18,13 +18,15 @@
   import {
     buildStraightShape, buildCornerShape, buildTShape,
     buildCrossShape, buildDeadEndShape,
+    buildFinishStraightShape, buildFinishCornerShape, buildFinishTShape,
+    buildFinishCrossShape, buildFinishDeadEndShape,
     detectTileType,
     BEVEL_SIZE_RATIO, BEVEL_THICKNESS_RATIO,
     DEFAULT_PATH_H_RATIO, DEFAULT_BEVEL_SEGMENTS,
     DEFAULT_CHANFREIN_PERCENT, DEFAULT_RAIL_W, DEFAULT_RAIL_DEPTH,
     DEFAULT_NEON_W, DEFAULT_NEON_INTENSITY, DEFAULT_NEON_COLOR,
     NEON_HEIGHT_MARGIN,
-    DEFAULT_HOLE_RADIUS, DEFAULT_PERIM_RADIUS,
+    DEFAULT_HOLE_RADIUS, DEFAULT_PERIM_RADIUS, DEFAULT_FILLET_RADIUS,
   } from '../lib/tile-geometry.js';
   import {
     buildClippedTileGeometry, buildFinishNeonGeometry,
@@ -100,6 +102,7 @@
     finish = false;
     holeRadius = DEFAULT_HOLE_RADIUS;
     perimRadius = DEFAULT_PERIM_RADIUS;
+    filletRadius = DEFAULT_FILLET_RADIUS;
   }
 
   // OrbitControls (unitaire) prend la main sur la caméra → on désactive
@@ -218,9 +221,10 @@
   // Lot 10 — Finish portal : variant des 5 tuiles avec trou central +
   // rainure circulaire + néon en anneau. Toggle remplace l'ex
   // "jonctions coussin/ponts" (le mode ponts CSG est seul retenu).
-  let finish      = false;
-  let holeRadius  = DEFAULT_HOLE_RADIUS;
-  let perimRadius = DEFAULT_PERIM_RADIUS;
+  let finish       = false;
+  let holeRadius   = DEFAULT_HOLE_RADIUS;
+  let perimRadius  = DEFAULT_PERIM_RADIUS;
+  let filletRadius = DEFAULT_FILLET_RADIUS;
   $: pathH = cellSize * pathHRatio;
   // floorDepth comme Scene3D : sol creusé pour effet de profondeur
   // dans les fossés entre cellules de piste (visible dans le mode
@@ -258,6 +262,17 @@
     cross:    buildCrossShape,
     deadEnd:  buildDeadEndShape,
   };
+  // Lot 10.7 — quand finish=true, swap les builders pour des variantes
+  // qui intègrent le cercle périmètre + fillets dans la shape 2D. Les
+  // wrappers exposent la même signature (w, cw, ch, bs) que les builders
+  // réguliers → la factory les appelle de manière transparente.
+  $: activeBuilders = finish ? {
+    straight: (w, cw_, ch_, bs) => buildFinishStraightShape(w, cw_, ch_, bs, perimRadius, filletRadius),
+    corner:   (w, cw_, ch_, bs) => buildFinishCornerShape  (w, cw_, ch_, bs, perimRadius, filletRadius),
+    T:        (w, cw_, ch_, bs) => buildFinishTShape       (w, cw_, ch_, bs, perimRadius, filletRadius),
+    cross:    (w, cw_, ch_, bs) => buildFinishCrossShape   (w, cw_, ch_, bs, perimRadius, filletRadius),
+    deadEnd:  (w, cw_, ch_, bs) => buildFinishDeadEndShape (w, cw_, ch_, bs, perimRadius, filletRadius),
+  } : builders;
   let tileGeometries = {};
   $: {
     // Try/catch englobant : si le pipeline tile crash (CSG, geometry
@@ -270,7 +285,8 @@
       const next = {};
       for (const t of types) {
         next[t] = buildClippedTileGeometry({
-          buildShape: builders[t],
+          buildShape: activeBuilders[t],
+          buildPathShape: builders[t],
           pathW, cw, ch, pathH,
           bevelSize, bevelThickness, bevelSegments,
           railW, railDepth,
@@ -620,6 +636,12 @@
             <input type="range" min="20" max="70" step="1"
                    bind:value={perimRadius} />
             <span class="val">{perimRadius}</span>
+          </label>
+          <label class="slider">
+            <span class="lbl">fillet jonction</span>
+            <input type="range" min="0" max="30" step="1"
+                   bind:value={filletRadius} />
+            <span class="val">{filletRadius}</span>
           </label>
         {/if}
         <button class="reset-btn" on:click={resetParams}>reset</button>

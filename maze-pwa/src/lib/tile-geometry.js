@@ -73,8 +73,9 @@ export const NEON_HEIGHT_MARGIN     = 0.2;
 // Le trou est dimensionné pour accueillir la bille → indépendant de
 // pathW/cellSize. Ces valeurs sont en unités tile (cell=100). En jeu
 // (lot suivant), holeRadius sera calculé depuis ballR × ratio.
-export const DEFAULT_HOLE_RADIUS  = 18;
-export const DEFAULT_PERIM_RADIUS = 35;
+export const DEFAULT_HOLE_RADIUS   = 18;
+export const DEFAULT_PERIM_RADIUS  = 35;
+export const DEFAULT_FILLET_RADIUS = 8;
 
 // Conversion slider chanfrein % (0-100) → bevelSize en unités tile.
 // bevelThickness = bevelSize (45° lock).
@@ -222,6 +223,178 @@ export function buildDeadEndShape(pathW, cw, ch, bs) {
   ];
   pts = expandBoundary(pts, cw, ch, bs);
   return smoothShape(pts, [2, 3], pathW * 0.50);
+}
+
+// ── Lot 10.7 — Finish portal shapes : fusion 2D path + cercle ──────
+//
+// Pour chaque type, construit un contour 2D unique qui fusionne le path
+// et un cercle de rayon `perimRadius` au centre. Aux jonctions entre un
+// mur fermé droit et le perim arc, un fillet de rayon `filletRadius`
+// adoucit la transition (smoothShape, indices fi). Le contour est
+// ensuite extrudé avec NATIVE BEVEL par la factory, puis INTERSECT avec
+// la boîte cell pour clipper le bevel aux jonctions ouvertes (→ parois
+// verticales flush, top edge à la cell boundary exact).
+//
+// expandBoundary appliqué quand bs > 0 : les vertices sur cell boundary
+// sont décalés vers l'extérieur de bs → après bevel inset (bs), le top
+// edge atterrit sur la cell boundary → INTERSECT cell box clip le surplus
+// extérieur et le bottom bevel (z<0) en une opération.
+//
+// Si perimRadius ≤ pathW/2, le périmètre n'élargit pas le moyeu :
+// fallback au builder régulier (rendu sans bulge périphérique).
+
+const FINISH_ARC_BASE_SEGS = 16;   // segments pour ~90° d'arc
+
+function pushArcInterior(pts, R, θstart, θsweep, n) {
+  for (let i = 1; i < n; i++) {
+    const t = i / n;
+    const θ = θstart + t * θsweep;
+    pts.push({ x: R * Math.cos(θ), y: R * Math.sin(θ) });
+  }
+}
+
+function segsFor(sweep) {
+  return Math.max(4, Math.ceil(Math.abs(sweep) * FINISH_ARC_BASE_SEGS * 2 / Math.PI));
+}
+
+export function buildFinishStraightShape(pathW, cw, ch, bs, perimRadius, filletRadius) {
+  const hp = pathW / 2, hh = ch / 2;
+  const R = perimRadius;
+  if (R <= hp) return buildStraightShape(pathW, cw, ch, bs);
+  const yj = Math.sqrt(R * R - hp * hp);
+  const θj = Math.atan2(yj, hp);
+
+  let pts = [];
+  const fi = [];
+
+  pts.push({ x:  hp, y:  hh });
+  pts.push({ x: -hp, y:  hh });
+  pts.push({ x: -hp, y:  yj });    fi.push(pts.length - 1);
+  pushArcInterior(pts, R, Math.PI - θj, 2 * θj, segsFor(2 * θj));
+  pts.push({ x: -hp, y: -yj });    fi.push(pts.length - 1);
+  pts.push({ x: -hp, y: -hh });
+  pts.push({ x:  hp, y: -hh });
+  pts.push({ x:  hp, y: -yj });    fi.push(pts.length - 1);
+  pushArcInterior(pts, R, -θj, 2 * θj, segsFor(2 * θj));
+  pts.push({ x:  hp, y:  yj });    fi.push(pts.length - 1);
+
+  pts = expandBoundary(pts, cw, ch, bs);
+  return smoothShape(pts, fi, filletRadius);
+}
+
+export function buildFinishCornerShape(pathW, cw, ch, bs, perimRadius, filletRadius) {
+  const hp = pathW / 2, hw = cw / 2, hh = ch / 2;
+  const R = perimRadius;
+  if (R <= hp) return buildCornerShape(pathW, cw, ch, bs);
+  const yj = Math.sqrt(R * R - hp * hp);
+  const θj = Math.atan2(yj, hp);
+
+  let pts = [];
+  const fi = [];
+
+  pts.push({ x:  hp, y:  hh });
+  pts.push({ x: -hp, y:  hh });
+  pts.push({ x: -hp, y:  yj });    fi.push(pts.length - 1);
+  const swSweep = Math.PI / 2 + 2 * θj;
+  pushArcInterior(pts, R, Math.PI - θj, swSweep, segsFor(swSweep));
+  pts.push({ x:  yj, y: -hp });    fi.push(pts.length - 1);
+  pts.push({ x:  hw, y: -hp });
+  pts.push({ x:  hw, y:  hp });
+  pts.push({ x:  yj, y:  hp });    fi.push(pts.length - 1);
+  const neSweep = 2 * θj - Math.PI / 2;
+  pushArcInterior(pts, R, Math.PI / 2 - θj, neSweep, segsFor(neSweep));
+  pts.push({ x:  hp, y:  yj });    fi.push(pts.length - 1);
+
+  pts = expandBoundary(pts, cw, ch, bs);
+  return smoothShape(pts, fi, filletRadius);
+}
+
+export function buildFinishTShape(pathW, cw, ch, bs, perimRadius, filletRadius) {
+  const hp = pathW / 2, hw = cw / 2, hh = ch / 2;
+  const R = perimRadius;
+  if (R <= hp) return buildTShape(pathW, cw, ch, bs);
+  const yj = Math.sqrt(R * R - hp * hp);
+  const θj = Math.atan2(yj, hp);
+  const cornerSweep = 2 * θj - Math.PI / 2;
+
+  let pts = [];
+  const fi = [];
+
+  pts.push({ x:  hp, y:  hh });
+  pts.push({ x: -hp, y:  hh });
+  pts.push({ x: -hp, y:  yj });    fi.push(pts.length - 1);
+  pushArcInterior(pts, R, Math.PI - θj, 2 * θj, segsFor(2 * θj));
+  pts.push({ x: -hp, y: -yj });    fi.push(pts.length - 1);
+  pts.push({ x: -hp, y: -hh });
+  pts.push({ x:  hp, y: -hh });
+  pts.push({ x:  hp, y: -yj });    fi.push(pts.length - 1);
+  pushArcInterior(pts, R, -θj, cornerSweep, segsFor(cornerSweep));
+  pts.push({ x:  yj, y: -hp });    fi.push(pts.length - 1);
+  pts.push({ x:  hw, y: -hp });
+  pts.push({ x:  hw, y:  hp });
+  pts.push({ x:  yj, y:  hp });    fi.push(pts.length - 1);
+  pushArcInterior(pts, R, Math.PI / 2 - θj, cornerSweep, segsFor(cornerSweep));
+  pts.push({ x:  hp, y:  yj });    fi.push(pts.length - 1);
+
+  pts = expandBoundary(pts, cw, ch, bs);
+  return smoothShape(pts, fi, filletRadius);
+}
+
+export function buildFinishCrossShape(pathW, cw, ch, bs, perimRadius, filletRadius) {
+  const hp = pathW / 2, hw = cw / 2, hh = ch / 2;
+  const R = perimRadius;
+  if (R <= hp) return buildCrossShape(pathW, cw, ch, bs);
+  const yj = Math.sqrt(R * R - hp * hp);
+  const θj = Math.atan2(yj, hp);
+  const cornerSweep = 2 * θj - Math.PI / 2;
+
+  let pts = [];
+  const fi = [];
+
+  pts.push({ x:  hp, y:  hh });
+  pts.push({ x: -hp, y:  hh });
+  pts.push({ x: -hp, y:  yj });    fi.push(pts.length - 1);
+  pushArcInterior(pts, R, Math.PI - θj, cornerSweep, segsFor(cornerSweep));
+  pts.push({ x: -yj, y:  hp });    fi.push(pts.length - 1);
+  pts.push({ x: -hw, y:  hp });
+  pts.push({ x: -hw, y: -hp });
+  pts.push({ x: -yj, y: -hp });    fi.push(pts.length - 1);
+  pushArcInterior(pts, R, 3 * Math.PI / 2 - θj, cornerSweep, segsFor(cornerSweep));
+  pts.push({ x: -hp, y: -yj });    fi.push(pts.length - 1);
+  pts.push({ x: -hp, y: -hh });
+  pts.push({ x:  hp, y: -hh });
+  pts.push({ x:  hp, y: -yj });    fi.push(pts.length - 1);
+  pushArcInterior(pts, R, -θj, cornerSweep, segsFor(cornerSweep));
+  pts.push({ x:  yj, y: -hp });    fi.push(pts.length - 1);
+  pts.push({ x:  hw, y: -hp });
+  pts.push({ x:  hw, y:  hp });
+  pts.push({ x:  yj, y:  hp });    fi.push(pts.length - 1);
+  pushArcInterior(pts, R, Math.PI / 2 - θj, cornerSweep, segsFor(cornerSweep));
+  pts.push({ x:  hp, y:  yj });    fi.push(pts.length - 1);
+
+  pts = expandBoundary(pts, cw, ch, bs);
+  return smoothShape(pts, fi, filletRadius);
+}
+
+export function buildFinishDeadEndShape(pathW, cw, ch, bs, perimRadius, filletRadius) {
+  const hp = pathW / 2, hh = ch / 2;
+  const R = perimRadius;
+  if (R <= hp) return buildDeadEndShape(pathW, cw, ch, bs);
+  const yj = Math.sqrt(R * R - hp * hp);
+  const θj = Math.atan2(yj, hp);
+
+  let pts = [];
+  const fi = [];
+
+  pts.push({ x:  hp, y:  hh });
+  pts.push({ x: -hp, y:  hh });
+  pts.push({ x: -hp, y:  yj });    fi.push(pts.length - 1);
+  const sweep = Math.PI + 2 * θj;
+  pushArcInterior(pts, R, Math.PI - θj, sweep, segsFor(sweep));
+  pts.push({ x:  hp, y:  yj });    fi.push(pts.length - 1);
+
+  pts = expandBoundary(pts, cw, ch, bs);
+  return smoothShape(pts, fi, filletRadius);
 }
 
 // ── Maze cell → tile type + rotation ───────────────────────────────
