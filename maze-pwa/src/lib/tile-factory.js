@@ -447,8 +447,14 @@ export function buildClippedTileGeometry({
   //    box ensuite clip les parois étendues à la cell exacte → jonctions
   //    droites flush aux tiles adjacentes, ET drop du bottom bevel (z<0).
   const shape = buildShape(pathW, cw, ch, finish ? L : 0);
+  // Native bevel ajoute bevelThickness AU-DESSUS de depth → pour que le
+  // top de la tile reste à z=pathH (comme le wedge), on extrude à
+  // depth = pathH - L. Top du bevel = depth + bevelThickness = pathH. ✓
+  // Le bottom bevel descend en z<0 (z=-L) → clip plus tard par INTERSECT
+  // cell box (Z≥0). La base reste plate à z=0 avec outline = shape.
+  const extrudeDepth = finish ? Math.max(0.1, pathH - L) : pathH;
   let tileGeo = new ExtrudeGeometry(shape, {
-    depth: pathH,
+    depth: extrudeDepth,
     bevelEnabled: finish,
     bevelSize:      finish ? L : 0,
     bevelThickness: finish ? L : 0,   // 45° lock cohérent avec wedge
