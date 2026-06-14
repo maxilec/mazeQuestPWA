@@ -26,7 +26,7 @@
 // après SUBTRACT.
 
 import {
-  BufferGeometry, BoxGeometry, ExtrudeGeometry, Float32BufferAttribute,
+  BufferGeometry, BoxGeometry, CylinderGeometry, ExtrudeGeometry, Float32BufferAttribute,
   Shape, Path,
 } from 'three';
 import { Brush, Evaluator, SUBTRACTION, ADDITION, INTERSECTION } from 'three-bvh-csg';
@@ -606,6 +606,41 @@ export function buildClippedTileGeometry({
       holeGeo.dispose();
     } catch (err) {
       logFactory('error', 'Finish hole SUBTRACT failed: ' + (err?.message || err));
+    }
+
+    // a.bis) Chanfrein au top du trou — Lot 10.9.
+    //        Quand pathH est haut, la paroi verticale du trou (parallèle
+    //        à la direction caméra en vue télé-objectif) a une surface
+    //        écran ~0 → face interne invisible. Un cône tronqué SUBTRACT
+    //        au top élargit le rim de holeRadius à holeRadius+L sur les
+    //        L derniers mm. La pente créée catch la lumière → la face
+    //        interne devient visible depuis au-dessus.
+    if (L > 0) {
+      try {
+        const rimBevelH = L + 2 * FINISH_EPS;
+        const rimBevelGeo = new CylinderGeometry(
+          holeRadius + L,    // radiusTop (au top après rotateX)
+          holeRadius,        // radiusBottom (raccord au cylindre principal)
+          rimBevelH,
+          FINISH_CIRCLE_SEGMENTS,
+          1,
+          false,
+        );
+        // CylinderGeometry axis = Y par défaut → align Z (+Y → +Z).
+        rimBevelGeo.rotateX(Math.PI / 2);
+        // Centre du cone à z = pathH - L/2 → bottom à pathH-L-ε, top à pathH+ε.
+        rimBevelGeo.translate(0, 0, pathH - L / 2);
+
+        const rimBevelBrush = new Brush(rimBevelGeo); rimBevelBrush.updateMatrixWorld();
+        const previousGeo = resultBrush.geometry;
+        resultBrush = evaluator.evaluate(resultBrush, rimBevelBrush, SUBTRACTION);
+        if (previousGeo !== tileGeo && previousGeo !== resultBrush.geometry) {
+          previousGeo.dispose();
+        }
+        rimBevelGeo.dispose();
+      } catch (err) {
+        logFactory('error', 'Finish hole rim bevel SUBTRACT failed: ' + (err?.message || err));
+      }
     }
 
     // b) Rainure circulaire : large cylindre peu profond depuis le top
