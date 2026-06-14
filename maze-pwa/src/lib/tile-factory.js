@@ -553,9 +553,21 @@ export function buildClippedTileGeometry({
   //    la TOPOLOGIE PISTE (jamais finish) → la rainure linéaire ne
   //    pénètre que dans les bras, pas dans le moyeu. La rainure descend
   //    depuis le top de la tile sur railDepth, avec overshoot ε en haut.
+  //
+  //    Lot 10.10 : quand finish=true, on AJOUTE un trou de rayon
+  //    perimRadius au CENTRE du railShape (Path 2D dans .holes). Ça
+  //    empêche le masque rail de traverser le hub central → la paroi
+  //    cylindrique du trou reste continue (sinon le masque perforait la
+  //    paroi aux endroits où la rainure linéaire entrait/sortait du
+  //    cylindre → zones transparentes dans la paroi).
   if (railW > 0 && railDepth > 0) {
     const RAIL_OVERSHOOT = 0.1;
     const railShape = railShapeBuilder(railW, cw, ch, 0);
+    if (finish && perimRadius > 0) {
+      const perimHole = new Path();
+      perimHole.absarc(0, 0, perimRadius, 0, Math.PI * 2, true);  // CW = hole
+      railShape.holes.push(perimHole);
+    }
     const railMaskGeo = new ExtrudeGeometry(railShape, {
       depth: railDepth + RAIL_OVERSHOOT,
       bevelEnabled: false,
