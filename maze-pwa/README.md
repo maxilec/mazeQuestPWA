@@ -141,10 +141,26 @@ export const BOUNCE   = 0.22;  // rebond sur les murs (0 = aucun, 1 = élastique
 Constantes visuelles 3D → `src/components/Scene3D.svelte` (haut du
 script) :
 ```js
-const FOV              = 6;     // téléobjectif extrême (perspective aplatie)
-const CAM_TILT_DEG     = 11;    // angle caméra cavalier
+const FOV              = 7;     // téléobjectif (perspective aplatie)
+const CAM_TILT_DEG     = 6;     // angle caméra cavalier léger
 const WORLD_STRETCH_Y  = 1.00;  // anamorphose verticale (1.0 = aucune)
 // pathH = min(cw,ch) * 0.80    // hauteur d'extrusion des tiles
+const PATH_COLOR       = '#f1e9d9'; // cream uniforme (match HUD bg)
+```
+
+Setup lighting (3 sources, Lot 7.2+) :
+```js
+HemisphereLight  sky #fff, ground #e8d6bc, intensity 1.15
+DirectionalLight key #fff5e0 quasi-vertical, castShadow, intensity 1.15
+DirectionalLight rim #fff5e0 depuis le haut du plateau, intensity 0.55
+```
+
+Shadow setup (Lot 7.3.h) :
+```js
+shadow.mapSize     = 2048×2048  // précision depth
+shadow.bias        = -0.001     // marge depth
+shadow.normalBias  = 2.0        // offset normal modéré (AO contact lisible)
+shadow.radius      = 12         // PCF blur soft
 ```
 
 ---
@@ -184,7 +200,10 @@ maze-pwa/
         ├── maze-utils.js       # bfsPath, trackRatio, collectibles
         ├── physics.js          # Intégration bille (friction, rebonds)
         ├── render.js           # SVG loader + rasterizer (bonus textures)
-        └── audio.js            # Gestionnaire audio (musique + SFX)
+        ├── audio.js            # Gestionnaire audio (musique + SFX)
+        ├── tile-geometry.js    # Shape builders + vertex AO (extrait Scene3D)
+        ├── tile-factory.js     # Factory chanfrein CSG (Lot 8.10, gallery seul)
+        └── debug-log.js        # Store debug visible in-app (gallery dev)
 ```
 
 ---
@@ -208,14 +227,51 @@ une fois par niveau (avec la `pathW` courante) puis instanciée via
 `InstancedMesh` dans chaque cellule du maze. Permet de tenir 60 FPS
 mobile avec un maze 10×6 et des bevels arrondis.
 
+### Atelier Tile Gallery (Lot 8 — dev tool, Lot 8.10 chanfrein)
+Un écran dev (lien "intégration dev" sous le bouton "⚙ Paramètres"
+du menu principal) affiche les 5 tuiles dans 3 contextes :
+- **Global** : grille 2×3 avec les 5 types côte à côte
+- **Unitaire** : 1 tuile au centre + OrbitControls (rotation/zoom)
+- **Exemple** : maze 4×3 généré par `detectTileType` (même path que
+  le jeu) pour vérifier la cohérence des jonctions
+
+Sliders réactifs en bas du panneau : épaisseur piste, hauteur,
+bevel segments, **chanfrein %** (0–100 = `r = (P/100) × (pathW/2)`),
+toggle CSG (ponts) / coussin.
+
+Le panneau **debug log** affiche les `console.warn` / `console.error`
+in-app (capture trois.js, three-bvh-csg…) pour debugger sur mobile
+sans DevTools.
+
+### Mécanique chanfrein "ponts" (Lot 8.10, v6+)
+Le mode CSG construit chaque tile en 2 temps via `src/lib/tile-factory.js` :
+1. **Tile base** : extrusion DROITE du shape de piste, pas de bevel,
+   murs verticaux pile à l'outline (`pathW` exact)
+2. **CSG SUBTRACT** : pour chaque arête FERMÉE (parois latérales de
+   la piste qui ne touchent pas la cell boundary), un wedge swept
+   chanfrein 45° est soustrait. Les arêtes OUVERTES (jonctions vers
+   tiles adjacentes au cell boundary) restent vives → ponts seamless
+
+Le slider chanfrein % règle le rayon `r` du cylindre de coupe centré
+sur l'arête. 0% = arêtes vives. 100% = chanfreins des deux parois
+opposées se rejoignent au centre de la piste (toit prisme).
+
+Dépendance : [`three-bvh-csg`](https://github.com/gkjohnson/three-bvh-csg)
+0.0.16 (chargée uniquement par la TileGallery, lazy-loaded, zéro
+impact sur le bundle initial du jeu).
+
 ### Pipeline de rendu
 1. **Géométrie** : `ExtrudeGeometry` par tile, avec bevel "soft clay"
    et arrondis sélectifs sur les coins INTERNES (les coins boundary
    restent sharp pour seamless connection entre tiles adjacentes).
-2. **Matériaux** : `MeshStandardMaterial` pour les tiles, ball en
+2. **Matériaux** : `MeshStandardMaterial` pour les tiles
+   (`vertexColors=true` → AO procédural cuit dans les vertex pour
+   le dégradé soft clay du dessus vers le bas), ball en
    metalness=1.0 / roughness=0.15.
-3. **Lumières** : ambient warm + 2 directionnelles + PointLight
-   bounce sous la bille (suit la bille pour reflet néon local).
+3. **Lumières** : `HemisphereLight` (ciel chaud + sol cream) +
+   2 `DirectionalLight` (key quasi-vertical avec `castShadow`,
+   rim depuis le haut du plateau) + `PointLight` bounce sous la
+   bille (suit la bille pour reflet néon local).
 4. **Post-processing** : Bloom (UnrealBloomPass) + env map procédurale
    chaude (PMREMGenerator sur CanvasTexture gradient vertical).
 

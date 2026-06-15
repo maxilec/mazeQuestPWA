@@ -1,5 +1,5 @@
 export function getTrackRatio(lvl) {
-  const raw = Math.max(0.35, 0.65 - Math.floor((lvl - 1) / 5) * 0.05);
+  const raw = Math.max(0.30, 0.75 - Math.floor((lvl - 1) / 5) * 0.05);
   // Lot 6.29 : évite trackRatio = 0.50 exactement. À cette valeur
   // pathW = wallWidth = cs/2, ce qui crée une symétrie parfaite
   // dans buildCornerShape (Scene3D.svelte) où le smoothShape

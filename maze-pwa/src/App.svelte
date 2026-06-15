@@ -6,6 +6,17 @@
   import GameOver           from './components/GameOver.svelte';
   import Game               from './components/Game.svelte';
 
+  // Lot 8 : TileGallery lazy-loaded (importe three.js via tile-geometry.js).
+  // Pattern identique au lazy-load de Scene3D dans Game.svelte → garde
+  // three.js hors du bundle initial.
+  let TileGalleryComponent = null;
+  $: if ($screen === 'tilegallery' && !TileGalleryComponent &&
+         typeof window !== 'undefined') {
+    import('./components/TileGallery.svelte').then(mod => {
+      TileGalleryComponent = mod.default;
+    });
+  }
+
   onMount(() => {
     const mgr = createAudioManager(import.meta.env.BASE_URL);
     mgr.init($settings.muted ? 0 : $settings.volume);
@@ -23,14 +34,15 @@
   // fixed:inset:0 ne couvrent pas exactement. Synchronisé body bg
   // élimine le « black band » (mode jeu) et le « cream band »
   // (mode title/gameover) au bas de l'écran.
+  $: inGame = $screen === 'game' || $screen === 'tilegallery';
   $: if (typeof document !== 'undefined') {
-    document.body.style.background =
-      $screen === 'game' ? '#f1e9d3' : '#03000f';
+    document.body.style.background = inGame ? '#f1e9d3' : '#03000f';
   }
 </script>
 
-<!-- Background : nébuleuse violet pour title/gameover, papier crème en jeu (Lot 6). -->
-{#if $screen === 'game'}
+<!-- Background : nébuleuse violet pour title/gameover, papier crème en
+     jeu (Lot 6). Lot 8 : tilegallery utilise aussi le bg cream. -->
+{#if inGame}
   <div class="bg-cream"></div>
 {:else}
   <div class="bg-nebula"></div>
@@ -40,6 +52,10 @@
   <TitleScreen />
 {:else if $screen === 'gameover'}
   <GameOver />
+{:else if $screen === 'tilegallery'}
+  {#if TileGalleryComponent}
+    <svelte:component this={TileGalleryComponent} />
+  {/if}
 {:else}
   <!-- Game.svelte gère le flag ?engine=3d en interne et monte Scene3D
        par-dessus son canvas 2D quand actif. -->
