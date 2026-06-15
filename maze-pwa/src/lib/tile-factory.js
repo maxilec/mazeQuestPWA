@@ -554,20 +554,20 @@ export function buildClippedTileGeometry({
   //    pénètre que dans les bras, pas dans le moyeu. La rainure descend
   //    depuis le top de la tile sur railDepth, avec overshoot ε en haut.
   //
-  //    Lot 10.10 : quand finish=true, on AJOUTE un trou de rayon
-  //    perimRadius au CENTRE du railShape (Path 2D dans .holes). Ça
-  //    empêche le masque rail de traverser le hub central → la paroi
-  //    cylindrique du trou reste continue (sinon le masque perforait la
-  //    paroi aux endroits où la rainure linéaire entrait/sortait du
-  //    cylindre → zones transparentes dans la paroi).
+  //    Lot 10.11 : quand finish=true, on retire le hub central du masque
+  //    rail via CSG SUBTRACT 3D (cylindre de rayon perimRadius). Ça
+  //    empêche le masque rail de traverser le moyeu → la paroi
+  //    cylindrique du trou reste continue (sinon la rainure linéaire
+  //    entrait/sortait du cylindre du trou → zones transparentes dans
+  //    la paroi).
+  //
+  //    Approche 3D (vs 2D hole dans railShape de Lot 10.10 — reverted) :
+  //    le cercle perim est plus large que le strip railW → le hole 2D
+  //    crossait l'outline du railShape → triangulation Three.js buggée
+  //    → artefacts CSG. Le 3D SUBTRACT est robuste.
   if (railW > 0 && railDepth > 0) {
     const RAIL_OVERSHOOT = 0.1;
     const railShape = railShapeBuilder(railW, cw, ch, 0);
-    if (finish && perimRadius > 0) {
-      const perimHole = new Path();
-      perimHole.absarc(0, 0, perimRadius, 0, Math.PI * 2, true);  // CW = hole
-      railShape.holes.push(perimHole);
-    }
     const railMaskGeo = new ExtrudeGeometry(railShape, {
       depth: railDepth + RAIL_OVERSHOOT,
       bevelEnabled: false,
@@ -576,8 +576,30 @@ export function buildClippedTileGeometry({
     });
     railMaskGeo.translate(0, 0, pathH - railDepth);
 
+    let railFinalGeo = railMaskGeo;
+    if (finish && perimRadius > 0) {
+      try {
+        const hubShape = circleShape(perimRadius);
+        const hubMaskGeo = new ExtrudeGeometry(hubShape, {
+          depth: railDepth + 2 * RAIL_OVERSHOOT,
+          bevelEnabled: false,
+          steps: 1,
+          curveSegments: FINISH_CIRCLE_SEGMENTS,
+        });
+        hubMaskGeo.translate(0, 0, pathH - railDepth - RAIL_OVERSHOOT);
+
+        const railB = new Brush(railFinalGeo); railB.updateMatrixWorld();
+        const hubB  = new Brush(hubMaskGeo);   hubB.updateMatrixWorld();
+        const trimmed = evaluator.evaluate(railB, hubB, SUBTRACTION);
+        hubMaskGeo.dispose();
+        railFinalGeo.dispose();
+        railFinalGeo = trimmed.geometry;
+      } catch (err) {
+        logFactory('error', 'Rail hub trim failed: ' + (err?.message || err));
+      }
+    }
     try {
-      const railBrush = new Brush(railMaskGeo);
+      const railBrush = new Brush(railFinalGeo);
       railBrush.updateMatrixWorld();
       const previousGeo = resultBrush.geometry;
       resultBrush = evaluator.evaluate(resultBrush, railBrush, SUBTRACTION);
@@ -587,7 +609,7 @@ export function buildClippedTileGeometry({
     } catch (err) {
       logFactory('error', 'Rail SUBTRACT failed: ' + (err?.message || err));
     } finally {
-      railMaskGeo.dispose();
+      railFinalGeo.dispose();
     }
   }
 
